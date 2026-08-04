@@ -1,0 +1,79 @@
+# Sensor RAW Array Image Viewer
+
+An installable Visual Studio 2013, 2017, 2019, and 2022 VSIX draft for viewing a
+one-dimensional native sensor RAW buffer as a two-dimensional image.
+
+## Build and install
+
+1. Open `ArrayImageViewer.sln` in Visual Studio 2017 with the **Visual Studio
+   extension development** workload installed.
+2. Restore NuGet packages and build the `Debug` or `Release` configuration.
+3. Close all Visual Studio 2017 instances and run the generated
+   `src\ArrayImageViewer\bin\Debug\ArrayImageViewer.vsix` (or Release equivalent).
+4. In Visual Studio 2017, open **Tools > Sensor RAW Array Viewer**.
+
+The manifest accepts Visual Studio 2013 (12.x), 2017 (15.x), 2019 (16.x), and
+2022 (17.x) Community, Professional, and Enterprise editions. Visual Studio 2013
+Premium and Ultimate editions are included as well.
+
+`ArrayImageViewer` is correctly a **class-library** project, so it cannot launch
+by itself. In its Debug configuration, F5 starts a separate Experimental Instance
+(`devenv.exe /rootsuffix Exp`) and loads the extension there.
+To run the native sample application itself, set `SensorRawDebuggee` as the startup
+project instead.
+
+If you rebuilt after a change to the extension command/menu, close every
+Experimental Instance before pressing F5 again. For a normal VS 2017 or 2022
+instance, run the freshly built VSIX again to update the installed extension, then
+restart Visual Studio.
+
+## Use the viewer
+
+Enter the frame interpretation before loading:
+
+- `expr`: native pointer or array expression, for example `raw` or `imageBuffer`.
+- `W`, `H`: full image width and height.
+- `stride`: samples per row, including any padding. It defaults to `W`.
+- `frac`: Q-format fractional bit count. A raw value is displayed as
+  `raw / 2^frac`.
+- `signed`: select for `int*`; clear for `uint*`.
+- `Bayer`: `GRBG`, `RGGB`, `GBRG`, `BGGR`, or `None`.
+- `view`: raw mosaic, composite preview, or an individual Bayer plane.
+
+Use **Synthetic preview** to validate the renderer and UI without a debuggee.
+When the native debuggee is paused, **Load expression** evaluates `expr[index]`
+through the Visual Studio expression evaluator. Enter `jump X` and `Y`, then
+press **Go** to center the exact full-frame coordinate. The orange crosshair and
+the status line report the raw value, Q-format value, and Bayer site.
+
+## Draft limitation
+
+The expression-evaluator reader is deliberately capped at 16,384 samples because
+evaluating one debugger expression per pixel is too slow for a 4096x3072 image.
+The full-frame renderer itself supports up to 16,777,216 samples, so it can be
+exercised using Synthetic preview. The next required implementation step is a
+native debugger-memory reader that reads a pointer range in blocks; it will replace
+only `DebugExpressionFrameReader` and leave the viewer/core logic unchanged.
+
+## Bayer coordinate rule
+
+`(0, 0)` is the top-left sample of the **full frame**. Bayer parity is calculated
+from full-frame x/y coordinates, never from the currently zoomed viewport. Thus a
+pixel's `R`, `Gr`, `Gb`, or `B` classification stays correct after panning or
+zooming.
+
+## Included native debuggee
+
+`samples\SensorRawDebuggee` is an x64 C++ Visual Studio 2013 (`v120`) console
+application. It allocates and fills `sensorRaw`, a `uint32_t*` containing a
+4096x3072 GRBG 13-bit test pattern, then stops at `__debugbreak()`.
+
+Set `SensorRawDebuggee` as the startup project and start debugging. At the break:
+
+- Set `expr` to `previewRaw`, `W/H/stride` to `128/128/128`, fractional bits to
+  `0`, `signed` off, and Bayer to `GRBG`; then select **Load expression**. This
+  exercises the debugger-backed input path immediately.
+- Set `expr` to `sensorRaw` and dimensions to `4096/3072/4096` to use the same
+  settings intended for the full buffer. The current expression reader will show
+  its explicit large-frame limit; use **Synthetic preview** to inspect the
+  full-resolution renderer until block memory reading is added.

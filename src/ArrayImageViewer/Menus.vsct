@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable">
+  <Extern href="stdidcmd.h" />
+  <Extern href="vsshlids.h" />
+  <Commands package="guidArrayImageViewerPackage">
+    <Groups>
+      <Group guid="guidArrayImageViewerCommandSet" id="ArrayImageViewerGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
+      </Group>
+    </Groups>
+    <Buttons>
+      <Button guid="guidArrayImageViewerCommandSet" id="ShowViewerCommand" priority="0x0100" type="Button">
+        <Parent guid="guidArrayImageViewerCommandSet" id="ArrayImageViewerGroup" />
+        <Strings>
+          <ButtonText>Sensor RAW Array Viewer</ButtonText>
+        </Strings>
+      </Button>
+    </Buttons>
+  </Commands>
+  <Symbols>
+    <GuidSymbol name="guidArrayImageViewerPackage" value="{6B770C22-4F19-45D6-B254-67903F8C8F11}" />
+    <GuidSymbol name="guidArrayImageViewerCommandSet" value="{F9B0D30D-E8E8-4B76-BF0F-556C133D8FD3}">
+      <IDSymbol name="ArrayImageViewerGroup" value="0x1020" />
+      <IDSymbol name="ShowViewerCommand" value="0x0100" />
+    </GuidSymbol>
+  </Symbols>
+</CommandTable>
