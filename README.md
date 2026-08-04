@@ -88,9 +88,10 @@ frame coordinates into 2x2 and 4x4 blocks respectively.
 ## Included native debuggee
 
 `samples\SensorRawDebuggee` is an x64 C++ console application that chooses the
-matching standard toolset for the opened Visual Studio: v120 (2013), v141 (2017),
-v142 (2019), or v143 (2022). It allocates and fills `sensorRaw`, a `uint32_t*`
-containing a 4096x3072 GRBG 13-bit test pattern, then stops at `__debugbreak()`.
+newest C++ toolset actually installed in the opened Visual Studio (normally v120
+in 2013, v141 in 2017, v142 in 2019, or v143 in 2022). It allocates and fills
+`sensorRaw`, a `uint32_t*` containing a 4096x3072 GRBG 13-bit test pattern, then
+stops at `__debugbreak()`.
 
 Set `SensorRawDebuggee` as the startup project and start debugging. At the break:
 
