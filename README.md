@@ -46,6 +46,11 @@ interpretation before loading:
 - `view`: `Raw` grayscale values, `Mosaic` color-coded original Bayer samples,
   `Composite` demosaicked preview, or an individual Bayer plane.
 
+The **LOCAL VALUES** row can populate these fields from debugger locals instead of
+manual typing. Choose **Refresh numeric locals**, then select the required local
+beside each target: for example `imageWidth -> W`, `imageHeight -> H`,
+`imageStride -> Stride`, `centerX -> X`, and `centerY -> Y`.
+
 Use **Synthetic preview** to validate the renderer and UI without a debuggee.
 When the native debuggee is paused, **Load pointer** evaluates `expr[index]`
 through the Visual Studio expression evaluator. Enter `Go to X` and `Y`, then

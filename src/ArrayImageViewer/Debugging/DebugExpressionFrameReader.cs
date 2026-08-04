@@ -69,6 +69,48 @@ namespace ArrayImageViewer.Debugging
         public static IList<PointerExpression> GetCurrentFramePointers()
         {
             var result = new List<PointerExpression>();
+            foreach (var local in GetCurrentFrameLocals())
+            {
+                if (local.Type.IndexOf('*') >= 0)
+                {
+                    result.Add(new PointerExpression(local.Name, local.Type));
+                }
+            }
+
+            return result;
+        }
+
+        public static IList<ScalarExpression> GetCurrentFrameScalars()
+        {
+            var result = new List<ScalarExpression>();
+            foreach (var local in GetCurrentFrameLocals())
+            {
+                if (local.Type.IndexOf('*') < 0 && IsIntegerType(local.Type))
+                {
+                    result.Add(new ScalarExpression(local.Name, local.Type));
+                }
+            }
+
+            return result;
+        }
+
+        public static int EvaluateInt32(string expression)
+        {
+            var debugger = GetDebugger();
+            var evaluated = Invoke(debugger, "GetExpression", expression, true, 2000);
+            var value = Convert.ToString(GetMember(evaluated, "Value"), CultureInfo.InvariantCulture);
+            long parsed;
+            if (!TryParseInteger(value, out parsed) || parsed < Int32.MinValue || parsed > Int32.MaxValue)
+            {
+                throw new FormatException("The debugger value for " + expression + " is not a 32-bit integer: " + value);
+            }
+
+            return (int)parsed;
+        }
+
+        private static IList<LocalExpression> GetCurrentFrameLocals()
+        {
+            var result = new List<LocalExpression>();
             var dte = Package.GetGlobalService(typeof(SDTE));
             var debugger = GetMember(dte, "Debugger");
             var frame = GetMember(debugger, "CurrentStackFrame");
@@ -85,13 +127,75 @@ namespace ArrayImageViewer.Debugging
                 var local = GetItem(locals, index);
                 var name = Convert.ToString(GetMember(local, "Name"), CultureInfo.InvariantCulture);
                 var type = Convert.ToString(GetMember(local, "Type"), CultureInfo.InvariantCulture);
-                if (!String.IsNullOrWhiteSpace(name) && !String.IsNullOrWhiteSpace(type) && type.IndexOf('*') >= 0)
+                if (!String.IsNullOrWhiteSpace(name) && !String.IsNullOrWhiteSpace(type))
                 {
-                    result.Add(new PointerExpression(name.Trim(), type.Trim()));
+                    result.Add(new LocalExpression(name.Trim(), type.Trim()));
                 }
             }
 
             return result;
+        }
+
+        private static object GetDebugger()
+        {
+            var dte = Package.GetGlobalService(typeof(SDTE));
+            var debugger = GetMember(dte, "Debugger");
+            if (debugger == null)
+            {
+                throw new InvalidOperationException("No active debugger is available. Break in the debuggee and try again.");
+            }
+
+            return debugger;
+        }
+
+        private static bool IsIntegerType(string type)
+        {
+            var normalized = type.ToLowerInvariant();
+            return normalized.IndexOf("int") >= 0 || normalized.IndexOf("long") >= 0 || normalized.IndexOf("short") >= 0 ||
+                   normalized.IndexOf("char") >= 0 || normalized.IndexOf("size_t") >= 0 || normalized.IndexOf("dword") >= 0 ||
+                   normalized.IndexOf("word") >= 0;
+        }
+
+        private static bool TryParseInteger(string value, out long parsed)
+        {
+            parsed = 0;
+            if (String.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            var trimmed = value.Trim();
+            var hexadecimalStart = trimmed.IndexOf("0x", StringComparison.OrdinalIgnoreCase);
+            if (hexadecimalStart >= 0)
+            {
+                var index = hexadecimalStart + 2;
+                while (index < trimmed.Length && Uri.IsHexDigit(trimmed[index]))
+                {
+                    index++;
+                }
+
+                ulong hexValue;
+                if (!UInt64.TryParse(trimmed.Substring(hexadecimalStart + 2, index - hexadecimalStart - 2), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out hexValue) || hexValue > Int32.MaxValue)
+                {
+                    return false;
+                }
+
+                parsed = (long)hexValue;
+                return true;
+            }
+
+            var end = 0;
+            if (trimmed.Length > 0 && (trimmed[0] == '-' || trimmed[0] == '+'))
+            {
+                end = 1;
+            }
+
+            while (end < trimmed.Length && Char.IsDigit(trimmed[end]))
+            {
+                end++;
+            }
+
+            return end > 0 && Int64.TryParse(trimmed.Substring(0, end), NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed);
         }
 
         private static object GetMember(object target, string name)
@@ -145,6 +249,35 @@ namespace ArrayImageViewer.Debugging
             {
                 return Name + "  (" + Type + ")";
             }
+        }
+
+        internal sealed class ScalarExpression
+        {
+            public ScalarExpression(string name, string type)
+            {
+                Name = name;
+                Type = type;
+            }
+
+            public string Name { get; private set; }
+            public string Type { get; private set; }
+
+            public override string ToString()
+            {
+                return Name + "  (" + Type + ")";
+            }
+        }
+
+        private sealed class LocalExpression
+        {
+            public LocalExpression(string name, string type)
+            {
+                Name = name;
+                Type = type;
+            }
+
+            public string Name { get; private set; }
+            public string Type { get; private set; }
         }
     }
 }

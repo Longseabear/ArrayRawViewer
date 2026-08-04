@@ -22,6 +22,11 @@ namespace ArrayImageViewer.UI
 
         private readonly TextBox expression = CreateTextBox("sensorRaw", 240);
         private readonly ComboBox availablePointers = CreateComboBox(190);
+        private readonly ComboBox widthValueSource = CreateComboBox(145);
+        private readonly ComboBox heightValueSource = CreateComboBox(145);
+        private readonly ComboBox strideValueSource = CreateComboBox(145);
+        private readonly ComboBox xValueSource = CreateComboBox(145);
+        private readonly ComboBox yValueSource = CreateComboBox(145);
         private readonly TextBox width = CreateTextBox("4096", 60);
         private readonly TextBox height = CreateTextBox("3072", 60);
         private readonly TextBox stride = CreateTextBox("4096", 60);
@@ -52,6 +57,11 @@ namespace ArrayImageViewer.UI
             display.ItemsSource = Enum.GetValues(typeof(DisplayMode));
             display.SelectedItem = DisplayMode.Composite;
             availablePointers.SelectionChanged += AvailablePointerChanged;
+            widthValueSource.SelectionChanged += WidthValueSelected;
+            heightValueSource.SelectionChanged += HeightValueSelected;
+            strideValueSource.SelectionChanged += StrideValueSelected;
+            xValueSource.SelectionChanged += XValueSelected;
+            yValueSource.SelectionChanged += YValueSelected;
 
             canvas.Children.Add(image);
             canvas.Children.Add(verticalCrosshair);
@@ -119,6 +129,20 @@ namespace ArrayImageViewer.UI
             formatRow.Children.Add(FieldLabel("Render"));
             formatRow.Children.Add(display);
             panel.Children.Add(CreateSection("FRAME", formatRow));
+
+            var localValuesRow = CreateRow();
+            localValuesRow.Children.Add(CreateButton("Refresh numeric locals", RefreshScalarValues, false));
+            localValuesRow.Children.Add(FieldLabel("W from"));
+            localValuesRow.Children.Add(widthValueSource);
+            localValuesRow.Children.Add(FieldLabel("H from"));
+            localValuesRow.Children.Add(heightValueSource);
+            localValuesRow.Children.Add(FieldLabel("Stride from"));
+            localValuesRow.Children.Add(strideValueSource);
+            localValuesRow.Children.Add(FieldLabel("X from"));
+            localValuesRow.Children.Add(xValueSource);
+            localValuesRow.Children.Add(FieldLabel("Y from"));
+            localValuesRow.Children.Add(yValueSource);
+            panel.Children.Add(CreateSection("LOCAL VALUES", localValuesRow));
 
             var inspectRow = CreateRow();
             inspectRow.Children.Add(FieldLabel("Go to X"));
@@ -246,6 +270,70 @@ namespace ArrayImageViewer.UI
             expression.Text = pointer.Name;
             signed.IsChecked = pointer.IsSigned;
             SetStatus("Selected " + pointer.Name + " as " + pointer.Type + ".");
+        }
+
+        private void RefreshScalarValues(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var values = DebugExpressionFrameReader.GetCurrentFrameScalars();
+                widthValueSource.ItemsSource = values;
+                heightValueSource.ItemsSource = values;
+                strideValueSource.ItemsSource = values;
+                xValueSource.ItemsSource = values;
+                yValueSource.ItemsSource = values;
+                SetStatus(values.Count == 0
+                    ? "No integer locals found. Pause in the function that owns width, height, X, and Y."
+                    : "Choose a local variable beside W, H, stride, X, or Y to copy its debugger value.");
+            }
+            catch (Exception exception)
+            {
+                SetStatus("Cannot list numeric locals: " + exception.Message);
+            }
+        }
+
+        private void WidthValueSelected(object sender, SelectionChangedEventArgs e)
+        {
+            CopyScalarTo(widthValueSource, width, "width");
+        }
+
+        private void HeightValueSelected(object sender, SelectionChangedEventArgs e)
+        {
+            CopyScalarTo(heightValueSource, height, "height");
+        }
+
+        private void StrideValueSelected(object sender, SelectionChangedEventArgs e)
+        {
+            CopyScalarTo(strideValueSource, stride, "stride");
+        }
+
+        private void XValueSelected(object sender, SelectionChangedEventArgs e)
+        {
+            CopyScalarTo(xValueSource, selectedX, "X");
+        }
+
+        private void YValueSelected(object sender, SelectionChangedEventArgs e)
+        {
+            CopyScalarTo(yValueSource, selectedY, "Y");
+        }
+
+        private void CopyScalarTo(ComboBox source, TextBox target, string targetName)
+        {
+            var scalar = source.SelectedItem as DebugExpressionFrameReader.ScalarExpression;
+            if (scalar == null)
+            {
+                return;
+            }
+
+            try
+            {
+                target.Text = DebugExpressionFrameReader.EvaluateInt32(scalar.Name).ToString(CultureInfo.InvariantCulture);
+                SetStatus("Copied " + scalar.Name + " into " + targetName + ".");
+            }
+            catch (Exception exception)
+            {
+                SetStatus("Cannot read " + scalar.Name + ": " + exception.Message);
+            }
         }
 
         private void LoadExpression(object sender, RoutedEventArgs e)
