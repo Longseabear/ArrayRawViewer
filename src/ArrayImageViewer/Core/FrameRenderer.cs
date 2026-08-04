@@ -100,7 +100,8 @@ namespace ArrayImageViewer.Core
         private static long FindNearest(FrameBuffer frame, int x, int y, BayerSite target)
         {
             var config = frame.Configuration;
-            for (var distance = 0; distance <= 2; distance++)
+            var maxDistance = BayerLayout.GetNearestSearchRadius(config.BayerPattern);
+            for (var distance = 0; distance <= maxDistance; distance++)
             {
                 for (var offsetY = -distance; offsetY <= distance; offsetY++)
                 {

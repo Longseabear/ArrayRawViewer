@@ -6,6 +6,8 @@ namespace ArrayImageViewer.Core
     {
         Gray,
         GRBG,
+        Tetra,
+        TetraSquare,
         RGGB,
         GBRG,
         BGGR
@@ -41,12 +43,22 @@ namespace ArrayImageViewer.Core
                 return BayerSite.Mono;
             }
 
+            if (pattern == BayerPattern.Tetra)
+            {
+                return GetGrbgSite(x / 2, y / 2);
+            }
+
+            if (pattern == BayerPattern.TetraSquare)
+            {
+                return GetGrbgSite(x / 4, y / 4);
+            }
+
             var evenX = (x & 1) == 0;
             var evenY = (y & 1) == 0;
             switch (pattern)
             {
                 case BayerPattern.GRBG:
-                    return evenY ? (evenX ? BayerSite.Gr : BayerSite.R) : (evenX ? BayerSite.B : BayerSite.Gb);
+                    return GetGrbgSite(x, y);
                 case BayerPattern.RGGB:
                     return evenY ? (evenX ? BayerSite.R : BayerSite.Gr) : (evenX ? BayerSite.Gb : BayerSite.B);
                 case BayerPattern.GBRG:
@@ -56,6 +68,26 @@ namespace ArrayImageViewer.Core
                 default:
                     throw new ArgumentOutOfRangeException("pattern");
             }
+        }
+
+        public static int GetNearestSearchRadius(BayerPattern pattern)
+        {
+            switch (pattern)
+            {
+                case BayerPattern.Tetra:
+                    return 2;
+                case BayerPattern.TetraSquare:
+                    return 4;
+                default:
+                    return 2;
+            }
+        }
+
+        private static BayerSite GetGrbgSite(int x, int y)
+        {
+            var evenX = (x & 1) == 0;
+            var evenY = (y & 1) == 0;
+            return evenY ? (evenX ? BayerSite.Gr : BayerSite.R) : (evenX ? BayerSite.B : BayerSite.Gb);
         }
 
         public static bool IsVisible(DisplayMode mode, BayerSite site)

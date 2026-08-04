@@ -43,7 +43,10 @@ interpretation before loading:
   `raw / 2^frac`.
 - `signed`: select for `int*`; clear for `uint*`.
 - `Pixel layout`: `Gray` for generic loss/score/heatmap arrays with no Bayer
-  interpretation, or `GRBG`, `RGGB`, `GBRG`, `BGGR` for sensor RAW.
+  interpretation, or `GRBG`, `Tetra`, `TetraSquare`, `RGGB`, `GBRG`, `BGGR` for
+  sensor RAW. `Tetra` expands the GRBG sites into 2x2 blocks
+  (`GGRR / GGRR / BBGG / BBGG`); `TetraSquare` expands every GRBG site into a
+  4x4 block (an 8x8 repeating tile).
 - `view`: `Raw` grayscale values, `Mosaic` color-coded original Bayer samples,
   `Composite` demosaicked preview, or an individual Bayer plane.
 
@@ -74,7 +77,8 @@ only `DebugExpressionFrameReader` and leave the viewer/core logic unchanged.
 `(0, 0)` is the top-left sample of the **full frame**. Bayer parity is calculated
 from full-frame x/y coordinates, never from the currently zoomed viewport. Thus a
 pixel's `R`, `Gr`, `Gb`, or `B` classification stays correct after panning or
-zooming.
+zooming. For `Tetra` and `TetraSquare`, the same rule applies after grouping full
+frame coordinates into 2x2 and 4x4 blocks respectively.
 
 ## Included native debuggee
 
