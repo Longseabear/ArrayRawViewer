@@ -4,7 +4,7 @@ namespace ArrayImageViewer.Core
 {
     internal enum BayerPattern
     {
-        None,
+        Gray,
         GRBG,
         RGGB,
         GBRG,
@@ -36,7 +36,7 @@ namespace ArrayImageViewer.Core
     {
         public static BayerSite GetSite(BayerPattern pattern, int x, int y)
         {
-            if (pattern == BayerPattern.None)
+            if (pattern == BayerPattern.Gray)
             {
                 return BayerSite.Mono;
             }

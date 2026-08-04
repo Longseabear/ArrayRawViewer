@@ -88,7 +88,8 @@ The extension must help a developer inspect:
 
 ### Bayer rendering
 
-- Support at minimum GRBG, RGGB, GBRG, and BGGR layouts, plus a `None/Mono` mode.
+- Support a `Gray` mode with no Bayer interpretation for generic 2D values such as
+  loss/score maps, plus GRBG, RGGB, GBRG, and BGGR sensor layouts.
 - Apply Bayer parity to **full-frame coordinates**, not viewport-local coordinates:
   a viewport sample `(vx, vy)` maps to `(viewportX + vx, viewportY + vy)` before
   its Bayer channel is determined. Zooming, panning, and view boundaries must

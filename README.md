@@ -42,7 +42,8 @@ interpretation before loading:
 - `frac`: Q-format fractional bit count. A raw value is displayed as
   `raw / 2^frac`.
 - `signed`: select for `int*`; clear for `uint*`.
-- `Bayer`: `GRBG`, `RGGB`, `GBRG`, `BGGR`, or `None`.
+- `Pixel layout`: `Gray` for generic loss/score/heatmap arrays with no Bayer
+  interpretation, or `GRBG`, `RGGB`, `GBRG`, `BGGR` for sensor RAW.
 - `view`: `Raw` grayscale values, `Mosaic` color-coded original Bayer samples,
   `Composite` demosaicked preview, or an individual Bayer plane.
 

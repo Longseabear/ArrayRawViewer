@@ -40,7 +40,7 @@ namespace ArrayImageViewer.Core
         {
             var config = frame.Configuration;
             var site = BayerLayout.GetSite(config.BayerPattern, x, y);
-            if (config.DisplayMode == DisplayMode.Composite && config.BayerPattern != BayerPattern.None)
+            if (config.DisplayMode == DisplayMode.Composite && config.BayerPattern != BayerPattern.Gray)
             {
                 return Color.FromRgb(
                     ToByte(FindNearest(frame, x, y, BayerSite.R), minimum, maximum),
@@ -54,7 +54,7 @@ namespace ArrayImageViewer.Core
             }
 
             var value = ToByte(frame.GetRaw(x, y), minimum, maximum);
-            if (config.DisplayMode == DisplayMode.Raw || config.BayerPattern == BayerPattern.None)
+            if (config.DisplayMode == DisplayMode.Raw || config.BayerPattern == BayerPattern.Gray)
             {
                 return Color.FromRgb(value, value, value);
             }

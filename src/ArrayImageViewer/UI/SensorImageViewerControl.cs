@@ -111,7 +111,7 @@ namespace ArrayImageViewer.UI
             pointerRow.Children.Add(expression);
             pointerRow.Children.Add(CreateButton("Capture selection", CaptureSelection, false));
             pointerRow.Children.Add(CreateButton("Load pointer", LoadExpression, true));
-            pointerRow.Children.Add(CreateButton("Synthetic GRBG", RenderSyntheticClick, false));
+            pointerRow.Children.Add(CreateButton("Synthetic preview", RenderSyntheticClick, false));
             panel.Children.Add(CreateSection("SOURCE", pointerRow));
 
             var formatRow = CreateRow();
@@ -124,7 +124,7 @@ namespace ArrayImageViewer.UI
             formatRow.Children.Add(FieldLabel("Q frac"));
             formatRow.Children.Add(fractionalBits);
             formatRow.Children.Add(signed);
-            formatRow.Children.Add(FieldLabel("Bayer"));
+            formatRow.Children.Add(FieldLabel("Pixel layout"));
             formatRow.Children.Add(pattern);
             formatRow.Children.Add(FieldLabel("Render"));
             formatRow.Children.Add(display);
