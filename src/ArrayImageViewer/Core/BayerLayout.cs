@@ -23,6 +23,7 @@ namespace ArrayImageViewer.Core
     internal enum DisplayMode
     {
         Raw,
+        Mosaic,
         Composite,
         R,
         G,
@@ -62,6 +63,7 @@ namespace ArrayImageViewer.Core
             switch (mode)
             {
                 case DisplayMode.Raw:
+                case DisplayMode.Mosaic:
                 case DisplayMode.Composite:
                     return true;
                 case DisplayMode.R:

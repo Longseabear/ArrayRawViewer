@@ -95,6 +95,7 @@ The extension must help a developer inspect:
   never reset or shift the Bayer phase.
 - Provide these display modes for Bayer input:
   - Raw mosaic / grayscale values.
+  - Color-coded Bayer mosaic, preserving each original `R`/`Gr`/`Gb`/`B` sample.
   - Composite Bayer preview (a simple documented demosaic is sufficient initially).
   - Individual `R`, `G` (combined), `Gr`, `Gb`, and `B` planes.
 - Treat `Gr` and `Gb` as distinct pixel positions even when an aggregate green

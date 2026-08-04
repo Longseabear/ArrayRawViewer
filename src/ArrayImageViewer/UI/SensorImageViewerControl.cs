@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Threading.Tasks;
 using System.Windows;
@@ -13,22 +14,30 @@ namespace ArrayImageViewer.UI
 {
     internal sealed class SensorImageViewerControl : UserControl
     {
-        private readonly TextBox expression = new TextBox { MinWidth = 170, Text = "raw" };
-        private readonly TextBox width = new TextBox { Width = 52, Text = "4096" };
-        private readonly TextBox height = new TextBox { Width = 52, Text = "3072" };
-        private readonly TextBox stride = new TextBox { Width = 52, Text = "4096" };
-        private readonly TextBox fractionalBits = new TextBox { Width = 36, Text = "0" };
-        private readonly CheckBox signed = new CheckBox { Content = "signed", VerticalAlignment = VerticalAlignment.Center };
-        private readonly ComboBox pattern = new ComboBox { Width = 70 };
-        private readonly ComboBox display = new ComboBox { Width = 84 };
-        private readonly TextBox selectedX = new TextBox { Width = 52, Text = "0" };
-        private readonly TextBox selectedY = new TextBox { Width = 52, Text = "0" };
-        private readonly TextBlock status = new TextBlock { Margin = new Thickness(6, 3, 6, 3), TextWrapping = TextWrapping.Wrap };
-        private readonly ScrollViewer scrollViewer = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Background = Brushes.Black };
-        private readonly Canvas canvas = new Canvas { Background = Brushes.Black };
+        private static readonly Brush PanelBrush = new SolidColorBrush(Color.FromRgb(31, 36, 48));
+        private static readonly Brush ControlBrush = new SolidColorBrush(Color.FromRgb(45, 52, 67));
+        private static readonly Brush AccentBrush = new SolidColorBrush(Color.FromRgb(54, 201, 168));
+        private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(162, 176, 196));
+        private static readonly Brush TextBrush = new SolidColorBrush(Color.FromRgb(238, 242, 248));
+
+        private readonly TextBox expression = CreateTextBox("sensorRaw", 240);
+        private readonly TextBox width = CreateTextBox("4096", 60);
+        private readonly TextBox height = CreateTextBox("3072", 60);
+        private readonly TextBox stride = CreateTextBox("4096", 60);
+        private readonly TextBox fractionalBits = CreateTextBox("0", 42);
+        private readonly CheckBox signed = new CheckBox { Content = "Signed int", Foreground = TextBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+        private readonly ComboBox pattern = CreateComboBox(88);
+        private readonly ComboBox display = CreateComboBox(108);
+        private readonly TextBox selectedX = CreateTextBox("0", 60);
+        private readonly TextBox selectedY = CreateTextBox("0", 60);
+        private readonly TextBlock status = new TextBlock { Foreground = TextBrush, TextWrapping = TextWrapping.Wrap };
+        private readonly TextBlock viewport = new TextBlock { Foreground = MutedBrush, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        private readonly ScrollViewer scrollViewer = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Background = Brushes.Black, Focusable = true };
+        private readonly Canvas canvas = new Canvas { Background = Brushes.Black, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
         private readonly System.Windows.Controls.Image image = new System.Windows.Controls.Image { Stretch = Stretch.Fill, SnapsToDevicePixels = true };
         private readonly Rectangle verticalCrosshair = new Rectangle { Fill = Brushes.OrangeRed, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
         private readonly Rectangle horizontalCrosshair = new Rectangle { Fill = Brushes.OrangeRed, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+        private readonly List<UIElement> valueOverlay = new List<UIElement>();
 
         private FrameBuffer frame;
         private double zoom = 0.15;
@@ -40,7 +49,7 @@ namespace ArrayImageViewer.UI
             pattern.ItemsSource = Enum.GetValues(typeof(BayerPattern));
             pattern.SelectedItem = BayerPattern.GRBG;
             display.ItemsSource = Enum.GetValues(typeof(DisplayMode));
-            display.SelectedItem = DisplayMode.Raw;
+            display.SelectedItem = DisplayMode.Composite;
 
             canvas.Children.Add(image);
             canvas.Children.Add(verticalCrosshair);
@@ -48,62 +57,127 @@ namespace ArrayImageViewer.UI
             canvas.MouseMove += CanvasMouseMove;
             canvas.MouseLeftButtonDown += CanvasMouseLeftButtonDown;
             canvas.PreviewMouseWheel += CanvasMouseWheel;
+            scrollViewer.ScrollChanged += ScrollViewerChanged;
+            scrollViewer.SizeChanged += ScrollViewerSizeChanged;
             scrollViewer.Content = canvas;
 
-            var panel = new DockPanel();
-            panel.LastChildFill = true;
-            var configurationPanel = CreateConfigurationPanel();
-            DockPanel.SetDock(configurationPanel, Dock.Top);
-            panel.Children.Add(configurationPanel);
-            DockPanel.SetDock(status, Dock.Bottom);
-            panel.Children.Add(status);
-            panel.Children.Add(scrollViewer);
-            Content = panel;
-            SetStatus("Set frame dimensions, then use Synthetic preview or Load expression while the debuggee is paused.");
+            var root = new DockPanel { Background = new SolidColorBrush(Color.FromRgb(20, 24, 33)), LastChildFill = true };
+            var header = CreateHeader();
+            DockPanel.SetDock(header, Dock.Top);
+            root.Children.Add(header);
+            var footer = CreateFooter();
+            DockPanel.SetDock(footer, Dock.Bottom);
+            root.Children.Add(footer);
+            root.Children.Add(scrollViewer);
+            Content = root;
+            SetStatus("Select a pointer in the editor, then use Capture selection. Pause the debuggee before Load pointer.");
         }
 
-        private UIElement CreateConfigurationPanel()
+        private UIElement CreateHeader()
         {
-            var area = new WrapPanel { Margin = new Thickness(6) };
-            area.Children.Add(Label("expr"));
-            area.Children.Add(expression);
-            area.Children.Add(Label("W"));
-            area.Children.Add(width);
-            area.Children.Add(Label("H"));
-            area.Children.Add(height);
-            area.Children.Add(Label("stride"));
-            area.Children.Add(stride);
-            area.Children.Add(Label("frac"));
-            area.Children.Add(fractionalBits);
-            area.Children.Add(signed);
-            area.Children.Add(Label("Bayer"));
-            area.Children.Add(pattern);
-            area.Children.Add(Label("view"));
-            area.Children.Add(display);
+            var panel = new StackPanel { Margin = new Thickness(12, 10, 12, 8) };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "SENSOR RAW  /  ARRAY VIEWER",
+                Foreground = AccentBrush,
+                FontSize = 18,
+                FontWeight = FontWeights.SemiBold
+            });
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Pointer-backed RAW frame inspector  •  Bayer phase uses full-frame coordinates",
+                Foreground = MutedBrush,
+                FontSize = 11,
+                Margin = new Thickness(0, 2, 0, 9)
+            });
 
-            var syntheticButton = new Button { Content = "Synthetic preview", Margin = new Thickness(6, 0, 0, 0) };
-            syntheticButton.Click += async (sender, args) => await RenderSyntheticAsync();
-            area.Children.Add(syntheticButton);
-            var expressionButton = new Button { Content = "Load expression", Margin = new Thickness(4, 0, 0, 0) };
-            expressionButton.Click += LoadExpression;
-            area.Children.Add(expressionButton);
+            var pointerRow = CreateRow();
+            pointerRow.Children.Add(FieldLabel("Pointer expression"));
+            pointerRow.Children.Add(expression);
+            pointerRow.Children.Add(CreateButton("Capture selection", CaptureSelection, false));
+            pointerRow.Children.Add(CreateButton("Load pointer", LoadExpression, true));
+            pointerRow.Children.Add(CreateButton("Synthetic GRBG", RenderSyntheticClick, false));
+            panel.Children.Add(CreateSection("SOURCE", pointerRow));
 
-            area.Children.Add(Label("jump X"));
-            area.Children.Add(selectedX);
-            area.Children.Add(Label("Y"));
-            area.Children.Add(selectedY);
-            var jumpButton = new Button { Content = "Go", Margin = new Thickness(4, 0, 0, 0) };
-            jumpButton.Click += JumpToCoordinate;
-            area.Children.Add(jumpButton);
-            return area;
+            var formatRow = CreateRow();
+            formatRow.Children.Add(FieldLabel("W"));
+            formatRow.Children.Add(width);
+            formatRow.Children.Add(FieldLabel("H"));
+            formatRow.Children.Add(height);
+            formatRow.Children.Add(FieldLabel("Stride"));
+            formatRow.Children.Add(stride);
+            formatRow.Children.Add(FieldLabel("Q frac"));
+            formatRow.Children.Add(fractionalBits);
+            formatRow.Children.Add(signed);
+            formatRow.Children.Add(FieldLabel("Bayer"));
+            formatRow.Children.Add(pattern);
+            formatRow.Children.Add(FieldLabel("Render"));
+            formatRow.Children.Add(display);
+            panel.Children.Add(CreateSection("FRAME", formatRow));
+
+            var inspectRow = CreateRow();
+            inspectRow.Children.Add(FieldLabel("Go to X"));
+            inspectRow.Children.Add(selectedX);
+            inspectRow.Children.Add(FieldLabel("Y"));
+            inspectRow.Children.Add(selectedY);
+            inspectRow.Children.Add(CreateButton("Center", JumpToCoordinate, false));
+            inspectRow.Children.Add(CreateButton("Inspect cells", InspectCells, true));
+            inspectRow.Children.Add(new TextBlock { Text = "Mouse wheel: zoom   •   Click: select pixel", Foreground = MutedBrush, Margin = new Thickness(15, 4, 0, 0), FontSize = 11 });
+            panel.Children.Add(CreateSection("INSPECT", inspectRow));
+            return panel;
         }
 
-        private static TextBlock Label(string text)
+        private UIElement CreateFooter()
         {
-            return new TextBlock { Text = text, Margin = new Thickness(6, 3, 2, 3), VerticalAlignment = VerticalAlignment.Center };
+            var footer = new Border { Background = PanelBrush, BorderBrush = new SolidColorBrush(Color.FromRgb(55, 63, 80)), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(12, 8, 12, 8) };
+            var row = new DockPanel();
+            DockPanel.SetDock(viewport, Dock.Right);
+            row.Children.Add(viewport);
+            row.Children.Add(status);
+            footer.Child = row;
+            return footer;
         }
 
-        private async Task RenderSyntheticAsync()
+        private static Border CreateSection(string title, UIElement contents)
+        {
+            var wrapper = new Border { Background = PanelBrush, BorderBrush = new SolidColorBrush(Color.FromRgb(55, 63, 80)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(0, 0, 0, 5) };
+            var row = new DockPanel();
+            var label = new TextBlock { Text = title, Foreground = AccentBrush, FontSize = 10, FontWeight = FontWeights.SemiBold, Width = 58, VerticalAlignment = VerticalAlignment.Center };
+            DockPanel.SetDock(label, Dock.Left);
+            row.Children.Add(label);
+            row.Children.Add(contents);
+            wrapper.Child = row;
+            return wrapper;
+        }
+
+        private static WrapPanel CreateRow()
+        {
+            return new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
+        }
+
+        private static TextBox CreateTextBox(string value, double width)
+        {
+            return new TextBox { Text = value, Width = width, Background = ControlBrush, Foreground = TextBrush, BorderBrush = new SolidColorBrush(Color.FromRgb(88, 101, 124)), CaretBrush = TextBrush, Padding = new Thickness(5, 3, 5, 3), Margin = new Thickness(0, 0, 7, 0) };
+        }
+
+        private static ComboBox CreateComboBox(double width)
+        {
+            return new ComboBox { Width = width, Background = ControlBrush, Foreground = TextBrush, BorderBrush = new SolidColorBrush(Color.FromRgb(88, 101, 124)), Padding = new Thickness(3, 2, 3, 2), Margin = new Thickness(0, 0, 7, 0) };
+        }
+
+        private static TextBlock FieldLabel(string text)
+        {
+            return new TextBlock { Text = text, Foreground = MutedBrush, Margin = new Thickness(7, 4, 4, 0), VerticalAlignment = VerticalAlignment.Center, FontSize = 11 };
+        }
+
+        private static Button CreateButton(string text, RoutedEventHandler action, bool primary)
+        {
+            var button = new Button { Content = text, Foreground = primary ? Brushes.Black : TextBrush, Background = primary ? AccentBrush : ControlBrush, BorderBrush = primary ? AccentBrush : new SolidColorBrush(Color.FromRgb(88, 101, 124)), Padding = new Thickness(9, 4, 9, 4), Margin = new Thickness(0, 0, 6, 0), FontWeight = primary ? FontWeights.SemiBold : FontWeights.Normal };
+            button.Click += action;
+            return button;
+        }
+
+        private async void RenderSyntheticClick(object sender, RoutedEventArgs e)
         {
             try
             {
@@ -122,6 +196,19 @@ namespace ArrayImageViewer.UI
             }
         }
 
+        private void CaptureSelection(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                expression.Text = DebugExpressionFrameReader.GetActiveEditorSelection();
+                SetStatus("Captured pointer expression: " + expression.Text);
+            }
+            catch (Exception exception)
+            {
+                SetStatus("Cannot capture selection: " + exception.Message);
+            }
+        }
+
         private void LoadExpression(object sender, RoutedEventArgs e)
         {
             try
@@ -133,7 +220,7 @@ namespace ArrayImageViewer.UI
             }
             catch (Exception exception)
             {
-                SetStatus("Cannot read expression: " + exception.Message);
+                SetStatus("Cannot read pointer: " + exception.Message);
             }
         }
 
@@ -203,6 +290,16 @@ namespace ArrayImageViewer.UI
             }
         }
 
+        private void ScrollViewerChanged(object sender, ScrollChangedEventArgs e)
+        {
+            UpdateViewportAndOverlay();
+        }
+
+        private void ScrollViewerSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdateViewportAndOverlay();
+        }
+
         private void JumpToCoordinate(object sender, RoutedEventArgs e)
         {
             int x;
@@ -214,6 +311,16 @@ namespace ArrayImageViewer.UI
             }
 
             UpdateSelection(x, y, true);
+        }
+
+        private void InspectCells(object sender, RoutedEventArgs e)
+        {
+            JumpToCoordinate(sender, e);
+            if (frame != null)
+            {
+                ApplyZoom(24.0);
+                Dispatcher.BeginInvoke(new Action(CenterOnSelection));
+            }
         }
 
         private void UpdateSelection(int x, int y, bool centerViewport)
@@ -228,7 +335,7 @@ namespace ArrayImageViewer.UI
             currentY = y;
             selectedX.Text = x.ToString(CultureInfo.InvariantCulture);
             selectedY.Text = y.ToString(CultureInfo.InvariantCulture);
-            UpdateCrosshair();
+            UpdateViewportAndOverlay();
             SetStatus(Describe(x, y));
             if (centerViewport)
             {
@@ -249,8 +356,71 @@ namespace ArrayImageViewer.UI
             image.Width = canvas.Width;
             image.Height = canvas.Height;
             RenderOptions.SetBitmapScalingMode(image, zoom >= 1 ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.Fant);
-            UpdateCrosshair();
+            UpdateViewportAndOverlay();
             SetStatus(Describe(currentX, currentY));
+        }
+
+        private void UpdateViewportAndOverlay()
+        {
+            if (frame == null)
+            {
+                return;
+            }
+
+            var firstX = Math.Max(0, (int)Math.Floor(scrollViewer.HorizontalOffset / zoom));
+            var firstY = Math.Max(0, (int)Math.Floor(scrollViewer.VerticalOffset / zoom));
+            var lastX = Math.Min(frame.Configuration.Width - 1, (int)Math.Ceiling((scrollViewer.HorizontalOffset + scrollViewer.ViewportWidth) / zoom));
+            var lastY = Math.Min(frame.Configuration.Height - 1, (int)Math.Ceiling((scrollViewer.VerticalOffset + scrollViewer.ViewportHeight) / zoom));
+            viewport.Text = String.Format(CultureInfo.InvariantCulture, "Viewport  X {0}..{1}  Y {2}..{3}  |  {4:0.##}x", firstX, lastX, firstY, lastY, zoom);
+            ClearValueOverlay();
+
+            if (zoom >= 12 && lastX >= firstX && lastY >= firstY && (lastX - firstX + 1) * (lastY - firstY + 1) <= 360)
+            {
+                for (var y = firstY; y <= lastY; y++)
+                {
+                    for (var x = firstX; x <= lastX; x++)
+                    {
+                        AddValueCell(x, y);
+                    }
+                }
+            }
+
+            UpdateCrosshair();
+        }
+
+        private void AddValueCell(int x, int y)
+        {
+            var raw = frame.GetRaw(x, y);
+            var text = zoom >= 28
+                ? raw + "\nQ " + QFormat.Format(raw, frame.Configuration.FractionalBits)
+                : raw.ToString(CultureInfo.InvariantCulture);
+            var label = new TextBlock
+            {
+                Text = text,
+                Foreground = TextBrush,
+                FontSize = Math.Max(8, Math.Min(13, zoom / (zoom >= 28 ? 5 : 3.2))),
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                Width = zoom,
+                Height = zoom,
+                Padding = new Thickness(1),
+                IsHitTestVisible = false
+            };
+            var cell = new Border { Child = label, BorderBrush = new SolidColorBrush(Color.FromArgb(110, 190, 205, 230)), BorderThickness = new Thickness(0.5), Width = zoom, Height = zoom, IsHitTestVisible = false };
+            Canvas.SetLeft(cell, x * zoom);
+            Canvas.SetTop(cell, y * zoom);
+            canvas.Children.Add(cell);
+            valueOverlay.Add(cell);
+        }
+
+        private void ClearValueOverlay()
+        {
+            for (var index = 0; index < valueOverlay.Count; index++)
+            {
+                canvas.Children.Remove(valueOverlay[index]);
+            }
+
+            valueOverlay.Clear();
         }
 
         private void UpdateCrosshair()
@@ -260,6 +430,8 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
+            canvas.Children.Remove(verticalCrosshair);
+            canvas.Children.Remove(horizontalCrosshair);
             var thickness = Math.Max(1, Math.Min(3, zoom / 4));
             verticalCrosshair.Width = thickness;
             verticalCrosshair.Height = canvas.Height;
@@ -271,6 +443,8 @@ namespace ArrayImageViewer.UI
             Canvas.SetTop(horizontalCrosshair, Math.Max(0, (currentY + 0.5) * zoom - thickness / 2));
             verticalCrosshair.Visibility = Visibility.Visible;
             horizontalCrosshair.Visibility = Visibility.Visible;
+            canvas.Children.Add(verticalCrosshair);
+            canvas.Children.Add(horizontalCrosshair);
         }
 
         private void CenterOnSelection()
@@ -284,8 +458,8 @@ namespace ArrayImageViewer.UI
             var raw = frame.GetRaw(x, y);
             var site = BayerLayout.GetSite(frame.Configuration.BayerPattern, x, y);
             return String.Format(CultureInfo.InvariantCulture,
-                "({0}, {1})  raw={2}  Q={3}  Bayer={4}  zoom={5:0.##}x",
-                x, y, raw, QFormat.Format(raw, frame.Configuration.FractionalBits), site, zoom);
+                "Pixel ({0}, {1})   RAW {2}   Q {3}   Bayer {4}",
+                x, y, raw, QFormat.Format(raw, frame.Configuration.FractionalBits), site);
         }
 
         private void SetStatus(string text)

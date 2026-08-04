@@ -51,6 +51,20 @@ namespace ArrayImageViewer.Debugging
             return new FrameBuffer(configuration, data);
         }
 
+        public static string GetActiveEditorSelection()
+        {
+            var dte = Package.GetGlobalService(typeof(SDTE));
+            var document = GetMember(dte, "ActiveDocument");
+            var selection = GetMember(document, "Selection");
+            var selectedText = Convert.ToString(GetMember(selection, "Text"), CultureInfo.InvariantCulture);
+            if (String.IsNullOrWhiteSpace(selectedText))
+            {
+                throw new InvalidOperationException("Select a pointer expression in the active code editor first.");
+            }
+
+            return selectedText.Trim();
+        }
+
         private static object GetMember(object target, string name)
         {
             return target == null ? null : target.GetType().InvokeMember(name, BindingFlags.GetProperty, null, target, null);

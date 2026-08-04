@@ -29,7 +29,9 @@ restart Visual Studio.
 
 ## Use the viewer
 
-Enter the frame interpretation before loading:
+Select the pointer expression in the active source editor and choose **Capture
+selection**, or enter the expression manually (for example, `sensorRaw`). Then
+enter the frame interpretation before loading:
 
 - `expr`: native pointer or array expression, for example `raw` or `imageBuffer`.
 - `W`, `H`: full image width and height.
@@ -38,13 +40,16 @@ Enter the frame interpretation before loading:
   `raw / 2^frac`.
 - `signed`: select for `int*`; clear for `uint*`.
 - `Bayer`: `GRBG`, `RGGB`, `GBRG`, `BGGR`, or `None`.
-- `view`: raw mosaic, composite preview, or an individual Bayer plane.
+- `view`: `Raw` grayscale values, `Mosaic` color-coded original Bayer samples,
+  `Composite` demosaicked preview, or an individual Bayer plane.
 
 Use **Synthetic preview** to validate the renderer and UI without a debuggee.
-When the native debuggee is paused, **Load expression** evaluates `expr[index]`
-through the Visual Studio expression evaluator. Enter `jump X` and `Y`, then
-press **Go** to center the exact full-frame coordinate. The orange crosshair and
-the status line report the raw value, Q-format value, and Bayer site.
+When the native debuggee is paused, **Load pointer** evaluates `expr[index]`
+through the Visual Studio expression evaluator. Enter `Go to X` and `Y`, then
+press **Center** to center the exact full-frame coordinate. **Inspect cells**
+centers the coordinate, enters high zoom, and displays the raw value (and the
+Q-format value at larger cell sizes) inside each visible pixel cell. The orange
+crosshair and status line always report raw value, Q-format value, and Bayer site.
 
 ## Draft limitation
 
