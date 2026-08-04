@@ -39,8 +39,13 @@ interpretation before loading:
 - `expr`: native pointer or array expression, for example `raw` or `imageBuffer`.
 - `W`, `H`: full image width and height.
 - `stride`: samples per row, including any padding. It defaults to `W`.
-- `frac`: Q-format fractional bit count. A raw value is displayed as
-  `raw / 2^frac`.
+- `Q format`: enter `integerBits.fractionalBitsb`, for example `8.8b`. Its total
+  is the number of valid stored bits (16 bits for `8.8b`) and values are displayed
+  as `raw / 2^fractionalBits`. The renderer uses the complete configured Q range
+  for colors, so two frames with the same Q format use the same brightness scale.
+  With **Signed int** clear, `8.8b` ranges from `0` to `255.996...`; with it set,
+  the range is `-128` to `127.996...`. A 32-bit pointer with `8.8b` is interpreted
+  from its lower 16 bits.
 - `signed`: select for `int*`; clear for `uint*`.
 - `Pixel layout`: `Gray` for generic loss/score/heatmap arrays with no Bayer
   interpretation, or `GRBG`, `Tetra`, `TetraSquare`, `RGGB`, `GBRG`, `BGGR` for
@@ -88,8 +93,8 @@ application. It allocates and fills `sensorRaw`, a `uint32_t*` containing a
 
 Set `SensorRawDebuggee` as the startup project and start debugging. At the break:
 
-- Set `expr` to `previewRaw`, `W/H/stride` to `128/128/128`, fractional bits to
-  `0`, `signed` off, and Bayer to `GRBG`; then select **Load expression**. This
+- Set `expr` to `previewRaw`, `W/H/stride` to `128/128/128`, Q format to
+  `13.0b`, **Signed int** off, and Bayer to `GRBG`; then select **Load expression**. This
   exercises the debugger-backed input path immediately.
 - Set `expr` to `sensorRaw` and dimensions to `4096/3072/4096` to use the same
   settings intended for the full buffer. The current expression reader will show

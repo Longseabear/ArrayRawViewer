@@ -77,8 +77,10 @@ The extension must help a developer inspect:
 
 ### Q-format decoding
 
-- Make Q-format explicit in the UI and model: number of fractional bits plus
-  signed/unsigned interpretation.
+- Make Q-format explicit in the UI and model as `integerBits.fractionalBitsb`
+  (for example `8.8b` is a 16-bit Q-format), plus signed/unsigned interpretation.
+- Normalize visual rendering against the configured Q-format's representable raw
+  range, not only the minimum/maximum values present in the current viewport.
 - Decode a stored sample as `sample / 2^fractionalBits`, preserving the original
   raw integer value for inspection.
 - Use an exact integer/decimal representation where practical; do not silently
@@ -126,7 +128,7 @@ The extension must help a developer inspect:
   is selected, and provide an alternate command path for manually entering an
   expression.
 - Before the first render, show a compact configuration surface containing
-  expression/type summary, full-frame width/height, row stride, fractional bits,
+  expression/type summary, full-frame width/height, row stride, Q-format,
   Bayer pattern, display mode, and normalization range.
 - The full-frame preview is the default view. Zooming into a 5x5 area around any
   pixel in a 4096x3072 frame is a normal viewer interaction, not a pre-render

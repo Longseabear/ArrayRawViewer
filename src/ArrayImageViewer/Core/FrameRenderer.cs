@@ -14,7 +14,7 @@ namespace ArrayImageViewer.Core
             }
 
             var config = frame.Configuration;
-            var range = FindRange(frame, config.DisplayMode);
+            var range = new Range(config.RawMinimum, config.RawMaximum);
             var pixels = new byte[checked(config.Width * config.Height * 4)];
             var offset = 0;
 
@@ -71,30 +71,6 @@ namespace ArrayImageViewer.Core
                 default:
                     return Color.FromRgb(value, value, value);
             }
-        }
-
-        private static Range FindRange(FrameBuffer frame, DisplayMode displayMode)
-        {
-            var minimum = long.MaxValue;
-            var maximum = long.MinValue;
-            var config = frame.Configuration;
-            for (var y = 0; y < config.Height; y++)
-            {
-                for (var x = 0; x < config.Width; x++)
-                {
-                    var site = BayerLayout.GetSite(config.BayerPattern, x, y);
-                    if (!BayerLayout.IsVisible(displayMode, site))
-                    {
-                        continue;
-                    }
-
-                    var value = frame.GetRaw(x, y);
-                    minimum = Math.Min(minimum, value);
-                    maximum = Math.Max(maximum, value);
-                }
-            }
-
-            return minimum == long.MaxValue ? new Range(0, 1) : new Range(minimum, maximum);
         }
 
         private static long FindNearest(FrameBuffer frame, int x, int y, BayerSite target)

@@ -4,11 +4,12 @@ namespace ArrayImageViewer.Core
 {
     internal sealed class FrameConfiguration
     {
-        public FrameConfiguration(int width, int height, int stride, int fractionalBits, bool isSigned, BayerPattern bayerPattern, DisplayMode displayMode)
+        public FrameConfiguration(int width, int height, int stride, int integerBits, int fractionalBits, bool isSigned, BayerPattern bayerPattern, DisplayMode displayMode)
         {
             Width = width;
             Height = height;
             Stride = stride;
+            IntegerBits = integerBits;
             FractionalBits = fractionalBits;
             IsSigned = isSigned;
             BayerPattern = bayerPattern;
@@ -19,7 +20,9 @@ namespace ArrayImageViewer.Core
         public int Width { get; private set; }
         public int Height { get; private set; }
         public int Stride { get; private set; }
+        public int IntegerBits { get; private set; }
         public int FractionalBits { get; private set; }
+        public int TotalBits { get { return IntegerBits + FractionalBits; } }
         public bool IsSigned { get; private set; }
         public BayerPattern BayerPattern { get; private set; }
         public DisplayMode DisplayMode { get; private set; }
@@ -39,6 +42,28 @@ namespace ArrayImageViewer.Core
             return checked((long)y * Stride + x);
         }
 
+        public long RawMinimum
+        {
+            get { return IsSigned ? -(1L << (TotalBits - 1)) : 0L; }
+        }
+
+        public long RawMaximum
+        {
+            get { return IsSigned ? (1L << (TotalBits - 1)) - 1L : (1L << TotalBits) - 1L; }
+        }
+
+        public long NormalizeRawValue(long value)
+        {
+            var mask = TotalBits == 32 ? 0xffffffffL : (1L << TotalBits) - 1L;
+            var normalized = value & mask;
+            if (IsSigned && (normalized & (1L << (TotalBits - 1))) != 0)
+            {
+                normalized -= 1L << TotalBits;
+            }
+
+            return normalized;
+        }
+
         private void Validate()
         {
             if (Width <= 0 || Height <= 0)
@@ -51,9 +76,10 @@ namespace ArrayImageViewer.Core
                 throw new ArgumentException("Stride must be at least the image width.");
             }
 
-            if (FractionalBits < 0 || FractionalBits > 30)
+            if (IntegerBits < 0 || FractionalBits < 0 || IntegerBits > 32 || FractionalBits > 32 ||
+                IntegerBits > 32 - FractionalBits)
             {
-                throw new ArgumentException("Fractional bits must be between 0 and 30.");
+                throw new ArgumentException("Q format must contain 1 to 32 total bits.");
             }
 
             var samples = RequiredSampleCount;

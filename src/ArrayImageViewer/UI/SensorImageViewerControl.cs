@@ -30,7 +30,7 @@ namespace ArrayImageViewer.UI
         private readonly TextBox width = CreateTextBox("4096", 60);
         private readonly TextBox height = CreateTextBox("3072", 60);
         private readonly TextBox stride = CreateTextBox("4096", 60);
-        private readonly TextBox fractionalBits = CreateTextBox("0", 42);
+        private readonly TextBox qFormat = CreateTextBox("13.0b", 58);
         private readonly CheckBox signed = new CheckBox { Content = "Signed int", Foreground = TextBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
         private readonly ComboBox pattern = CreateComboBox(88);
         private readonly ComboBox display = CreateComboBox(108);
@@ -121,8 +121,8 @@ namespace ArrayImageViewer.UI
             formatRow.Children.Add(height);
             formatRow.Children.Add(FieldLabel("Stride"));
             formatRow.Children.Add(stride);
-            formatRow.Children.Add(FieldLabel("Q frac"));
-            formatRow.Children.Add(fractionalBits);
+            formatRow.Children.Add(FieldLabel("Q format"));
+            formatRow.Children.Add(qFormat);
             formatRow.Children.Add(signed);
             formatRow.Children.Add(FieldLabel("Pixel layout"));
             formatRow.Children.Add(pattern);
@@ -356,16 +356,17 @@ namespace ArrayImageViewer.UI
             int parsedWidth;
             int parsedHeight;
             int parsedStride;
+            int parsedIntegerBits;
             int parsedFractionalBits;
             if (!Int32.TryParse(width.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsedWidth) ||
                 !Int32.TryParse(height.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsedHeight) ||
                 !Int32.TryParse(stride.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsedStride) ||
-                !Int32.TryParse(fractionalBits.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsedFractionalBits))
+                !QFormat.TryParse(qFormat.Text, out parsedIntegerBits, out parsedFractionalBits))
             {
-                throw new ArgumentException("Width, height, stride, and fractional bits must be integers.");
+                throw new ArgumentException("Enter W, H, and stride as integers; use Q format such as 8.8b.");
             }
 
-            return new FrameConfiguration(parsedWidth, parsedHeight, parsedStride, parsedFractionalBits, signed.IsChecked == true,
+            return new FrameConfiguration(parsedWidth, parsedHeight, parsedStride, parsedIntegerBits, parsedFractionalBits, signed.IsChecked == true,
                 (BayerPattern)pattern.SelectedItem, (DisplayMode)display.SelectedItem);
         }
 
@@ -585,8 +586,11 @@ namespace ArrayImageViewer.UI
             var raw = frame.GetRaw(x, y);
             var site = BayerLayout.GetSite(frame.Configuration.BayerPattern, x, y);
             return String.Format(CultureInfo.InvariantCulture,
-                "Pixel ({0}, {1})   RAW {2}   Q {3}   Bayer {4}",
-                x, y, raw, QFormat.Format(raw, frame.Configuration.FractionalBits), site);
+                "Pixel ({0}, {1})   RAW {2}   Q {3} ({4}, range {5}..{6})   Bayer {7}",
+                x, y, raw, QFormat.Format(raw, frame.Configuration.FractionalBits),
+                QFormat.FormatSpecification(frame.Configuration.IntegerBits, frame.Configuration.FractionalBits),
+                QFormat.Format(frame.Configuration.RawMinimum, frame.Configuration.FractionalBits),
+                QFormat.Format(frame.Configuration.RawMaximum, frame.Configuration.FractionalBits), site);
         }
 
         private void SetStatus(string text)

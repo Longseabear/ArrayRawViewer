@@ -31,7 +31,7 @@ namespace ArrayImageViewer.Core
 
         public long GetRaw(int x, int y)
         {
-            return samples[Configuration.GetSampleIndex(x, y)];
+            return Configuration.NormalizeRawValue(samples[Configuration.GetSampleIndex(x, y)]);
         }
 
         public static FrameBuffer CreateSynthetic(FrameConfiguration configuration)
@@ -45,7 +45,9 @@ namespace ArrayImageViewer.Core
                                ((long)y * 4095L / Math.Max(1, configuration.Height - 1));
                     var site = BayerLayout.GetSite(configuration.BayerPattern, x, y);
                     var channelOffset = site == BayerSite.R ? 1200 : site == BayerSite.B ? 300 : 700;
-                    data[configuration.GetSampleIndex(x, y)] = Math.Min(8191, ramp / 2 + channelOffset);
+                    var synthetic13BitValue = Math.Min(8191, ramp / 2 + channelOffset);
+                    data[configuration.GetSampleIndex(x, y)] = configuration.RawMinimum +
+                        synthetic13BitValue * (configuration.RawMaximum - configuration.RawMinimum) / 8191L;
                 }
             }
 
