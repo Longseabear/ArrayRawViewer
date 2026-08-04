@@ -29,9 +29,12 @@ restart Visual Studio.
 
 ## Use the viewer
 
-Select the pointer expression in the active source editor and choose **Capture
-selection**, or enter the expression manually (for example, `sensorRaw`). Then
-enter the frame interpretation before loading:
+Pause the debuggee in the function that owns your buffer, then choose **Refresh
+locals**. Select `A (int*)` or `B (unsigned int*)` from the Pointer list; this
+sets the expression and signedness automatically. **Capture selection** remains an
+alternative for a pointer expression selected in the active editor, and the
+Expression field accepts manual input such as `sensorRaw`. Then enter the frame
+interpretation before loading:
 
 - `expr`: native pointer or array expression, for example `raw` or `imageBuffer`.
 - `W`, `H`: full image width and height.

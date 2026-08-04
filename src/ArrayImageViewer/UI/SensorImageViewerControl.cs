@@ -21,6 +21,7 @@ namespace ArrayImageViewer.UI
         private static readonly Brush TextBrush = new SolidColorBrush(Color.FromRgb(238, 242, 248));
 
         private readonly TextBox expression = CreateTextBox("sensorRaw", 240);
+        private readonly ComboBox availablePointers = CreateComboBox(190);
         private readonly TextBox width = CreateTextBox("4096", 60);
         private readonly TextBox height = CreateTextBox("3072", 60);
         private readonly TextBox stride = CreateTextBox("4096", 60);
@@ -50,6 +51,7 @@ namespace ArrayImageViewer.UI
             pattern.SelectedItem = BayerPattern.GRBG;
             display.ItemsSource = Enum.GetValues(typeof(DisplayMode));
             display.SelectedItem = DisplayMode.Composite;
+            availablePointers.SelectionChanged += AvailablePointerChanged;
 
             canvas.Children.Add(image);
             canvas.Children.Add(verticalCrosshair);
@@ -92,7 +94,10 @@ namespace ArrayImageViewer.UI
             });
 
             var pointerRow = CreateRow();
-            pointerRow.Children.Add(FieldLabel("Pointer expression"));
+            pointerRow.Children.Add(FieldLabel("Pointer"));
+            pointerRow.Children.Add(availablePointers);
+            pointerRow.Children.Add(CreateButton("Refresh locals", RefreshPointers, false));
+            pointerRow.Children.Add(FieldLabel("Expression"));
             pointerRow.Children.Add(expression);
             pointerRow.Children.Add(CreateButton("Capture selection", CaptureSelection, false));
             pointerRow.Children.Add(CreateButton("Load pointer", LoadExpression, true));
@@ -207,6 +212,40 @@ namespace ArrayImageViewer.UI
             {
                 SetStatus("Cannot capture selection: " + exception.Message);
             }
+        }
+
+        private void RefreshPointers(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var pointers = DebugExpressionFrameReader.GetCurrentFramePointers();
+                availablePointers.ItemsSource = pointers;
+                if (pointers.Count == 0)
+                {
+                    SetStatus("No pointer locals found. Pause in the function that owns A or B, then refresh.");
+                    return;
+                }
+
+                availablePointers.SelectedIndex = 0;
+                SetStatus("Found " + pointers.Count.ToString(CultureInfo.InvariantCulture) + " pointer variable(s). Choose A or B from the list.");
+            }
+            catch (Exception exception)
+            {
+                SetStatus("Cannot list pointer locals: " + exception.Message);
+            }
+        }
+
+        private void AvailablePointerChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var pointer = availablePointers.SelectedItem as DebugExpressionFrameReader.PointerExpression;
+            if (pointer == null)
+            {
+                return;
+            }
+
+            expression.Text = pointer.Name;
+            signed.IsChecked = pointer.IsSigned;
+            SetStatus("Selected " + pointer.Name + " as " + pointer.Type + ".");
         }
 
         private void LoadExpression(object sender, RoutedEventArgs e)

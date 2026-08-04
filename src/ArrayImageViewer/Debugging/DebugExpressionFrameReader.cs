@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
 using Microsoft.VisualStudio.Shell;
@@ -65,6 +66,34 @@ namespace ArrayImageViewer.Debugging
             return selectedText.Trim();
         }
 
+        public static IList<PointerExpression> GetCurrentFramePointers()
+        {
+            var result = new List<PointerExpression>();
+            var dte = Package.GetGlobalService(typeof(SDTE));
+            var debugger = GetMember(dte, "Debugger");
+            var frame = GetMember(debugger, "CurrentStackFrame");
+            var locals = GetMember(frame, "Locals");
+            if (locals == null)
+            {
+                throw new InvalidOperationException("No current stack frame. Pause the native debuggee first.");
+            }
+
+            var countObject = GetMember(locals, "Count");
+            var count = countObject == null ? 0 : Convert.ToInt32(countObject, CultureInfo.InvariantCulture);
+            for (var index = 1; index <= count; index++)
+            {
+                var local = GetItem(locals, index);
+                var name = Convert.ToString(GetMember(local, "Name"), CultureInfo.InvariantCulture);
+                var type = Convert.ToString(GetMember(local, "Type"), CultureInfo.InvariantCulture);
+                if (!String.IsNullOrWhiteSpace(name) && !String.IsNullOrWhiteSpace(type) && type.IndexOf('*') >= 0)
+                {
+                    result.Add(new PointerExpression(name.Trim(), type.Trim()));
+                }
+            }
+
+            return result;
+        }
+
         private static object GetMember(object target, string name)
         {
             return target == null ? null : target.GetType().InvokeMember(name, BindingFlags.GetProperty, null, target, null);
@@ -73,6 +102,11 @@ namespace ArrayImageViewer.Debugging
         private static object Invoke(object target, string name, params object[] parameters)
         {
             return target.GetType().InvokeMember(name, BindingFlags.InvokeMethod, null, target, parameters);
+        }
+
+        private static object GetItem(object collection, int index)
+        {
+            return collection.GetType().InvokeMember("Item", BindingFlags.GetProperty, null, collection, new object[] { index });
         }
 
         private static long ParseValue(string value, bool isSigned)
@@ -93,6 +127,24 @@ namespace ArrayImageViewer.Debugging
             return isSigned
                 ? (long)Int32.Parse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture)
                 : (long)UInt32.Parse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture);
+        }
+
+        internal sealed class PointerExpression
+        {
+            public PointerExpression(string name, string type)
+            {
+                Name = name;
+                Type = type;
+            }
+
+            public string Name { get; private set; }
+            public string Type { get; private set; }
+            public bool IsSigned { get { return Type.IndexOf("unsigned", StringComparison.OrdinalIgnoreCase) < 0; } }
+
+            public override string ToString()
+            {
+                return Name + "  (" + Type + ")";
+            }
         }
     }
 }
