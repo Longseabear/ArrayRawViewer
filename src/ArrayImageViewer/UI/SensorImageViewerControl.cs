@@ -357,7 +357,7 @@ namespace ArrayImageViewer.UI
             JumpToCoordinate(sender, e);
             if (frame != null)
             {
-                ApplyZoom(24.0);
+                ApplyZoom(48.0);
                 Dispatcher.BeginInvoke(new Action(CenterOnSelection));
             }
         }
@@ -413,7 +413,7 @@ namespace ArrayImageViewer.UI
             viewport.Text = String.Format(CultureInfo.InvariantCulture, "Viewport  X {0}..{1}  Y {2}..{3}  |  {4:0.##}x", firstX, lastX, firstY, lastY, zoom);
             ClearValueOverlay();
 
-            if (zoom >= 12 && lastX >= firstX && lastY >= firstY && (lastX - firstX + 1) * (lastY - firstY + 1) <= 360)
+            if (zoom >= 18 && lastX >= firstX && lastY >= firstY && (lastX - firstX + 1) * (lastY - firstY + 1) <= 900)
             {
                 for (var y = firstY; y <= lastY; y++)
                 {
