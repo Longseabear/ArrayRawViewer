@@ -34,6 +34,30 @@ namespace ArrayImageViewer.Core
             return Configuration.NormalizeRawValue(samples[Configuration.GetSampleIndex(x, y)]);
         }
 
+        public NormalizationRange GetLoadedDataRange()
+        {
+            var minimum = Int64.MaxValue;
+            var maximum = Int64.MinValue;
+            for (var y = 0; y < Configuration.Height; y++)
+            {
+                for (var x = 0; x < Configuration.Width; x++)
+                {
+                    var value = GetRaw(x, y);
+                    minimum = Math.Min(minimum, value);
+                    maximum = Math.Max(maximum, value);
+                }
+            }
+
+            if (maximum <= minimum)
+            {
+                // A constant image still has a deterministic non-zero range,
+                // so the renderer can safely map its sole value to black.
+                maximum = minimum == Int64.MaxValue ? minimum : minimum + 1;
+            }
+
+            return new NormalizationRange(minimum, maximum);
+        }
+
         public static FrameBuffer CreateSynthetic(FrameConfiguration configuration)
         {
             var data = new long[configuration.RequiredSampleCount];

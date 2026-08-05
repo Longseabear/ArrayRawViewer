@@ -20,6 +20,7 @@ namespace ArrayImageViewer.Tests
                 RoiGeometryClampsAndPreservesDragSelection();
                 BayerLayoutsRepeatAtExpectedBlockSizes();
                 RendererWritesExpectedGrayPixels();
+                DisplayNormalizationUsesCachedRawSamples();
                 FrozenRendererResultCrossesStaThread();
                 FullFrameRendererCompletes();
                 FrameLimitRejectsUnsafeRequests();
@@ -116,6 +117,21 @@ namespace ArrayImageViewer.Tests
             bitmap.CopyPixels(pixels, 8, 0);
             Assert(pixels[0] == 0 && pixels[1] == 0 && pixels[2] == 0 && pixels[3] == 255, "Black BGRA pixel is correct.");
             Assert(pixels[4] == 255 && pixels[5] == 255 && pixels[6] == 255 && pixels[7] == 255, "White BGRA pixel is correct.");
+        }
+
+        private static void DisplayNormalizationUsesCachedRawSamples()
+        {
+            var frame = new FrameBuffer(Config(2, 1, 2, 8, 0, false, PixelType.Bayer), new long[] { 50, 100 });
+            var loadedRange = frame.GetLoadedDataRange();
+            Assert(loadedRange.Minimum == 50 && loadedRange.Maximum == 100, "Loaded-data normalization ignores Q-format headroom.");
+            var bitmap = FrameRenderer.Render(frame, loadedRange);
+            var pixels = new byte[8];
+            bitmap.CopyPixels(pixels, 8, 0);
+            Assert(pixels[0] == 0 && pixels[4] == 255, "Manual display range recolors cached values without changing samples.");
+            ExpectArgumentException(delegate { new NormalizationRange(10, 10); }, "Equal normalization bounds are rejected.");
+            var constant = new FrameBuffer(Config(1, 1, 1, 8, 0, false, PixelType.Bayer), new long[] { 42 });
+            var constantRange = constant.GetLoadedDataRange();
+            Assert(constantRange.Minimum == 42 && constantRange.Maximum == 43, "Constant frames receive a safe display range.");
         }
 
         private static void FullFrameRendererCompletes()

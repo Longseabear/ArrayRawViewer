@@ -62,6 +62,12 @@ such as `sensorRaw`. Then enter the full-frame interpretation before loading:
   With **Signed int** clear, `8.8b` ranges from `0` to `255.996...`; with it set,
   the range is `-128` to `127.996...`. A 32-bit pointer with `8.8b` is interpreted
   from its lower 16 bits.
+- `Normalize`: **Q-format range** is the default and uses the configured
+  representable raw range. **Loaded data range** finds min/max in the current
+  cached ROI or full preview; **Manual raw range** accepts explicit inclusive
+  raw endpoints. Select **Apply display range** to recolor already loaded samples
+  without evaluating or reading debugger memory again. The active raw range is
+  shown in the pixel inspector and retained in the session profile.
 - `Element`: the stored debugger-memory element type. Pointer choices infer it
   automatically; choose `Int8`, `UInt8`, `Int16`, `UInt16`, `Int32`, or `UInt32`
   for a manual expression. This controls address stride in bytes and raw-value

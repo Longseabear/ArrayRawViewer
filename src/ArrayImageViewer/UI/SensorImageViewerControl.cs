@@ -45,6 +45,9 @@ namespace ArrayImageViewer.UI
         private readonly ComboBox pixelOrder = CreateComboBox(108);
         private readonly ComboBox pixelType = CreateComboBox(108);
         private readonly ComboBox visualizeChannel = CreateComboBox(116);
+        private readonly ComboBox normalizationMode = CreateComboBox(130);
+        private readonly TextBox normalizationMinimum = CreateTextBox("0", 88);
+        private readonly TextBox normalizationMaximum = CreateTextBox("8191", 88);
         private readonly TextBox selectedX = CreateTextBox("0", 60);
         private readonly TextBox selectedY = CreateTextBox("0", 60);
         private readonly TextBox roiWidth = CreateTextBox("5", 54);
@@ -85,6 +88,7 @@ namespace ArrayImageViewer.UI
         private Point navigatorDragStartPoint;
         private Rect navigatorFrameBounds;
         private string lastReadPath = "expression fallback";
+        private NormalizationRange activeNormalization = new NormalizationRange(0, 8191);
         private int renderGeneration;
         private readonly DispatcherTimer memoryReadTimer;
         private PendingMemoryRead pendingMemoryRead;
@@ -97,6 +101,13 @@ namespace ArrayImageViewer.UI
             pixelType.SelectedItem = PixelType.Bayer;
             visualizeChannel.ItemsSource = Enum.GetValues(typeof(VisualizeChannel));
             visualizeChannel.SelectedItem = VisualizeChannel.BayerRaw;
+            normalizationMode.ItemsSource = new[]
+            {
+                new NormalizationModeChoice(NormalizationMode.QFormatRange, "Q-format range"),
+                new NormalizationModeChoice(NormalizationMode.LoadedDataRange, "Loaded data range"),
+                new NormalizationModeChoice(NormalizationMode.ManualRawRange, "Manual raw range")
+            };
+            normalizationMode.SelectedIndex = 0;
             sourceElementType.ItemsSource = Enum.GetValues(typeof(SourceElementType));
             sourceElementType.SelectedItem = SourceElementType.UInt32;
             availablePointers.SelectionChanged += AvailablePointerChanged;
@@ -206,7 +217,16 @@ namespace ArrayImageViewer.UI
             formatRow.Children.Add(CreateField("PIXEL TYPE", pixelType));
             formatRow.Children.Add(CreateField("VISUALIZE", visualizeChannel));
             formatRow.Children.Add(CreateAction("LOCAL STACK", CreateButton("Auto-fill", RefreshScalarValues, false)));
-            panel.Children.Add(CreateSection("FRAME", "Full-frame dimensions; Composite is a lightweight nearest-site Bayer preview, while pixel inspection always shows the original sample", formatRow));
+            var normalizationRow = CreateRow();
+            normalizationRow.Children.Add(CreateField("NORMALIZE", normalizationMode));
+            normalizationRow.Children.Add(CreateField("MIN RAW", normalizationMinimum));
+            normalizationRow.Children.Add(CreateField("MAX RAW", normalizationMaximum));
+            normalizationRow.Children.Add(CreateAction("", CreateButton("Apply display range", ApplyNormalization, false)));
+            normalizationRow.Children.Add(new TextBlock { Text = "Q-format range is the default. Apply changes recolors cached samples without a debugger read.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+            var formatContent = new StackPanel();
+            formatContent.Children.Add(formatRow);
+            formatContent.Children.Add(normalizationRow);
+            panel.Children.Add(CreateSection("FRAME", "Full-frame dimensions; Composite is a lightweight nearest-site Bayer preview, while pixel inspection always shows the original sample", formatContent));
 
             var localValuesRow = CreateRow();
             localValuesRow.Children.Add(CreateAction("", CreateButton("Refresh numeric locals", RefreshScalarValues, false)));
@@ -661,6 +681,8 @@ namespace ArrayImageViewer.UI
             height.TextChanged += ProfileInputChanged;
             stride.TextChanged += ProfileInputChanged;
             qFormat.TextChanged += ProfileInputChanged;
+            normalizationMinimum.TextChanged += ProfileInputChanged;
+            normalizationMaximum.TextChanged += ProfileInputChanged;
             selectedX.TextChanged += ProfileInputChanged;
             selectedY.TextChanged += ProfileInputChanged;
             roiWidth.TextChanged += ProfileInputChanged;
@@ -671,6 +693,7 @@ namespace ArrayImageViewer.UI
             pixelOrder.SelectionChanged += ProfileOptionChanged;
             pixelType.SelectionChanged += ProfileOptionChanged;
             visualizeChannel.SelectionChanged += ProfileOptionChanged;
+            normalizationMode.SelectionChanged += NormalizationModeChanged;
         }
 
         private void ProfileInputChanged(object sender, TextChangedEventArgs e)
@@ -686,6 +709,49 @@ namespace ArrayImageViewer.UI
         private void ProfileOptionChanged(object sender, SelectionChangedEventArgs e)
         {
             SaveCurrentProfile();
+        }
+
+        private void NormalizationModeChanged(object sender, SelectionChangedEventArgs e)
+        {
+            try
+            {
+                var selectedMode = GetSelectedNormalizationMode();
+                if (selectedMode == NormalizationMode.QFormatRange)
+                {
+                    var configuration = ReadConfiguration();
+                    UpdateNormalizationFields(new NormalizationRange(configuration.RawMinimum, configuration.RawMaximum));
+                }
+                else if (selectedMode == NormalizationMode.LoadedDataRange && frame != null)
+                {
+                    UpdateNormalizationFields(frame.GetLoadedDataRange());
+                }
+            }
+            catch (Exception)
+            {
+                // The normal validation path reports invalid frame values when
+                // the user loads or applies a display range.
+            }
+
+            SaveCurrentProfile();
+        }
+
+        private NormalizationMode GetSelectedNormalizationMode()
+        {
+            var choice = normalizationMode.SelectedItem as NormalizationModeChoice;
+            return choice == null ? NormalizationMode.QFormatRange : choice.Mode;
+        }
+
+        private void SetSelectedNormalizationMode(NormalizationMode mode)
+        {
+            for (var index = 0; index < normalizationMode.Items.Count; index++)
+            {
+                var choice = normalizationMode.Items[index] as NormalizationModeChoice;
+                if (choice != null && choice.Mode == mode)
+                {
+                    normalizationMode.SelectedItem = choice;
+                    return;
+                }
+            }
         }
 
         private void SourceElementTypeChanged(object sender, SelectionChangedEventArgs e)
@@ -744,7 +810,8 @@ namespace ArrayImageViewer.UI
 
             profiles.Add(sourceExpression.Trim(), ViewerProfile.Create(sourceExpression.Trim(), width.Text, height.Text, stride.Text, qFormat.Text,
                 signed.IsChecked == true, (SourceElementType)sourceElementType.SelectedItem, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
-                (VisualizeChannel)visualizeChannel.SelectedItem, selectedX.Text, selectedY.Text, roiWidth.Text, roiHeight.Text));
+                (VisualizeChannel)visualizeChannel.SelectedItem, GetSelectedNormalizationMode(), normalizationMinimum.Text, normalizationMaximum.Text,
+                selectedX.Text, selectedY.Text, roiWidth.Text, roiHeight.Text));
         }
 
         private void SaveCurrentProfile()
@@ -762,7 +829,8 @@ namespace ArrayImageViewer.UI
 
             profiles[sourceExpression] = ViewerProfile.Create(sourceExpression, width.Text, height.Text, stride.Text, qFormat.Text,
                 signed.IsChecked == true, (SourceElementType)sourceElementType.SelectedItem, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
-                (VisualizeChannel)visualizeChannel.SelectedItem, selectedX.Text, selectedY.Text, roiWidth.Text, roiHeight.Text);
+                (VisualizeChannel)visualizeChannel.SelectedItem, GetSelectedNormalizationMode(), normalizationMinimum.Text, normalizationMaximum.Text,
+                selectedX.Text, selectedY.Text, roiWidth.Text, roiHeight.Text);
         }
 
         private void RebuildProfilePicker(string selectedExpression)
@@ -801,6 +869,9 @@ namespace ArrayImageViewer.UI
             pixelOrder.SelectedItem = profile.PixelOrder;
             pixelType.SelectedItem = profile.PixelType;
             visualizeChannel.SelectedItem = profile.VisualizeChannel;
+            SetSelectedNormalizationMode(profile.NormalizationMode);
+            normalizationMinimum.Text = profile.NormalizationMinimum;
+            normalizationMaximum.Text = profile.NormalizationMaximum;
             selectedX.Text = profile.SelectedX;
             selectedY.Text = profile.SelectedY;
             roiWidth.Text = profile.RoiWidth;
@@ -1010,11 +1081,22 @@ namespace ArrayImageViewer.UI
         private void ApplyLoadedFrame(FrameBuffer source, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY, bool isFullPreview, string sourceExpression)
         {
             var readPath = DebugExpressionFrameReader.LastRoiReadUsedMemory ? "debugger memory" : "expression fallback";
+            NormalizationRange normalization;
+            try
+            {
+                normalization = ResolveNormalizationRange(source);
+            }
+            catch (Exception exception)
+            {
+                SetStatus("Cannot apply display range: " + exception.Message);
+                return;
+            }
+
             var sampleCount = (long)source.Configuration.Width * source.Configuration.Height;
             var generation = ++renderGeneration;
             if (sampleCount <= 262144)
             {
-                ApplyRenderedFrame(source, FrameRenderer.Render(source), sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, sourceExpression, readPath);
+                ApplyRenderedFrame(source, FrameRenderer.Render(source, normalization), normalization, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, sourceExpression, readPath);
                 return;
             }
 
@@ -1023,12 +1105,12 @@ namespace ArrayImageViewer.UI
             {
                 try
                 {
-                    var bitmap = FrameRenderer.Render(source);
+                    var bitmap = FrameRenderer.Render(source, normalization);
                     Dispatcher.BeginInvoke(new Action(delegate
                     {
                         if (generation == renderGeneration)
                         {
-                            ApplyRenderedFrame(source, bitmap, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, sourceExpression, readPath);
+                            ApplyRenderedFrame(source, bitmap, normalization, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, sourceExpression, readPath);
                         }
                     }));
                 }
@@ -1048,16 +1130,134 @@ namespace ArrayImageViewer.UI
             renderThread.Start();
         }
 
-        private void ApplyRenderedFrame(FrameBuffer source, ImageSource bitmap, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY,
+        private void ApplyRenderedFrame(FrameBuffer source, ImageSource bitmap, NormalizationRange normalization, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY,
             bool isFullPreview, string sourceExpression, string readPath)
         {
             lastReadPath = readPath;
+            activeNormalization = normalization;
             ApplyFrame(source, bitmap, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY);
             ApplyZoom(isFullPreview ? GetFullPreviewZoom(source.Configuration.Width, source.Configuration.Height) : Math.Max(18.0, zoom));
             EnsureProfile(sourceExpression);
             activeProfileExpression = sourceExpression;
             SaveCurrentProfile();
             RebuildProfilePicker(sourceExpression);
+        }
+
+        private NormalizationRange ResolveNormalizationRange(FrameBuffer source)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException("source");
+            }
+
+            var selectedMode = GetSelectedNormalizationMode();
+            if (selectedMode == NormalizationMode.QFormatRange)
+            {
+                var qFormatRange = new NormalizationRange(source.Configuration.RawMinimum, source.Configuration.RawMaximum);
+                UpdateNormalizationFields(qFormatRange);
+                return qFormatRange;
+            }
+
+            if (selectedMode == NormalizationMode.LoadedDataRange)
+            {
+                var loadedDataRange = source.GetLoadedDataRange();
+                UpdateNormalizationFields(loadedDataRange);
+                return loadedDataRange;
+            }
+
+            return new NormalizationRange(ParseRawNormalizationValue(normalizationMinimum, "minimum"),
+                ParseRawNormalizationValue(normalizationMaximum, "maximum"));
+        }
+
+        private static long ParseRawNormalizationValue(TextBox field, string label)
+        {
+            long value;
+            if (!Int64.TryParse(field.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+            {
+                throw new ArgumentException("Enter a signed raw " + label + " integer.");
+            }
+
+            return value;
+        }
+
+        private void UpdateNormalizationFields(NormalizationRange range)
+        {
+            normalizationMinimum.Text = range.Minimum.ToString(CultureInfo.InvariantCulture);
+            normalizationMaximum.Text = range.Maximum.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private void ApplyNormalization(object sender, RoutedEventArgs e)
+        {
+            if (frame == null)
+            {
+                SetStatus("Load an ROI or full preview before applying a display range.");
+                return;
+            }
+
+            try
+            {
+                var normalization = ResolveNormalizationRange(frame);
+                SaveCurrentProfile();
+                RenderCachedFrame(frame, normalization);
+            }
+            catch (Exception exception)
+            {
+                SetStatus("Cannot apply display range: " + exception.Message);
+            }
+        }
+
+        private void RenderCachedFrame(FrameBuffer source, NormalizationRange normalization)
+        {
+            var sampleCount = (long)source.Configuration.Width * source.Configuration.Height;
+            var generation = ++renderGeneration;
+            if (sampleCount <= 262144)
+            {
+                ApplyCachedRender(source, FrameRenderer.Render(source, normalization), normalization);
+                return;
+            }
+
+            SetStatus("Recoloring cached " + source.Configuration.Width.ToString(CultureInfo.InvariantCulture) + "x" + source.Configuration.Height.ToString(CultureInfo.InvariantCulture) + " frame. No debugger memory is being read.");
+            var renderThread = new Thread(delegate()
+            {
+                try
+                {
+                    var bitmap = FrameRenderer.Render(source, normalization);
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        if (generation == renderGeneration)
+                        {
+                            ApplyCachedRender(source, bitmap, normalization);
+                        }
+                    }));
+                }
+                catch (Exception exception)
+                {
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        if (generation == renderGeneration)
+                        {
+                            SetStatus("Cannot recolor cached frame: " + exception.Message);
+                        }
+                    }));
+                }
+            });
+            renderThread.IsBackground = true;
+            renderThread.SetApartmentState(ApartmentState.STA);
+            renderThread.Start();
+        }
+
+        private void ApplyCachedRender(FrameBuffer source, ImageSource bitmap, NormalizationRange normalization)
+        {
+            if (!Object.ReferenceEquals(frame, source))
+            {
+                return;
+            }
+
+            activeNormalization = normalization;
+            image.Source = bitmap;
+            UpdateSelectedCellRectangle();
+            UpdateViewportAndOverlay();
+            SetStatus(String.Format(CultureInfo.InvariantCulture, "Recolored cached frame with raw range {0}..{1}. No debugger memory was read.", normalization.Minimum, normalization.Maximum));
         }
 
         private double GetFullPreviewZoom(int imageWidth, int imageHeight)
@@ -1805,16 +2005,33 @@ namespace ArrayImageViewer.UI
             var raw = frame.GetRaw(localX, localY);
             var site = frame.Configuration.GetBayerSite(localX, localY);
             return String.Format(CultureInfo.InvariantCulture,
-                "Pixel ({0}, {1})   RAW {2}   Q {3} ({4}, range {5}..{6})   Bayer {7}   Read {8}",
+                "Pixel ({0}, {1})   RAW {2}   Q {3} ({4}, display raw {5}..{6})   Bayer {7}   Read {8}",
                 x, y, raw, QFormat.Format(raw, frame.Configuration.FractionalBits),
                 QFormat.FormatSpecification(frame.Configuration.IntegerBits, frame.Configuration.FractionalBits),
-                QFormat.Format(frame.Configuration.RawMinimum, frame.Configuration.FractionalBits),
-                QFormat.Format(frame.Configuration.RawMaximum, frame.Configuration.FractionalBits), site, lastReadPath);
+                QFormat.Format(activeNormalization.Minimum, frame.Configuration.FractionalBits),
+                QFormat.Format(activeNormalization.Maximum, frame.Configuration.FractionalBits), site, lastReadPath);
         }
 
         private void SetStatus(string text)
         {
             status.Text = text;
+        }
+
+        private sealed class NormalizationModeChoice
+        {
+            public NormalizationModeChoice(NormalizationMode mode, string label)
+            {
+                Mode = mode;
+                Label = label;
+            }
+
+            public NormalizationMode Mode { get; private set; }
+            public string Label { get; private set; }
+
+            public override string ToString()
+            {
+                return Label;
+            }
         }
 
         private sealed class ViewerProfile
@@ -1833,6 +2050,9 @@ namespace ArrayImageViewer.UI
             public PixelOrder PixelOrder { get; private set; }
             public PixelType PixelType { get; private set; }
             public VisualizeChannel VisualizeChannel { get; private set; }
+            public NormalizationMode NormalizationMode { get; private set; }
+            public string NormalizationMinimum { get; private set; }
+            public string NormalizationMaximum { get; private set; }
             public string SelectedX { get; private set; }
             public string SelectedY { get; private set; }
             public string RoiWidth { get; private set; }
@@ -1840,6 +2060,7 @@ namespace ArrayImageViewer.UI
 
             public static ViewerProfile Create(string expressionValue, string widthValue, string heightValue, string strideValue, string qFormatValue,
                 bool signedValue, SourceElementType sourceElementTypeValue, PixelOrder pixelOrderValue, PixelType pixelTypeValue, VisualizeChannel visualizeChannelValue,
+                NormalizationMode normalizationModeValue, string normalizationMinimumValue, string normalizationMaximumValue,
                 string selectedXValue, string selectedYValue, string roiWidthValue, string roiHeightValue)
             {
                 return new ViewerProfile
@@ -1854,6 +2075,9 @@ namespace ArrayImageViewer.UI
                     PixelOrder = pixelOrderValue,
                     PixelType = pixelTypeValue,
                     VisualizeChannel = visualizeChannelValue,
+                    NormalizationMode = normalizationModeValue,
+                    NormalizationMinimum = normalizationMinimumValue,
+                    NormalizationMaximum = normalizationMaximumValue,
                     SelectedX = selectedXValue,
                     SelectedY = selectedYValue,
                     RoiWidth = roiWidthValue,

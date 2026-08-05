@@ -18,7 +18,17 @@ namespace ArrayImageViewer.Core
             }
 
             var config = frame.Configuration;
-            var range = new Range(config.RawMinimum, config.RawMaximum);
+            return Render(frame, new NormalizationRange(config.RawMinimum, config.RawMaximum));
+        }
+
+        public static WriteableBitmap Render(FrameBuffer frame, NormalizationRange range)
+        {
+            if (frame == null)
+            {
+                throw new ArgumentNullException("frame");
+            }
+
+            var config = frame.Configuration;
             var bitmap = new WriteableBitmap(config.Width, config.Height, 96, 96, PixelFormats.Bgra32, null);
             var rowByteCount = checked(config.Width * 4);
             var blockRows = Math.Min(RowsPerWrite, config.Height);
@@ -129,16 +139,5 @@ namespace ArrayImageViewer.Core
             return (byte)Math.Max(0, Math.Min(255, Math.Round(normalized * 255)));
         }
 
-        private struct Range
-        {
-            public Range(long minimum, long maximum)
-            {
-                Minimum = minimum;
-                Maximum = maximum;
-            }
-
-            public long Minimum;
-            public long Maximum;
-        }
     }
 }

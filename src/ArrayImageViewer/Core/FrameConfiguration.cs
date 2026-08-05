@@ -12,6 +12,30 @@ namespace ArrayImageViewer.Core
         UInt32
     }
 
+    internal enum NormalizationMode
+    {
+        QFormatRange,
+        LoadedDataRange,
+        ManualRawRange
+    }
+
+    internal struct NormalizationRange
+    {
+        public NormalizationRange(long minimum, long maximum)
+        {
+            if (maximum <= minimum)
+            {
+                throw new ArgumentException("Normalization maximum must be greater than its minimum.");
+            }
+
+            Minimum = minimum;
+            Maximum = maximum;
+        }
+
+        public long Minimum;
+        public long Maximum;
+    }
+
     internal static class SourceElementCodec
     {
         public static long DecodeLittleEndian(byte[] bytes, int offset, SourceElementType sourceElementType)
