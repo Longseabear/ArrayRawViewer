@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Debugger.Interop;
@@ -221,6 +222,12 @@ namespace ArrayImageViewer.Debugging
         // Keep the direct lookup as a fallback for engines which do expose it.
         private static object GetCurrentStackFrame(object debugger)
         {
+            var internalFrame = TryGetInternalCurrentStackFrame();
+            if (internalFrame != null)
+            {
+                return internalFrame;
+            }
+
             var nativeFrame = TryGetNativeCurrentStackFrame(debugger);
             if (nativeFrame != null)
             {
@@ -248,6 +255,72 @@ namespace ArrayImageViewer.Debugging
             }
 
             return null;
+        }
+
+        // Visual Studio's shell exposes the current DTE stack frame as an
+        // automation wrapper, not as IDebugStackFrame2.  Recent VS hosts also
+        // provide the active AD7 frame through their debugger service.  Query
+        // it dynamically so VS 2015 and engines without that component retain
+        // the ordinary DTE/expression fallback without a hard dependency on
+        // a version-specific private assembly.
+        private static IDebugStackFrame2 TryGetInternalCurrentStackFrame()
+        {
+            IntPtr unknown = IntPtr.Zero;
+            IntPtr typedUnknown = IntPtr.Zero;
+            try
+            {
+                var debuggerService = Package.GetGlobalService(typeof(SVsShellDebugger));
+                if (debuggerService == null)
+                {
+                    return null;
+                }
+
+                var internalType = Type.GetType("Microsoft.VisualStudio.Debugger.Interop.Internal.IDebuggerInternal, Microsoft.VisualStudio.Debugger.Interop.Internal", false);
+                if (internalType == null)
+                {
+                    try
+                    {
+                        internalType = Assembly.Load("Microsoft.VisualStudio.Debugger.Interop.Internal").GetType("Microsoft.VisualStudio.Debugger.Interop.Internal.IDebuggerInternal", false);
+                    }
+                    catch (Exception)
+                    {
+                        return null;
+                    }
+                }
+
+                if (internalType == null)
+                {
+                    return null;
+                }
+
+                unknown = Marshal.GetIUnknownForObject(debuggerService);
+                var interfaceId = internalType.GUID;
+                if (Marshal.QueryInterface(unknown, ref interfaceId, out typedUnknown) != 0 || typedUnknown == IntPtr.Zero)
+                {
+                    return null;
+                }
+
+                var internalDebugger = Marshal.GetTypedObjectForIUnknown(typedUnknown, internalType);
+                var property = internalType.GetProperty("CurrentStackFrame", BindingFlags.Instance | BindingFlags.Public);
+                var frame = property == null ? null : property.GetValue(internalDebugger, null);
+                return frame as IDebugStackFrame2;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                if (typedUnknown != IntPtr.Zero)
+                {
+                    Marshal.Release(typedUnknown);
+                }
+
+                if (unknown != IntPtr.Zero)
+                {
+                    Marshal.Release(unknown);
+                }
+            }
         }
 
         // The EnvDTE StackFrame wrapper itself is not an IDebugStackFrame2.
