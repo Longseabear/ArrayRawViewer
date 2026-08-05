@@ -1,6 +1,6 @@
 # Sensor RAW Array Image Viewer
 
-An installable Visual Studio 2015, 2017, 2019, and 2022 VSIX draft for viewing a
+An installable Visual Studio 2017, 2019, and 2022 VSIX draft for viewing a
 one-dimensional native sensor RAW buffer as a two-dimensional image.
 
 ## Build and install
@@ -12,9 +12,9 @@ one-dimensional native sensor RAW buffer as a two-dimensional image.
    `src\ArrayImageViewer\bin\Debug\ArrayImageViewer.vsix` (or Release equivalent).
 4. In Visual Studio 2017, open **Tools > Sensor RAW Array Viewer**.
 
-The manifest accepts Visual Studio 2015 (14.x), 2017 (15.x), 2019 (16.x), and
-2022 (17.x) Community, Professional, and Enterprise editions. The extension is
-built against the Microsoft Visual Studio 2015 SDK baseline.
+The manifest accepts Visual Studio 2017 (15.x), 2019 (16.x), and 2022 (17.x)
+Community, Professional, and Enterprise editions. The extension is built against
+the VS 2017 Shell facade and .NET Framework 4.6, both supplied by those hosts.
 
 `ArrayImageViewer` is correctly a **class-library** project, so it cannot launch
 by itself. In its Debug configuration, F5 starts a separate Experimental Instance
