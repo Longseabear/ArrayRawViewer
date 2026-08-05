@@ -41,6 +41,10 @@ namespace ArrayImageViewer.Tests
             Assert(QFormat.TryParse("8.8b", out integerBits, out fractionalBits), "8.8b parses.");
             Assert(integerBits == 8 && fractionalBits == 8, "Q bits are retained.");
             Assert(QFormat.Decode(384, 8) == 1.5m, "Fractional value decodes exactly.");
+            Assert(QFormat.TryParse("13.0b", out integerBits, out fractionalBits) && integerBits == 13 && fractionalBits == 0,
+                "Zero fractional bits parse.");
+            Assert(QFormat.Decode(-3, 1) == -1.5m, "Negative fixed-point values decode exactly.");
+            Assert(QFormat.Decode(1, 24) == 0.000000059604644775390625m, "High fractional-bit values stay decimal-exact.");
             var signed32 = Config(1, 1, 1, 32, 0, true, PixelType.Bayer);
             var unsigned32 = Config(1, 1, 1, 32, 0, false, PixelType.Bayer);
             Assert(signed32.RawMinimum == Int32.MinValue && signed32.RawMaximum == Int32.MaxValue, "Signed range is exact.");
@@ -103,10 +107,27 @@ namespace ArrayImageViewer.Tests
         {
             Assert(BayerLayout.GetSite(PixelOrder.GRFirst, PixelType.Bayer, 0, 0) == BayerSite.Gr, "GRBG starts at Gr.");
             Assert(BayerLayout.GetSite(PixelOrder.GRFirst, PixelType.Bayer, 1, 0) == BayerSite.R, "GRBG R is correct.");
+            Assert(BayerLayout.GetSite(PixelOrder.GRFirst, PixelType.Bayer, 0, 1) == BayerSite.B, "GRBG B is correct.");
+            Assert(BayerLayout.GetSite(PixelOrder.GRFirst, PixelType.Bayer, 1, 1) == BayerSite.Gb, "GRBG Gb is correct.");
+            AssertBayerTile(PixelOrder.RFirst, BayerSite.R, BayerSite.Gr, BayerSite.Gb, BayerSite.B, "RGGB");
+            AssertBayerTile(PixelOrder.BFirst, BayerSite.B, BayerSite.Gb, BayerSite.Gr, BayerSite.R, "BGGR");
+            AssertBayerTile(PixelOrder.GBFirst, BayerSite.Gb, BayerSite.B, BayerSite.R, BayerSite.Gr, "GBRG");
             Assert(BayerLayout.GetSite(PixelOrder.GRFirst, PixelType.Tetra, 2, 0) == BayerSite.R, "Tetra repeats 2x2 sites.");
             Assert(BayerLayout.GetSite(PixelOrder.GRFirst, PixelType.Tetra, 0, 2) == BayerSite.B, "Tetra lower site is correct.");
             Assert(BayerLayout.GetSite(PixelOrder.GRFirst, PixelType.TetraSquare, 4, 0) == BayerSite.R, "TetraSquare repeats 4x4 sites.");
             Assert(BayerLayout.GetSite(PixelOrder.GRFirst, PixelType.TetraSquare, 0, 4) == BayerSite.B, "TetraSquare lower site is correct.");
+            Assert(BayerLayout.IsVisible(VisualizeChannel.G, BayerSite.Gr) && BayerLayout.IsVisible(VisualizeChannel.G, BayerSite.Gb),
+                "Combined green includes Gr and Gb.");
+            Assert(!BayerLayout.IsVisible(VisualizeChannel.Gr, BayerSite.Gb) && BayerLayout.IsVisible(VisualizeChannel.Gr, BayerSite.Gr),
+                "Gr and Gb remain individually selectable.");
+        }
+
+        private static void AssertBayerTile(PixelOrder order, BayerSite upperLeft, BayerSite upperRight, BayerSite lowerLeft, BayerSite lowerRight, string name)
+        {
+            Assert(BayerLayout.GetSite(order, PixelType.Bayer, 0, 0) == upperLeft, name + " upper-left is correct.");
+            Assert(BayerLayout.GetSite(order, PixelType.Bayer, 1, 0) == upperRight, name + " upper-right is correct.");
+            Assert(BayerLayout.GetSite(order, PixelType.Bayer, 0, 1) == lowerLeft, name + " lower-left is correct.");
+            Assert(BayerLayout.GetSite(order, PixelType.Bayer, 1, 1) == lowerRight, name + " lower-right is correct.");
         }
 
         private static void RendererWritesExpectedGrayPixels()
