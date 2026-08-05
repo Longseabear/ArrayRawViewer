@@ -76,7 +76,8 @@ The **Frame Navigator** is a lightweight geometric map of the complete configure
 frame. Drag from one corner to another to choose both ROI position and size with
 the mouse. It does not read or render the entire debuggee buffer; it reads only
 the selected rectangle after mouse release, so it remains responsive for a
-4096x3072 (or larger) source.
+4096x3072 (or larger) source. A simple click keeps the current ROI size and
+moves its center; a drag defines a new size and position.
 
 When the expression box receives focus while the debuggee is paused, it refreshes
 the current stack's pointer locals and offers matching names as you type. Selecting
