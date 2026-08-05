@@ -81,6 +81,7 @@ namespace ArrayImageViewer.UI
         private int navigatorStartY;
         private Point navigatorDragStartPoint;
         private Rect navigatorFrameBounds;
+        private string lastReadPath = "expression fallback";
 
         public SensorImageViewerControl()
         {
@@ -747,6 +748,7 @@ namespace ArrayImageViewer.UI
                 var roi = GetRoiBounds(configuration);
                 SetStatus("Reading ROI " + roi.Width + "x" + roi.Height + " from the debugger.");
                 var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, roi.X, roi.Y, roi.Width, roi.Height);
+                lastReadPath = DebugExpressionFrameReader.LastRoiReadUsedMemory ? "debugger memory" : "expression fallback";
                 ApplyFrame(source, FrameRenderer.Render(source), configuration.Width, configuration.Height, roi.CenterX, roi.CenterY);
                 ApplyZoom(Math.Max(18.0, zoom));
                 EnsureProfile(expression.Text);
@@ -1405,11 +1407,11 @@ namespace ArrayImageViewer.UI
             var raw = frame.GetRaw(localX, localY);
             var site = frame.Configuration.GetBayerSite(localX, localY);
             return String.Format(CultureInfo.InvariantCulture,
-                "Pixel ({0}, {1})   RAW {2}   Q {3} ({4}, range {5}..{6})   Bayer {7}",
+                "Pixel ({0}, {1})   RAW {2}   Q {3} ({4}, range {5}..{6})   Bayer {7}   Read {8}",
                 x, y, raw, QFormat.Format(raw, frame.Configuration.FractionalBits),
                 QFormat.FormatSpecification(frame.Configuration.IntegerBits, frame.Configuration.FractionalBits),
                 QFormat.Format(frame.Configuration.RawMinimum, frame.Configuration.FractionalBits),
-                QFormat.Format(frame.Configuration.RawMaximum, frame.Configuration.FractionalBits), site);
+                QFormat.Format(frame.Configuration.RawMaximum, frame.Configuration.FractionalBits), site, lastReadPath);
         }
 
         private void SetStatus(string text)

@@ -14,6 +14,7 @@ namespace ArrayImageViewer.Debugging
     internal static class DebugExpressionFrameReader
     {
         public const int DraftSampleLimit = 16384;
+        public static bool LastRoiReadUsedMemory { get; private set; }
 
         public static FrameBuffer Read(string expression, FrameConfiguration configuration)
         {
@@ -54,6 +55,7 @@ namespace ArrayImageViewer.Debugging
 
         public static FrameBuffer ReadRoi(string expression, FrameConfiguration sourceConfiguration, int originX, int originY, int roiWidth, int roiHeight)
         {
+            LastRoiReadUsedMemory = false;
             if (originX < 0 || originY < 0 || roiWidth <= 0 || roiHeight <= 0 ||
                 originX + roiWidth > sourceConfiguration.Width || originY + roiHeight > sourceConfiguration.Height)
             {
@@ -72,6 +74,14 @@ namespace ArrayImageViewer.Debugging
             }
 
             var debugger = GetDebugger();
+            var currentStackFrame = GetOptionalMember(debugger, "CurrentStackFrame");
+            FrameBuffer memoryFrame;
+            if (DebugMemoryFrameReader.TryReadRoi(currentStackFrame, expression, sourceConfiguration, originX, originY, roiWidth, roiHeight, out memoryFrame))
+            {
+                LastRoiReadUsedMemory = true;
+                return memoryFrame;
+            }
+
             var roiConfiguration = new FrameConfiguration(roiWidth, roiHeight, roiWidth,
                 sourceConfiguration.IntegerBits, sourceConfiguration.FractionalBits, sourceConfiguration.IsSigned,
                 sourceConfiguration.PixelOrder, sourceConfiguration.PixelType, sourceConfiguration.VisualizeChannel,

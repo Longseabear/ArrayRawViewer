@@ -96,9 +96,11 @@ reports the original raw value and true Bayer site.
 
 The expression-evaluator reader is deliberately capped at 16,384 **ROI** samples
 because evaluating one debugger expression per sample is too slow. A 5x5 through
-128x128 filter ROI is therefore the intended debugger-backed workflow. The next
-performance step is still a native debugger-memory reader that reads ranges in
-blocks; it will replace only `DebugExpressionFrameReader`.
+128x128 filter ROI is therefore the intended debugger-backed workflow. For native
+engines that expose `IDebugMemoryBytes2`, the viewer now reads each ROI row as one
+memory range; the status line reports `Read debugger memory`. Unsupported engines
+automatically fall back to expression evaluation and report `Read expression
+fallback`.
 
 ## Bayer coordinate rule
 
