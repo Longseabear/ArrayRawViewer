@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{B016B5B0-5E6C-44D8-B1D5-378A5A6828D7}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>ArrayImageViewer</RootNamespace>
+    <AssemblyName>ArrayImageViewer</AssemblyName>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <LangVersion>5</LangVersion>
+    <GeneratePkgDefFile>true</GeneratePkgDefFile>
+    <UseCodebase>true</UseCodebase>
+    <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
+    <IncludeDebugSymbolsInVSIXContainer>true</IncludeDebugSymbolsInVSIXContainer>
+    <CreateVsixContainer>true</CreateVsixContainer>
+    <DeployExtension>false</DeployExtension>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols><DebugType>full</DebugType><Optimize>false</Optimize><OutputPath>bin\Debug\</OutputPath><DefineConstants>DEBUG;TRACE</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType><Optimize>true</Optimize><OutputPath>bin\Release\</OutputPath><DefineConstants>TRACE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" /><Reference Include="System.Core" /><Reference Include="System.Design" /><Reference Include="System.Xaml" />
+    <Reference Include="WindowsBase" /><Reference Include="PresentationCore" /><Reference Include="PresentationFramework" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\ArrayImageViewer\CommandIds.cs"><Link>CommandIds.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\SensorImageViewerPackage.cs"><Link>SensorImageViewerPackage.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\SensorImageToolWindow.cs"><Link>SensorImageToolWindow.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\Core\BayerLayout.cs"><Link>Core\BayerLayout.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\Core\FrameConfiguration.cs"><Link>Core\FrameConfiguration.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\Core\FrameBuffer.cs"><Link>Core\FrameBuffer.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\Core\FrameRenderer.cs"><Link>Core\FrameRenderer.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\Core\QFormat.cs"><Link>Core\QFormat.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\Debugging\DebugExpressionFrameReader.cs"><Link>Debugging\DebugExpressionFrameReader.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\Debugging\DebugMemoryFrameReader.cs"><Link>Debugging\DebugMemoryFrameReader.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.cs"><Link>UI\SensorImageViewerControl.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\Properties\AssemblyInfo.cs"><Link>Properties\AssemblyInfo.cs</Link></Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="source.extension.vsixmanifest" />
+    <VSCTCompile Include="..\ArrayImageViewer\Menus.vsct"><Link>Menus.vsct</Link><ResourceName>Menus.ctmenu</ResourceName></VSCTCompile>
+    <EmbeddedResource Include="..\ArrayImageViewer\Resources.resx"><Link>Resources.resx</Link><MergeWithCTO>true</MergeWithCTO><ManifestResourceName>VSPackage</ManifestResourceName></EmbeddedResource>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.VisualStudio.Shell.14.0" Version="14.3.25407" />
+    <PackageReference Include="Microsoft.VisualStudio.Debugger.Interop" Version="8.0.50729"><PrivateAssets>all</PrivateAssets><ExcludeAssets>runtime</ExcludeAssets></PackageReference>
+    <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="15.9.3039" PrivateAssets="all" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Import Project="$(NuGetPackageRoot)microsoft.vssdk.buildtools\15.9.3039\tools\VSSDK\Microsoft.VsSDK.targets" Condition="Exists('$(NuGetPackageRoot)microsoft.vssdk.buildtools\15.9.3039\tools\VSSDK\Microsoft.VsSDK.targets')" />
+</Project>

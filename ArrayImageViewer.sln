@@ -4,6 +4,8 @@ VisualStudioVersion = 16.0.35229.62
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArrayImageViewer", "src\ArrayImageViewer\ArrayImageViewer.csproj", "{9E16469A-BDF6-4DC6-8600-FFE1DD713723}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArrayImageViewer.VS2015", "src\ArrayImageViewer.VS2015\ArrayImageViewer.VS2015.csproj", "{B016B5B0-5E6C-44D8-B1D5-378A5A6828D7}"
+EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SensorRawDebuggee", "samples\SensorRawDebuggee\SensorRawDebuggee.vcxproj", "{8A2C2B3A-71B5-4A93-B992-499614E78D91}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArrayImageViewer.Tests", "tests\ArrayImageViewer.Tests\ArrayImageViewer.Tests.csproj", "{4D8DF2D3-B3B5-44F0-8209-9DA670E8D5C8}"
@@ -24,6 +26,14 @@ Global
 		{9E16469A-BDF6-4DC6-8600-FFE1DD713723}.Release|Any CPU.Build.0 = Release|Any CPU
 		{9E16469A-BDF6-4DC6-8600-FFE1DD713723}.Release|x64.ActiveCfg = Release|Any CPU
 		{9E16469A-BDF6-4DC6-8600-FFE1DD713723}.Release|x64.Build.0 = Release|Any CPU
+		{B016B5B0-5E6C-44D8-B1D5-378A5A6828D7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B016B5B0-5E6C-44D8-B1D5-378A5A6828D7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B016B5B0-5E6C-44D8-B1D5-378A5A6828D7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B016B5B0-5E6C-44D8-B1D5-378A5A6828D7}.Debug|x64.Build.0 = Debug|Any CPU
+		{B016B5B0-5E6C-44D8-B1D5-378A5A6828D7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B016B5B0-5E6C-44D8-B1D5-378A5A6828D7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B016B5B0-5E6C-44D8-B1D5-378A5A6828D7}.Release|x64.ActiveCfg = Release|Any CPU
+		{B016B5B0-5E6C-44D8-B1D5-378A5A6828D7}.Release|x64.Build.0 = Release|Any CPU
 		{8A2C2B3A-71B5-4A93-B992-499614E78D91}.Debug|Any CPU.ActiveCfg = Debug|x64
 		{8A2C2B3A-71B5-4A93-B992-499614E78D91}.Debug|x64.ActiveCfg = Debug|x64
 		{8A2C2B3A-71B5-4A93-B992-499614E78D91}.Debug|x64.Build.0 = Debug|x64
