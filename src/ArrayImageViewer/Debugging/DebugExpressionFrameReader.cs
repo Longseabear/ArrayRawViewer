@@ -62,17 +62,12 @@ namespace ArrayImageViewer.Debugging
                 throw new ArgumentException("The requested ROI is outside the configured full frame.");
             }
 
-            var roiSampleCount = checked((long)roiWidth * roiHeight);
-            if (roiSampleCount > DraftSampleLimit)
-            {
-                throw new InvalidOperationException("ROI expression evaluation is limited to 16,384 samples. Reduce ROI W/H.");
-            }
-
             if (String.IsNullOrWhiteSpace(expression))
             {
                 throw new ArgumentException("Enter a pointer or array expression.");
             }
 
+            var roiSampleCount = checked((long)roiWidth * roiHeight);
             var debugger = GetDebugger();
             var currentStackFrame = GetOptionalMember(debugger, "CurrentStackFrame");
             FrameBuffer memoryFrame;
@@ -80,6 +75,11 @@ namespace ArrayImageViewer.Debugging
             {
                 LastRoiReadUsedMemory = true;
                 return memoryFrame;
+            }
+
+            if (roiSampleCount > DraftSampleLimit)
+            {
+                throw new InvalidOperationException("This debug engine does not expose native memory reads. Expression fallback is limited to 16,384 ROI samples; reduce ROI W/H.");
             }
 
             var roiConfiguration = new FrameConfiguration(roiWidth, roiHeight, roiWidth,

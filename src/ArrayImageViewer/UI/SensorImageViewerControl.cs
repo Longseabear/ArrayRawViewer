@@ -165,7 +165,8 @@ namespace ArrayImageViewer.UI
             pointerRow.Children.Add(CreateAction("EDITOR", CreateButton("Capture", CaptureSelection, false)));
             pointerRow.Children.Add(CreateField("PROFILE", profilePicker));
             pointerRow.Children.Add(CreateAction("", CreateButton("Load ROI", LoadExpression, true)));
-            panel.Children.Add(CreateSection("SOURCE", "Type for local-pointer suggestions. Profiles retain each captured pointer's settings for this window only.", pointerRow));
+            pointerRow.Children.Add(CreateAction("", CreateButton("Full preview", LoadFullPreview, false)));
+            panel.Children.Add(CreateSection("SOURCE", "Type for local-pointer suggestions. Full preview uses native debugger memory; profiles retain settings for this window only.", pointerRow));
 
             var formatRow = CreateRow();
             formatRow.Children.Add(CreateField("WIDTH", width));
@@ -748,18 +749,53 @@ namespace ArrayImageViewer.UI
                 var roi = GetRoiBounds(configuration);
                 SetStatus("Reading ROI " + roi.Width + "x" + roi.Height + " from the debugger.");
                 var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, roi.X, roi.Y, roi.Width, roi.Height);
-                lastReadPath = DebugExpressionFrameReader.LastRoiReadUsedMemory ? "debugger memory" : "expression fallback";
-                ApplyFrame(source, FrameRenderer.Render(source), configuration.Width, configuration.Height, roi.CenterX, roi.CenterY);
-                ApplyZoom(Math.Max(18.0, zoom));
-                EnsureProfile(expression.Text);
-                activeProfileExpression = expression.Text.Trim();
-                SaveCurrentProfile();
-                RebuildProfilePicker(expression.Text);
+                ApplyLoadedFrame(source, configuration.Width, configuration.Height, roi.CenterX, roi.CenterY, false);
             }
             catch (Exception exception)
             {
                 SetStatus("Cannot read pointer: " + exception.Message);
             }
+        }
+
+        private void LoadFullPreview(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var configuration = ReadConfiguration();
+                SetStatus("Reading full " + configuration.Width + "x" + configuration.Height + " preview from the debugger.");
+                var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, 0, 0, configuration.Width, configuration.Height);
+                if (!DebugExpressionFrameReader.LastRoiReadUsedMemory)
+                {
+                    throw new InvalidOperationException("Full preview requires the native debugger-memory reader. Use Load ROI on this debug engine.");
+                }
+
+                var centerX = Math.Max(0, Math.Min(configuration.Width - 1, ResolveInteger(selectedX, "ROI center X")));
+                var centerY = Math.Max(0, Math.Min(configuration.Height - 1, ResolveInteger(selectedY, "ROI center Y")));
+                ApplyLoadedFrame(source, configuration.Width, configuration.Height, centerX, centerY, true);
+            }
+            catch (Exception exception)
+            {
+                SetStatus("Cannot read full preview: " + exception.Message);
+            }
+        }
+
+        private void ApplyLoadedFrame(FrameBuffer source, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY, bool isFullPreview)
+        {
+            lastReadPath = DebugExpressionFrameReader.LastRoiReadUsedMemory ? "debugger memory" : "expression fallback";
+            ApplyFrame(source, FrameRenderer.Render(source), sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY);
+            ApplyZoom(isFullPreview ? GetFullPreviewZoom(source.Configuration.Width, source.Configuration.Height) : Math.Max(18.0, zoom));
+            EnsureProfile(expression.Text);
+            activeProfileExpression = expression.Text.Trim();
+            SaveCurrentProfile();
+            RebuildProfilePicker(expression.Text);
+        }
+
+        private double GetFullPreviewZoom(int imageWidth, int imageHeight)
+        {
+            var availableWidth = Math.Max(320.0, scrollViewer.ActualWidth - 24);
+            var availableHeight = Math.Max(220.0, scrollViewer.ActualHeight - 24);
+            var fit = Math.Min(availableWidth / imageWidth, availableHeight / imageHeight);
+            return Math.Max(0.05, Math.Min(1.0, fit));
         }
 
         private FrameConfiguration ReadConfiguration()
@@ -1017,6 +1053,10 @@ namespace ArrayImageViewer.UI
             navigatorInfo.Text = String.Format(CultureInfo.InvariantCulture,
                 "Frame  {0} x {1}\nROI  x={2}..{3}, y={4}..{5}  ({6} x {7})",
                 frameWidth, frameHeight, roiX, roiX + actualWidth - 1, roiY, roiY + actualHeight - 1, actualWidth, actualHeight);
+            if (frame != null)
+            {
+                UpdateRoiRectangle();
+            }
         }
 
         private static int ParseNavigatorValue(string value, int fallback)
@@ -1365,10 +1405,27 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            roiRectangle.Width = Math.Max(0, canvas.Width - 2);
-            roiRectangle.Height = Math.Max(0, canvas.Height - 2);
-            Canvas.SetLeft(roiRectangle, 1);
-            Canvas.SetTop(roiRectangle, 1);
+            var localX = 0;
+            var localY = 0;
+            var widthInSamples = frame.Configuration.Width;
+            var heightInSamples = frame.Configuration.Height;
+            if (frame.Configuration.OriginX == 0 && frame.Configuration.OriginY == 0 &&
+                frame.Configuration.Width == fullFrameWidth && frame.Configuration.Height == fullFrameHeight)
+            {
+                var requestedWidth = Math.Max(1, ParseNavigatorValue(roiWidth.Text, 1));
+                var requestedHeight = Math.Max(1, ParseNavigatorValue(roiHeight.Text, 1));
+                widthInSamples = Math.Min(frame.Configuration.Width, requestedWidth);
+                heightInSamples = Math.Min(frame.Configuration.Height, requestedHeight);
+                var centerX = ParseNavigatorValue(selectedX.Text, frame.Configuration.Width / 2);
+                var centerY = ParseNavigatorValue(selectedY.Text, frame.Configuration.Height / 2);
+                localX = Math.Max(0, Math.Min(frame.Configuration.Width - widthInSamples, centerX - widthInSamples / 2));
+                localY = Math.Max(0, Math.Min(frame.Configuration.Height - heightInSamples, centerY - heightInSamples / 2));
+            }
+
+            roiRectangle.Width = Math.Max(1, widthInSamples * zoom - 2);
+            roiRectangle.Height = Math.Max(1, heightInSamples * zoom - 2);
+            Canvas.SetLeft(roiRectangle, localX * zoom + 1);
+            Canvas.SetTop(roiRectangle, localY * zoom + 1);
             roiRectangle.Visibility = Visibility.Visible;
         }
 

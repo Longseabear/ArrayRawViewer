@@ -102,6 +102,13 @@ memory range; the status line reports `Read debugger memory`. Unsupported engine
 automatically fall back to expression evaluation and report `Read expression
 fallback`.
 
+On a native engine that reports `Read debugger memory`, **Full preview** reads the
+configured full frame and opens it as a fit-to-window image. No per-pixel text is
+created at that zoom level; text/grid cells appear only after zooming in far enough
+that at most 900 cells are visible. The orange ROI rectangle remains overlaid on
+the full preview, so the frame navigator can select a small inspectable region
+without losing full-frame context.
+
 ## Bayer coordinate rule
 
 `(0, 0)` is the top-left sample of the **full frame**. Bayer parity is calculated
