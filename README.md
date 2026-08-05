@@ -10,7 +10,10 @@ one-dimensional native sensor RAW buffer as a two-dimensional image.
 2. Restore NuGet packages and build the `Debug` or `Release` configuration.
 3. Close all Visual Studio 2017 instances and run the generated
    `src\ArrayImageViewer\bin\Debug\ArrayImageViewer.vsix` (or Release equivalent).
-4. In Visual Studio 2017, open **Tools > Sensor RAW Array Viewer**.
+4. In Visual Studio 2017, open **Tools > Sensor RAW Array Viewer**. The viewer
+   initially opens as a 1000x780 floating tool window; it can be docked normally.
+   In a narrow docked layout, scroll the configuration area to reach the Frame
+   Navigator while the image viewport remains visible.
 
 Use the default `ArrayImageViewer.vsix` for Visual Studio 2017 (15.x), 2019
 (16.x), and 2022 (17.x). It is built against the VS 2017 Shell facade and .NET

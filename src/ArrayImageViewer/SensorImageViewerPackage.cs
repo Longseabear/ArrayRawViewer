@@ -9,7 +9,7 @@ namespace ArrayImageViewer
     [PackageRegistration(UseManagedResourcesOnly = true)]
     [InstalledProductRegistration("Sensor RAW Array Viewer", "View pointer-backed sensor RAW arrays.", "0.1")]
     [ProvideMenuResource("Menus.ctmenu", 1)]
-    [ProvideToolWindow(typeof(SensorImageToolWindow))]
+    [ProvideToolWindow(typeof(SensorImageToolWindow), Width = 1000, Height = 780)]
     public sealed class SensorImageViewerPackage : Package
     {
         protected override void Initialize()

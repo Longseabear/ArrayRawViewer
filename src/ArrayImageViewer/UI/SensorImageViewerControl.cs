@@ -50,7 +50,7 @@ namespace ArrayImageViewer.UI
         private readonly TextBox roiWidth = CreateTextBox("5", 54);
         private readonly TextBox roiHeight = CreateTextBox("5", 54);
         private readonly TextBlock status = new TextBlock { Foreground = TextBrush, TextWrapping = TextWrapping.Wrap };
-        private readonly TextBlock viewport = new TextBlock { Foreground = MutedBrush, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        private readonly TextBlock viewport = new TextBlock { Foreground = MutedBrush, Text = "No frame loaded", Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         private readonly ScrollViewer scrollViewer = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Background = CanvasBrush, Focusable = true };
         private readonly Canvas canvas = new Canvas { Background = CanvasBrush, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, MinWidth = 520, MinHeight = 260, Focusable = true };
         private readonly System.Windows.Controls.Image image = new System.Windows.Controls.Image { Stretch = Stretch.Fill, SnapsToDevicePixels = true };
@@ -145,8 +145,18 @@ namespace ArrayImageViewer.UI
 
             var root = new DockPanel { Background = RootBrush, LastChildFill = true };
             var header = CreateHeader();
-            DockPanel.SetDock(header, Dock.Top);
-            root.Children.Add(header);
+            var configurationScroll = new ScrollViewer
+            {
+                Content = header,
+                Background = RootBrush,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                BorderBrush = PanelBorderBrush,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                MaxHeight = 400
+            };
+            DockPanel.SetDock(configurationScroll, Dock.Top);
+            root.Children.Add(configurationScroll);
             var footer = CreateFooter();
             DockPanel.SetDock(footer, Dock.Bottom);
             root.Children.Add(footer);
@@ -271,11 +281,14 @@ namespace ArrayImageViewer.UI
         {
             var wrapper = new Border { Background = PanelBrush, BorderBrush = PanelBorderBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 8, 10, 9), Margin = new Thickness(0, 0, 0, 7) };
             var stack = new StackPanel();
-            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 7) };
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 7) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             var label = new TextBlock { Text = title, Foreground = AccentBrush, FontSize = 10, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-            DockPanel.SetDock(label, Dock.Left);
             row.Children.Add(label);
-            row.Children.Add(new TextBlock { Text = detail, Foreground = MutedBrush, FontSize = 10, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+            var description = new TextBlock { Text = detail, Foreground = MutedBrush, FontSize = 10, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            Grid.SetColumn(description, 1);
+            row.Children.Add(description);
             stack.Children.Add(row);
             stack.Children.Add(contents);
             wrapper.Child = stack;
