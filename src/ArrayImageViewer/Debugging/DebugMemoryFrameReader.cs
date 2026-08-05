@@ -65,6 +65,38 @@ namespace ArrayImageViewer.Debugging
             }
         }
 
+        // Some native engines expose the evaluated DTE expression as the
+        // underlying IDebugProperty2 even when their DTE StackFrame wrapper
+        // cannot be queried for IDebugStackFrame2.
+        public static bool TryStartRoiReadFromProperty(object evaluatedExpression, FrameConfiguration sourceConfiguration,
+            int originX, int originY, int roiWidth, int roiHeight, out RoiReadSession session)
+        {
+            session = null;
+            var property = evaluatedExpression as IDebugProperty2;
+            if (property == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                IDebugMemoryBytes2 memoryBytes;
+                IDebugMemoryContext2 memoryContext;
+                if (Failed(property.GetMemoryBytes(out memoryBytes)) || memoryBytes == null ||
+                    Failed(property.GetMemoryContext(out memoryContext)) || memoryContext == null)
+                {
+                    return false;
+                }
+
+                session = new RoiReadSession(memoryBytes, memoryContext, sourceConfiguration, originX, originY, roiWidth, roiHeight);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         public static bool TryReadRoi(object currentStackFrame, string expression, FrameConfiguration sourceConfiguration,
             int originX, int originY, int roiWidth, int roiHeight, out FrameBuffer frame)
         {

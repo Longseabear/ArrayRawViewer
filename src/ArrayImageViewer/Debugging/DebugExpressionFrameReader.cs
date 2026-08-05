@@ -114,7 +114,13 @@ namespace ArrayImageViewer.Debugging
             LastRoiReadUsedMemory = false;
             var debugger = GetDebugger();
             var currentStackFrame = GetCurrentStackFrame(debugger);
-            return DebugMemoryFrameReader.TryStartRoiRead(currentStackFrame, expression, sourceConfiguration, originX, originY, roiWidth, roiHeight, out session);
+            if (DebugMemoryFrameReader.TryStartRoiRead(currentStackFrame, expression, sourceConfiguration, originX, originY, roiWidth, roiHeight, out session))
+            {
+                return true;
+            }
+
+            var evaluated = Invoke(debugger, "GetExpression", expression, true, 2000);
+            return DebugMemoryFrameReader.TryStartRoiReadFromProperty(evaluated, sourceConfiguration, originX, originY, roiWidth, roiHeight, out session);
         }
 
         internal static void MarkMemoryReadComplete()
