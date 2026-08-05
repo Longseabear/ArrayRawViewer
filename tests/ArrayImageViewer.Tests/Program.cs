@@ -17,6 +17,7 @@ namespace ArrayImageViewer.Tests
                 SourceElementTypesPreserveStorageShape();
                 SourceElementCodecDecodesSignedAndUnsignedValues();
                 StrideAndOriginRemainFullFrameRelative();
+                RoiGeometryClampsAndPreservesDragSelection();
                 BayerLayoutsRepeatAtExpectedBlockSizes();
                 RendererWritesExpectedGrayPixels();
                 FrozenRendererResultCrossesStaThread();
@@ -77,6 +78,24 @@ namespace ArrayImageViewer.Tests
             Assert(SourceElementCodec.DecodeLittleEndian(bytes, 0, SourceElementType.UInt16) == 65534, "uint16 decodes value.");
             Assert(SourceElementCodec.DecodeLittleEndian(bytes, 0, SourceElementType.Int32) == -2, "int32 decodes sign.");
             Assert(SourceElementCodec.DecodeUInt32(0xffffffffU, SourceElementType.UInt32) == UInt32.MaxValue, "uint32 preserves full range.");
+        }
+
+        private static void RoiGeometryClampsAndPreservesDragSelection()
+        {
+            var topLeft = RoiGeometry.ClampCentered(4096, 3072, 0, 0, 5, 5);
+            Assert(topLeft.X == 0 && topLeft.Y == 0 && topLeft.Width == 5 && topLeft.Height == 5, "5x5 ROI clamps at top-left.");
+            Assert(topLeft.CenterX == 2 && topLeft.CenterY == 2, "Clamped ROI reports actual center.");
+            var bottomRight = RoiGeometry.ClampCentered(4096, 3072, 4095, 3071, 5, 5);
+            Assert(bottomRight.X == 4091 && bottomRight.Y == 3067, "5x5 ROI clamps at bottom-right.");
+            var full = RoiGeometry.ClampCentered(4096, 3072, 1978, 369, 99999, 99999);
+            Assert(full.X == 0 && full.Y == 0 && full.Width == 4096 && full.Height == 3072, "Oversized ROI becomes full frame.");
+            var drag = RoiGeometry.FromDrag(4096, 3072, 100, 200, 104, 204);
+            Assert(drag.X == 100 && drag.Y == 200 && drag.Width == 5 && drag.Height == 5, "Navigator drag defines inclusive ROI size.");
+            Assert(drag.CenterX == 102 && drag.CenterY == 202, "Navigator drag reports ROI center.");
+            var evenDrag = RoiGeometry.FromDrag(4096, 3072, 100, 200, 103, 203);
+            Assert(evenDrag.CenterX == 102 && evenDrag.CenterY == 202, "Even-sized drag keeps the ROI origin stable after centering.");
+            var evenRoundTrip = RoiGeometry.ClampCentered(4096, 3072, evenDrag.CenterX, evenDrag.CenterY, evenDrag.Width, evenDrag.Height);
+            Assert(evenRoundTrip.X == 100 && evenRoundTrip.Y == 200, "Even-sized drag survives center-to-ROI round trip.");
         }
 
         private static void BayerLayoutsRepeatAtExpectedBlockSizes()

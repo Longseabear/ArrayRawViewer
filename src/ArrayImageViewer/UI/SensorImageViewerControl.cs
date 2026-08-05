@@ -1094,18 +1094,13 @@ namespace ArrayImageViewer.UI
                 throw new ArgumentException("ROI W and H must be positive.");
             }
 
-            var actualWidth = Math.Min(requestedWidth, configuration.Width);
-            var actualHeight = Math.Min(requestedHeight, configuration.Height);
-            var x = Math.Max(0, Math.Min(configuration.Width - actualWidth, requestedX - actualWidth / 2));
-            var y = Math.Max(0, Math.Min(configuration.Height - actualHeight, requestedY - actualHeight / 2));
-            var centerX = x + actualWidth / 2;
-            var centerY = y + actualHeight / 2;
-            selectedX.Text = centerX.ToString(CultureInfo.InvariantCulture);
-            selectedY.Text = centerY.ToString(CultureInfo.InvariantCulture);
-            roiWidth.Text = actualWidth.ToString(CultureInfo.InvariantCulture);
-            roiHeight.Text = actualHeight.ToString(CultureInfo.InvariantCulture);
+            var roi = RoiGeometry.ClampCentered(configuration.Width, configuration.Height, requestedX, requestedY, requestedWidth, requestedHeight);
+            selectedX.Text = roi.CenterX.ToString(CultureInfo.InvariantCulture);
+            selectedY.Text = roi.CenterY.ToString(CultureInfo.InvariantCulture);
+            roiWidth.Text = roi.Width.ToString(CultureInfo.InvariantCulture);
+            roiHeight.Text = roi.Height.ToString(CultureInfo.InvariantCulture);
             UpdateNavigator();
-            return new RoiBounds(x, y, actualWidth, actualHeight, centerX, centerY);
+            return new RoiBounds(roi.X, roi.Y, roi.Width, roi.Height, roi.CenterX, roi.CenterY);
         }
 
         private void NavigatorMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -1238,14 +1233,15 @@ namespace ArrayImageViewer.UI
 
         private void PreviewNavigatorRoi(int endX, int endY)
         {
-            var left = Math.Min(navigatorStartX, endX);
-            var top = Math.Min(navigatorStartY, endY);
-            var right = Math.Max(navigatorStartX, endX);
-            var bottom = Math.Max(navigatorStartY, endY);
-            selectedX.Text = (left + (right - left) / 2).ToString(CultureInfo.InvariantCulture);
-            selectedY.Text = (top + (bottom - top) / 2).ToString(CultureInfo.InvariantCulture);
-            roiWidth.Text = (right - left + 1).ToString(CultureInfo.InvariantCulture);
-            roiHeight.Text = (bottom - top + 1).ToString(CultureInfo.InvariantCulture);
+            var roi = RoiGeometry.FromDrag(fullFrameWidth, fullFrameHeight, navigatorStartX, navigatorStartY, endX, endY);
+            var left = roi.X;
+            var top = roi.Y;
+            var right = roi.X + roi.Width - 1;
+            var bottom = roi.Y + roi.Height - 1;
+            selectedX.Text = roi.CenterX.ToString(CultureInfo.InvariantCulture);
+            selectedY.Text = roi.CenterY.ToString(CultureInfo.InvariantCulture);
+            roiWidth.Text = roi.Width.ToString(CultureInfo.InvariantCulture);
+            roiHeight.Text = roi.Height.ToString(CultureInfo.InvariantCulture);
             UpdateNavigator();
             SetStatus("ROI preview: x=" + left + ".." + right + ", y=" + top + ".." + bottom + ". Release to read it.");
         }

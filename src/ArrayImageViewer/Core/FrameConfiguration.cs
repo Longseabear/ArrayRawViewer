@@ -75,6 +75,62 @@ namespace ArrayImageViewer.Core
         }
     }
 
+    internal struct RoiRectangle
+    {
+        public RoiRectangle(int x, int y, int width, int height, int centerX, int centerY)
+        {
+            X = x;
+            Y = y;
+            Width = width;
+            Height = height;
+            CenterX = centerX;
+            CenterY = centerY;
+        }
+
+        public int X;
+        public int Y;
+        public int Width;
+        public int Height;
+        public int CenterX;
+        public int CenterY;
+    }
+
+    internal static class RoiGeometry
+    {
+        public static RoiRectangle ClampCentered(int frameWidth, int frameHeight, int requestedCenterX, int requestedCenterY,
+            int requestedWidth, int requestedHeight)
+        {
+            if (frameWidth <= 0 || frameHeight <= 0 || requestedWidth <= 0 || requestedHeight <= 0)
+            {
+                throw new ArgumentException("Frame and ROI dimensions must be positive.");
+            }
+
+            var actualWidth = Math.Min(requestedWidth, frameWidth);
+            var actualHeight = Math.Min(requestedHeight, frameHeight);
+            var centerX = Math.Max(0, Math.Min(frameWidth - 1, requestedCenterX));
+            var centerY = Math.Max(0, Math.Min(frameHeight - 1, requestedCenterY));
+            var x = Math.Max(0, Math.Min(frameWidth - actualWidth, centerX - actualWidth / 2));
+            var y = Math.Max(0, Math.Min(frameHeight - actualHeight, centerY - actualHeight / 2));
+            return new RoiRectangle(x, y, actualWidth, actualHeight, x + actualWidth / 2, y + actualHeight / 2);
+        }
+
+        public static RoiRectangle FromDrag(int frameWidth, int frameHeight, int startX, int startY, int endX, int endY)
+        {
+            if (frameWidth <= 0 || frameHeight <= 0)
+            {
+                throw new ArgumentException("Frame dimensions must be positive.");
+            }
+
+            var left = Math.Max(0, Math.Min(frameWidth - 1, Math.Min(startX, endX)));
+            var top = Math.Max(0, Math.Min(frameHeight - 1, Math.Min(startY, endY)));
+            var right = Math.Max(0, Math.Min(frameWidth - 1, Math.Max(startX, endX)));
+            var bottom = Math.Max(0, Math.Min(frameHeight - 1, Math.Max(startY, endY)));
+            var width = right - left + 1;
+            var height = bottom - top + 1;
+            return new RoiRectangle(left, top, width, height, left + width / 2, top + height / 2);
+        }
+    }
+
     internal sealed class FrameConfiguration
     {
         public FrameConfiguration(int width, int height, int stride, int integerBits, int fractionalBits, bool isSigned, PixelOrder pixelOrder, PixelType pixelType, VisualizeChannel visualizeChannel)
