@@ -107,7 +107,22 @@ configured full frame and opens it as a fit-to-window image. No per-pixel text i
 created at that zoom level; text/grid cells appear only after zooming in far enough
 that at most 900 cells are visible. The orange ROI rectangle remains overlaid on
 the full preview, so the frame navigator can select a small inspectable region
-without losing full-frame context.
+without losing full-frame context. Large preview rendering runs on a background
+STA worker and returns a frozen bitmap to the Visual Studio UI thread. Its pixel
+conversion is written in 64-row blocks, rather than allocating a second full-frame
+BGRA array alongside the raw samples.
+
+## Core checks
+
+`tests\ArrayImageViewer.Tests` is a dependency-free .NET 4.5 console test project.
+It checks Q-format decoding/ranges, stride handling, Bayer/Tetra/TetraSquare phase,
+small renderer output, the worker-thread bitmap handoff, and a real 4096x3072 Gray
+render. Build and run it with:
+
+```powershell
+msbuild tests\ArrayImageViewer.Tests\ArrayImageViewer.Tests.csproj /t:Build /p:Configuration=Release
+.\tests\ArrayImageViewer.Tests\bin\Release\ArrayImageViewer.Tests.exe
+```
 
 ## Bayer coordinate rule
 

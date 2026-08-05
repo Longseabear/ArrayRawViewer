@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -82,6 +83,7 @@ namespace ArrayImageViewer.UI
         private Point navigatorDragStartPoint;
         private Rect navigatorFrameBounds;
         private string lastReadPath = "expression fallback";
+        private int renderGeneration;
 
         public SensorImageViewerControl()
         {
@@ -749,7 +751,7 @@ namespace ArrayImageViewer.UI
                 var roi = GetRoiBounds(configuration);
                 SetStatus("Reading ROI " + roi.Width + "x" + roi.Height + " from the debugger.");
                 var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, roi.X, roi.Y, roi.Width, roi.Height);
-                ApplyLoadedFrame(source, configuration.Width, configuration.Height, roi.CenterX, roi.CenterY, false);
+                ApplyLoadedFrame(source, configuration.Width, configuration.Height, roi.CenterX, roi.CenterY, false, expression.Text.Trim());
             }
             catch (Exception exception)
             {
@@ -771,7 +773,7 @@ namespace ArrayImageViewer.UI
 
                 var centerX = Math.Max(0, Math.Min(configuration.Width - 1, ResolveInteger(selectedX, "ROI center X")));
                 var centerY = Math.Max(0, Math.Min(configuration.Height - 1, ResolveInteger(selectedY, "ROI center Y")));
-                ApplyLoadedFrame(source, configuration.Width, configuration.Height, centerX, centerY, true);
+                ApplyLoadedFrame(source, configuration.Width, configuration.Height, centerX, centerY, true, expression.Text.Trim());
             }
             catch (Exception exception)
             {
@@ -779,15 +781,57 @@ namespace ArrayImageViewer.UI
             }
         }
 
-        private void ApplyLoadedFrame(FrameBuffer source, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY, bool isFullPreview)
+        private void ApplyLoadedFrame(FrameBuffer source, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY, bool isFullPreview, string sourceExpression)
         {
-            lastReadPath = DebugExpressionFrameReader.LastRoiReadUsedMemory ? "debugger memory" : "expression fallback";
-            ApplyFrame(source, FrameRenderer.Render(source), sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY);
+            var readPath = DebugExpressionFrameReader.LastRoiReadUsedMemory ? "debugger memory" : "expression fallback";
+            var sampleCount = (long)source.Configuration.Width * source.Configuration.Height;
+            var generation = ++renderGeneration;
+            if (sampleCount <= 262144)
+            {
+                ApplyRenderedFrame(source, FrameRenderer.Render(source), sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, sourceExpression, readPath);
+                return;
+            }
+
+            SetStatus("Rendering " + source.Configuration.Width.ToString(CultureInfo.InvariantCulture) + "x" + source.Configuration.Height.ToString(CultureInfo.InvariantCulture) + " preview in the background. The viewer remains usable.");
+            var renderThread = new Thread(delegate()
+            {
+                try
+                {
+                    var bitmap = FrameRenderer.Render(source);
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        if (generation == renderGeneration)
+                        {
+                            ApplyRenderedFrame(source, bitmap, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, sourceExpression, readPath);
+                        }
+                    }));
+                }
+                catch (Exception exception)
+                {
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        if (generation == renderGeneration)
+                        {
+                            SetStatus("Cannot render preview: " + exception.Message);
+                        }
+                    }));
+                }
+            });
+            renderThread.IsBackground = true;
+            renderThread.SetApartmentState(ApartmentState.STA);
+            renderThread.Start();
+        }
+
+        private void ApplyRenderedFrame(FrameBuffer source, ImageSource bitmap, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY,
+            bool isFullPreview, string sourceExpression, string readPath)
+        {
+            lastReadPath = readPath;
+            ApplyFrame(source, bitmap, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY);
             ApplyZoom(isFullPreview ? GetFullPreviewZoom(source.Configuration.Width, source.Configuration.Height) : Math.Max(18.0, zoom));
-            EnsureProfile(expression.Text);
-            activeProfileExpression = expression.Text.Trim();
+            EnsureProfile(sourceExpression);
+            activeProfileExpression = sourceExpression;
             SaveCurrentProfile();
-            RebuildProfilePicker(expression.Text);
+            RebuildProfilePicker(sourceExpression);
         }
 
         private double GetFullPreviewZoom(int imageWidth, int imageHeight)

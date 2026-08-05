@@ -6,6 +6,10 @@ namespace ArrayImageViewer.Core
 {
     internal static class FrameRenderer
     {
+        // A 4096 x 3072 BGRA frame is 48 MiB by itself.  Converting it in
+        // small row blocks avoids allocating another full-size image buffer.
+        private const int RowsPerWrite = 64;
+
         public static WriteableBitmap Render(FrameBuffer frame)
         {
             if (frame == null)
@@ -15,23 +19,29 @@ namespace ArrayImageViewer.Core
 
             var config = frame.Configuration;
             var range = new Range(config.RawMinimum, config.RawMaximum);
-            var pixels = new byte[checked(config.Width * config.Height * 4)];
-            var offset = 0;
-
-            for (var y = 0; y < config.Height; y++)
+            var bitmap = new WriteableBitmap(config.Width, config.Height, 96, 96, PixelFormats.Bgra32, null);
+            var rowByteCount = checked(config.Width * 4);
+            var blockRows = Math.Min(RowsPerWrite, config.Height);
+            var pixels = new byte[checked(rowByteCount * blockRows)];
+            for (var blockY = 0; blockY < config.Height; blockY += blockRows)
             {
-                for (var x = 0; x < config.Width; x++)
+                var rowCount = Math.Min(blockRows, config.Height - blockY);
+                var offset = 0;
+                for (var y = blockY; y < blockY + rowCount; y++)
                 {
-                    var color = GetColor(frame, x, y, range.Minimum, range.Maximum);
-                    pixels[offset++] = color.B;
-                    pixels[offset++] = color.G;
-                    pixels[offset++] = color.R;
-                    pixels[offset++] = 255;
+                    for (var x = 0; x < config.Width; x++)
+                    {
+                        var color = GetColor(frame, x, y, range.Minimum, range.Maximum);
+                        pixels[offset++] = color.B;
+                        pixels[offset++] = color.G;
+                        pixels[offset++] = color.R;
+                        pixels[offset++] = 255;
+                    }
                 }
+
+                bitmap.WritePixels(new System.Windows.Int32Rect(0, blockY, config.Width, rowCount), pixels, rowByteCount, 0);
             }
 
-            var bitmap = new WriteableBitmap(config.Width, config.Height, 96, 96, PixelFormats.Bgra32, null);
-            bitmap.WritePixels(new System.Windows.Int32Rect(0, 0, config.Width, config.Height), pixels, config.Width * 4, 0);
             bitmap.Freeze();
             return bitmap;
         }
