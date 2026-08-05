@@ -132,6 +132,10 @@ namespace ArrayImageViewer.Tests
             var constant = new FrameBuffer(Config(1, 1, 1, 8, 0, false, PixelType.Bayer), new long[] { 42 });
             var constantRange = constant.GetLoadedDataRange();
             Assert(constantRange.Minimum == 42 && constantRange.Maximum == 43, "Constant frames receive a safe display range.");
+            var paddedConfig = new FrameConfiguration(2, 2, 3, 8, 0, false, PixelOrder.GRFirst, PixelType.Bayer, VisualizeChannel.Gray);
+            var padded = new FrameBuffer(paddedConfig, new long[] { 10, 30, 999, 20, 40, 999 });
+            var paddedRange = padded.GetLoadedDataRange();
+            Assert(paddedRange.Minimum == 10 && paddedRange.Maximum == 40, "Display normalization ignores row padding samples.");
         }
 
         private static void FullFrameRendererCompletes()
