@@ -101,6 +101,13 @@ namespace ArrayImageViewer.Tests
             Assert(evenDrag.CenterX == 102 && evenDrag.CenterY == 202, "Even-sized drag keeps the ROI origin stable after centering.");
             var evenRoundTrip = RoiGeometry.ClampCentered(4096, 3072, evenDrag.CenterX, evenDrag.CenterY, evenDrag.Width, evenDrag.Height);
             Assert(evenRoundTrip.X == 100 && evenRoundTrip.Y == 200, "Even-sized drag survives center-to-ROI round trip.");
+            var context = RoiGeometry.CreateContext(4096, 3072, 1978, 369, 5, 5, 16384);
+            Assert((long)context.Width * context.Height <= 16384, "Context preview stays within its rendering sample budget.");
+            Assert(context.X <= 1978 && context.X + context.Width > 1978 && context.Y <= 369 && context.Y + context.Height > 369,
+                "Context preview contains the requested full-frame coordinate.");
+            var oversizedContext = RoiGeometry.CreateContext(32, 16, 31, 15, 32, 16, 16);
+            Assert(oversizedContext.Width == 32 && oversizedContext.Height == 16 && oversizedContext.X == 0 && oversizedContext.Y == 0,
+                "A requested ROI larger than the context budget is preserved rather than clipped.");
         }
 
         private static void BayerLayoutsRepeatAtExpectedBlockSizes()

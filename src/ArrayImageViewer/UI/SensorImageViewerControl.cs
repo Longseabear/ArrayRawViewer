@@ -17,10 +17,14 @@ namespace ArrayImageViewer.UI
     internal sealed class SensorImageViewerControl : UserControl
     {
         private const long NormalFullPreviewSampleLimit = 4L * 1024L * 1024L;
+        // This is deliberately small enough for the expression-reader fallback too.
+        // Native debugger memory reads use the same shape, but finish much faster.
+        private const int ContextPreviewSampleLimit = 128 * 128;
         private static readonly Brush RootBrush = new SolidColorBrush(Color.FromRgb(13, 19, 30));
         private static readonly Brush PanelBrush = new SolidColorBrush(Color.FromRgb(24, 33, 48));
         private static readonly Brush ControlBrush = new SolidColorBrush(Color.FromRgb(15, 23, 38));
         private static readonly Brush CanvasBrush = new SolidColorBrush(Color.FromRgb(6, 10, 17));
+        private static readonly Brush UnloadedFrameBrush = new SolidColorBrush(Color.FromRgb(29, 41, 57));
         private static readonly Brush AccentBrush = new SolidColorBrush(Color.FromRgb(67, 214, 177));
         private static readonly Brush AccentSoftBrush = new SolidColorBrush(Color.FromRgb(24, 65, 64));
         private static readonly Brush PanelBorderBrush = new SolidColorBrush(Color.FromRgb(58, 75, 98));
@@ -57,6 +61,7 @@ namespace ArrayImageViewer.UI
         private readonly TextBlock viewport = new TextBlock { Foreground = MutedBrush, Text = "No frame loaded", Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         private readonly ScrollViewer scrollViewer = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Background = CanvasBrush, Focusable = true };
         private readonly Canvas canvas = new Canvas { Background = CanvasBrush, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, MinWidth = 520, MinHeight = 260, Focusable = true };
+        private readonly Rectangle unloadedFrame = new Rectangle { Fill = UnloadedFrameBrush, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
         private readonly System.Windows.Controls.Image image = new System.Windows.Controls.Image { Stretch = Stretch.Fill, SnapsToDevicePixels = true };
         private readonly Border emptyState = CreateEmptyState();
         private readonly Rectangle roiRectangle = new Rectangle { Stroke = Brushes.OrangeRed, StrokeThickness = 2, Fill = Brushes.Transparent, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
@@ -97,6 +102,7 @@ namespace ArrayImageViewer.UI
         private int renderGeneration;
         private readonly DispatcherTimer memoryReadTimer;
         private PendingMemoryRead pendingMemoryRead;
+        private bool showsFullFrameContext;
 
         public SensorImageViewerControl()
         {
@@ -137,6 +143,7 @@ namespace ArrayImageViewer.UI
             Focusable = true;
             PreviewKeyDown += ViewerPreviewKeyDown;
 
+            canvas.Children.Add(unloadedFrame);
             canvas.Children.Add(image);
             canvas.Children.Add(emptyState);
             canvas.Children.Add(roiRectangle);
@@ -211,6 +218,7 @@ namespace ArrayImageViewer.UI
             sourceRow.Children.Add(CreateField("EXPRESSION", expression));
             sourceRow.Children.Add(CreateAction("EDITOR", CreateButton("Capture", CaptureSelection, false)));
             sourceRow.Children.Add(CreateAction("READ", CreateButton("Load ROI", LoadExpression, true)));
+            sourceRow.Children.Add(CreateAction("CONTEXT", CreateButton("ROI context", LoadContextPreview, false)));
             sourceRow.Children.Add(CreateAction("", CreateButton("Full preview", LoadFullPreview, false)));
             var profileRow = CreateRow();
             profileRow.Margin = new Thickness(0, 8, 0, 0);
@@ -1027,17 +1035,44 @@ namespace ArrayImageViewer.UI
                 if (sampleCount > 32768 && DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration,
                     roi.X, roi.Y, roi.Width, roi.Height, out memoryRead))
                 {
-                    BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, roi.CenterX, roi.CenterY, false, expression.Text.Trim());
+                    BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, roi.CenterX, roi.CenterY, false, false, expression.Text.Trim());
                     return;
                 }
 
                 SetStatus("Reading ROI " + roi.Width + "x" + roi.Height + " from the debugger.");
                 var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, roi.X, roi.Y, roi.Width, roi.Height);
-                ApplyLoadedFrame(source, configuration.Width, configuration.Height, roi.CenterX, roi.CenterY, false, expression.Text.Trim());
+                ApplyLoadedFrame(source, configuration.Width, configuration.Height, roi.CenterX, roi.CenterY, false, false, expression.Text.Trim());
             }
             catch (Exception exception)
             {
                 SetStatus("Cannot read pointer: " + exception.Message);
+            }
+        }
+
+        private void LoadContextPreview(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                CancelPendingMemoryRead();
+                var configuration = ReadConfiguration();
+                var requestedRoi = GetRoiBounds(configuration);
+                var context = RoiGeometry.CreateContext(configuration.Width, configuration.Height, requestedRoi.CenterX, requestedRoi.CenterY,
+                    requestedRoi.Width, requestedRoi.Height, ContextPreviewSampleLimit);
+                DebugMemoryFrameReader.RoiReadSession memoryRead;
+                if (DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration,
+                    context.X, context.Y, context.Width, context.Height, out memoryRead))
+                {
+                    BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, requestedRoi.CenterX, requestedRoi.CenterY, false, true, expression.Text.Trim());
+                    return;
+                }
+
+                SetStatus("Reading " + context.Width + "x" + context.Height + " context around the ROI from the debugger.");
+                var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, context.X, context.Y, context.Width, context.Height);
+                ApplyLoadedFrame(source, configuration.Width, configuration.Height, requestedRoi.CenterX, requestedRoi.CenterY, false, true, expression.Text.Trim());
+            }
+            catch (Exception exception)
+            {
+                SetStatus("Cannot read ROI context: " + exception.Message);
             }
         }
 
@@ -1072,7 +1107,7 @@ namespace ArrayImageViewer.UI
 
                 var centerX = Math.Max(0, Math.Min(configuration.Width - 1, ResolveInteger(selectedX, "ROI center X")));
                 var centerY = Math.Max(0, Math.Min(configuration.Height - 1, ResolveInteger(selectedY, "ROI center Y")));
-                BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, centerX, centerY, true, expression.Text.Trim());
+                BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, centerX, centerY, true, false, expression.Text.Trim());
             }
             catch (Exception exception)
             {
@@ -1081,9 +1116,9 @@ namespace ArrayImageViewer.UI
         }
 
         private void BeginMemoryRead(DebugMemoryFrameReader.RoiReadSession memoryRead, int sourceWidth, int sourceHeight,
-            int selectedGlobalX, int selectedGlobalY, bool isFullPreview, string sourceExpression)
+            int selectedGlobalX, int selectedGlobalY, bool isFullPreview, bool showFullFrameContext, string sourceExpression)
         {
-            pendingMemoryRead = new PendingMemoryRead(memoryRead, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, sourceExpression);
+            pendingMemoryRead = new PendingMemoryRead(memoryRead, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, showFullFrameContext, sourceExpression);
             SetStatus("Reading " + memoryRead.TotalRows.ToString(CultureInfo.InvariantCulture) + " debugger-memory rows in responsive batches (0%).");
             memoryReadTimer.Start();
         }
@@ -1120,7 +1155,7 @@ namespace ArrayImageViewer.UI
             pendingMemoryRead = null;
             DebugExpressionFrameReader.MarkMemoryReadComplete();
             ApplyLoadedFrame(pending.Session.CreateFrame(), pending.SourceWidth, pending.SourceHeight,
-                pending.SelectedGlobalX, pending.SelectedGlobalY, pending.IsFullPreview, pending.SourceExpression);
+                pending.SelectedGlobalX, pending.SelectedGlobalY, pending.IsFullPreview, pending.ShowFullFrameContext, pending.SourceExpression);
         }
 
         private void CancelPendingMemoryRead()
@@ -1137,7 +1172,8 @@ namespace ArrayImageViewer.UI
             CancelPendingMemoryRead();
         }
 
-        private void ApplyLoadedFrame(FrameBuffer source, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY, bool isFullPreview, string sourceExpression)
+        private void ApplyLoadedFrame(FrameBuffer source, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY,
+            bool isFullPreview, bool showFullFrameContext, string sourceExpression)
         {
             var readPath = DebugExpressionFrameReader.LastRoiReadUsedMemory ? "debugger memory" : "expression fallback";
             NormalizationRange normalization;
@@ -1155,7 +1191,7 @@ namespace ArrayImageViewer.UI
             var generation = ++renderGeneration;
             if (sampleCount <= 262144)
             {
-                ApplyRenderedFrame(source, FrameRenderer.Render(source, normalization), normalization, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, sourceExpression, readPath);
+                ApplyRenderedFrame(source, FrameRenderer.Render(source, normalization), normalization, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, showFullFrameContext, sourceExpression, readPath);
                 return;
             }
 
@@ -1169,7 +1205,7 @@ namespace ArrayImageViewer.UI
                     {
                         if (generation == renderGeneration)
                         {
-                            ApplyRenderedFrame(source, bitmap, normalization, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, sourceExpression, readPath);
+                            ApplyRenderedFrame(source, bitmap, normalization, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, showFullFrameContext, sourceExpression, readPath);
                         }
                     }));
                 }
@@ -1190,12 +1226,17 @@ namespace ArrayImageViewer.UI
         }
 
         private void ApplyRenderedFrame(FrameBuffer source, ImageSource bitmap, NormalizationRange normalization, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY,
-            bool isFullPreview, string sourceExpression, string readPath)
+            bool isFullPreview, bool showFullFrameContext, string sourceExpression, string readPath)
         {
             lastReadPath = readPath;
             activeNormalization = normalization;
-            ApplyFrame(source, bitmap, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY);
-            ApplyZoom(isFullPreview ? GetFullPreviewZoom(source.Configuration.Width, source.Configuration.Height) : Math.Max(18.0, zoom));
+            ApplyFrame(source, bitmap, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, showFullFrameContext);
+            ApplyZoom(isFullPreview ? GetFullPreviewZoom(source.Configuration.Width, source.Configuration.Height) :
+                (showFullFrameContext ? GetContextPreviewZoom(source.Configuration.Width, source.Configuration.Height) : Math.Max(18.0, zoom)));
+            if (showFullFrameContext)
+            {
+                Dispatcher.BeginInvoke(new Action(CenterOnSelection));
+            }
             EnsureProfile(sourceExpression);
             activeProfileExpression = sourceExpression;
             SaveCurrentProfile();
@@ -1325,6 +1366,12 @@ namespace ArrayImageViewer.UI
             var availableHeight = Math.Max(220.0, scrollViewer.ActualHeight - 24);
             var fit = Math.Min(availableWidth / imageWidth, availableHeight / imageHeight);
             return Math.Max(0.05, Math.Min(1.0, fit));
+        }
+
+        private double GetContextPreviewZoom(int imageWidth, int imageHeight)
+        {
+            var longestSide = Math.Max(imageWidth, imageHeight);
+            return Math.Max(2.0, Math.Min(8.0, 640.0 / Math.Max(1, longestSide)));
         }
 
         private FrameConfiguration ReadConfiguration()
@@ -1591,11 +1638,13 @@ namespace ArrayImageViewer.UI
             return Int32.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed) ? parsed : fallback;
         }
 
-        private void ApplyFrame(FrameBuffer source, ImageSource bitmap, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY)
+        private void ApplyFrame(FrameBuffer source, ImageSource bitmap, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY,
+            bool showFullFrameContext)
         {
             frame = source;
             fullFrameWidth = sourceWidth;
             fullFrameHeight = sourceHeight;
+            showsFullFrameContext = showFullFrameContext;
             image.Source = bitmap;
             emptyState.Visibility = Visibility.Collapsed;
             currentX = selectedGlobalX;
@@ -1641,7 +1690,12 @@ namespace ArrayImageViewer.UI
             }
 
             var point = e.GetPosition(canvas);
-            UpdateSelection(frame.Configuration.OriginX + (int)(point.X / zoom), frame.Configuration.OriginY + (int)(point.Y / zoom), false);
+            int globalX;
+            int globalY;
+            if (TryGetGlobalImageCoordinate(point, out globalX, out globalY))
+            {
+                UpdateSelection(globalX, globalY, false);
+            }
         }
 
         private void CanvasMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -1698,12 +1752,11 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            var point = e.GetPosition(canvas);
-            var x = (int)(point.X / zoom);
-            var y = (int)(point.Y / zoom);
-            if (x >= 0 && y >= 0 && x < frame.Configuration.Width && y < frame.Configuration.Height)
+            int globalX;
+            int globalY;
+            if (TryGetGlobalImageCoordinate(e.GetPosition(canvas), out globalX, out globalY))
             {
-                SetStatus(Describe(frame.Configuration.OriginX + x, frame.Configuration.OriginY + y));
+                SetStatus(Describe(globalX, globalY));
             }
         }
 
@@ -1751,8 +1804,8 @@ namespace ArrayImageViewer.UI
             }
 
             var roi = RoiGeometry.FromDrag(fullFrameWidth, fullFrameHeight, mouseRoiStartX, mouseRoiStartY, endX, endY);
-            var localX = roi.X - frame.Configuration.OriginX;
-            var localY = roi.Y - frame.Configuration.OriginY;
+            var localX = showsFullFrameContext ? roi.X : roi.X - frame.Configuration.OriginX;
+            var localY = showsFullFrameContext ? roi.Y : roi.Y - frame.Configuration.OriginY;
             mouseRoiRectangle.Width = Math.Max(1, roi.Width * zoom - 2);
             mouseRoiRectangle.Height = Math.Max(1, roi.Height * zoom - 2);
             Canvas.SetLeft(mouseRoiRectangle, localX * zoom + 1);
@@ -1797,8 +1850,10 @@ namespace ArrayImageViewer.UI
                 return false;
             }
 
-            var localX = (int)Math.Floor(point.X / zoom);
-            var localY = (int)Math.Floor(point.Y / zoom);
+            var canvasX = (int)Math.Floor(point.X / zoom);
+            var canvasY = (int)Math.Floor(point.Y / zoom);
+            var localX = canvasX - (showsFullFrameContext ? frame.Configuration.OriginX : 0);
+            var localY = canvasY - (showsFullFrameContext ? frame.Configuration.OriginY : 0);
             if (localX < 0 || localY < 0 || localX >= frame.Configuration.Width || localY >= frame.Configuration.Height)
             {
                 return false;
@@ -1993,10 +2048,17 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            canvas.Width = frame.Configuration.Width * zoom;
-            canvas.Height = frame.Configuration.Height * zoom;
-            image.Width = canvas.Width;
-            image.Height = canvas.Height;
+            var canvasWidth = showsFullFrameContext ? fullFrameWidth : frame.Configuration.Width;
+            var canvasHeight = showsFullFrameContext ? fullFrameHeight : frame.Configuration.Height;
+            canvas.Width = canvasWidth * zoom;
+            canvas.Height = canvasHeight * zoom;
+            unloadedFrame.Width = canvas.Width;
+            unloadedFrame.Height = canvas.Height;
+            unloadedFrame.Visibility = showsFullFrameContext ? Visibility.Visible : Visibility.Collapsed;
+            image.Width = frame.Configuration.Width * zoom;
+            image.Height = frame.Configuration.Height * zoom;
+            Canvas.SetLeft(image, (showsFullFrameContext ? frame.Configuration.OriginX : 0) * zoom);
+            Canvas.SetTop(image, (showsFullFrameContext ? frame.Configuration.OriginY : 0) * zoom);
             RenderOptions.SetBitmapScalingMode(image, zoom >= 1 ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.Fant);
             UpdateSelectedCellRectangle();
             UpdateViewportAndOverlay();
@@ -2027,9 +2089,9 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            var localX = currentX - frame.Configuration.OriginX + 0.5;
-            var localY = currentY - frame.Configuration.OriginY + 0.5;
-            ZoomAroundPoint(new Point(localX * zoom, localY * zoom),
+            var canvasX = (showsFullFrameContext ? currentX : currentX - frame.Configuration.OriginX) + 0.5;
+            var canvasY = (showsFullFrameContext ? currentY : currentY - frame.Configuration.OriginY) + 0.5;
+            ZoomAroundPoint(new Point(canvasX * zoom, canvasY * zoom),
                 new Point(scrollViewer.ViewportWidth / 2.0, scrollViewer.ViewportHeight / 2.0), zoom * factor);
         }
 
@@ -2040,13 +2102,18 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            var firstX = Math.Max(0, (int)Math.Floor(scrollViewer.HorizontalOffset / zoom));
-            var firstY = Math.Max(0, (int)Math.Floor(scrollViewer.VerticalOffset / zoom));
-            var lastX = Math.Min(frame.Configuration.Width - 1, (int)Math.Ceiling((scrollViewer.HorizontalOffset + scrollViewer.ViewportWidth) / zoom));
-            var lastY = Math.Min(frame.Configuration.Height - 1, (int)Math.Ceiling((scrollViewer.VerticalOffset + scrollViewer.ViewportHeight) / zoom));
+            var visibleWidth = showsFullFrameContext ? fullFrameWidth : frame.Configuration.Width;
+            var visibleHeight = showsFullFrameContext ? fullFrameHeight : frame.Configuration.Height;
+            var firstCanvasX = Math.Max(0, (int)Math.Floor(scrollViewer.HorizontalOffset / zoom));
+            var firstCanvasY = Math.Max(0, (int)Math.Floor(scrollViewer.VerticalOffset / zoom));
+            var lastCanvasX = Math.Min(visibleWidth - 1, (int)Math.Ceiling((scrollViewer.HorizontalOffset + scrollViewer.ViewportWidth) / zoom));
+            var lastCanvasY = Math.Min(visibleHeight - 1, (int)Math.Ceiling((scrollViewer.VerticalOffset + scrollViewer.ViewportHeight) / zoom));
+            var firstX = Math.Max(0, firstCanvasX - (showsFullFrameContext ? frame.Configuration.OriginX : 0));
+            var firstY = Math.Max(0, firstCanvasY - (showsFullFrameContext ? frame.Configuration.OriginY : 0));
+            var lastX = Math.Min(frame.Configuration.Width - 1, lastCanvasX - (showsFullFrameContext ? frame.Configuration.OriginX : 0));
+            var lastY = Math.Min(frame.Configuration.Height - 1, lastCanvasY - (showsFullFrameContext ? frame.Configuration.OriginY : 0));
             viewport.Text = String.Format(CultureInfo.InvariantCulture, "X lim [{0}, {1}]  Y lim [{2}, {3}]  |  {4:0.##}x",
-                frame.Configuration.OriginX + firstX, frame.Configuration.OriginX + lastX,
-                frame.Configuration.OriginY + firstY, frame.Configuration.OriginY + lastY, zoom);
+                firstCanvasX, lastCanvasX, firstCanvasY, lastCanvasY, zoom);
             ClearValueOverlay();
 
             if (zoom >= 18 && lastX >= firstX && lastY >= firstY && (lastX - firstX + 1) * (lastY - firstY + 1) <= 900)
@@ -2082,8 +2149,8 @@ namespace ArrayImageViewer.UI
                 IsHitTestVisible = false
             };
             var cell = new Border { Child = label, BorderBrush = new SolidColorBrush(Color.FromArgb(110, 190, 205, 230)), BorderThickness = new Thickness(0.5), Width = zoom, Height = zoom, IsHitTestVisible = false };
-            Canvas.SetLeft(cell, x * zoom);
-            Canvas.SetTop(cell, y * zoom);
+            Canvas.SetLeft(cell, (showsFullFrameContext ? frame.Configuration.OriginX + x : x) * zoom);
+            Canvas.SetTop(cell, (showsFullFrameContext ? frame.Configuration.OriginY + y : y) * zoom);
             canvas.Children.Add(cell);
             valueOverlay.Add(cell);
         }
@@ -2115,17 +2182,18 @@ namespace ArrayImageViewer.UI
             var localY = 0;
             var widthInSamples = frame.Configuration.Width;
             var heightInSamples = frame.Configuration.Height;
-            if (frame.Configuration.OriginX == 0 && frame.Configuration.OriginY == 0 &&
-                frame.Configuration.Width == fullFrameWidth && frame.Configuration.Height == fullFrameHeight)
+            if (showsFullFrameContext || (frame.Configuration.OriginX == 0 && frame.Configuration.OriginY == 0 &&
+                frame.Configuration.Width == fullFrameWidth && frame.Configuration.Height == fullFrameHeight))
             {
                 var requestedWidth = Math.Max(1, ParseNavigatorValue(roiWidth.Text, 1));
                 var requestedHeight = Math.Max(1, ParseNavigatorValue(roiHeight.Text, 1));
-                widthInSamples = Math.Min(frame.Configuration.Width, requestedWidth);
-                heightInSamples = Math.Min(frame.Configuration.Height, requestedHeight);
-                var centerX = ParseNavigatorValue(selectedX.Text, frame.Configuration.Width / 2);
-                var centerY = ParseNavigatorValue(selectedY.Text, frame.Configuration.Height / 2);
-                localX = Math.Max(0, Math.Min(frame.Configuration.Width - widthInSamples, centerX - widthInSamples / 2));
-                localY = Math.Max(0, Math.Min(frame.Configuration.Height - heightInSamples, centerY - heightInSamples / 2));
+                var selectedRoi = RoiGeometry.ClampCentered(fullFrameWidth, fullFrameHeight,
+                    ParseNavigatorValue(selectedX.Text, fullFrameWidth / 2), ParseNavigatorValue(selectedY.Text, fullFrameHeight / 2),
+                    requestedWidth, requestedHeight);
+                widthInSamples = selectedRoi.Width;
+                heightInSamples = selectedRoi.Height;
+                localX = showsFullFrameContext ? selectedRoi.X : selectedRoi.X - frame.Configuration.OriginX;
+                localY = showsFullFrameContext ? selectedRoi.Y : selectedRoi.Y - frame.Configuration.OriginY;
             }
 
             roiRectangle.Width = Math.Max(1, widthInSamples * zoom - 2);
@@ -2143,8 +2211,8 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            var localX = currentX - frame.Configuration.OriginX;
-            var localY = currentY - frame.Configuration.OriginY;
+            var localX = showsFullFrameContext ? currentX : currentX - frame.Configuration.OriginX;
+            var localY = showsFullFrameContext ? currentY : currentY - frame.Configuration.OriginY;
             selectedCellRectangle.Width = Math.Max(1, zoom);
             selectedCellRectangle.Height = Math.Max(1, zoom);
             Canvas.SetLeft(selectedCellRectangle, localX * zoom);
@@ -2159,8 +2227,10 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            scrollViewer.ScrollToHorizontalOffset(Math.Max(0, (currentX - frame.Configuration.OriginX + 0.5) * zoom - scrollViewer.ViewportWidth / 2));
-            scrollViewer.ScrollToVerticalOffset(Math.Max(0, (currentY - frame.Configuration.OriginY + 0.5) * zoom - scrollViewer.ViewportHeight / 2));
+            var canvasX = showsFullFrameContext ? currentX : currentX - frame.Configuration.OriginX;
+            var canvasY = showsFullFrameContext ? currentY : currentY - frame.Configuration.OriginY;
+            scrollViewer.ScrollToHorizontalOffset(Math.Max(0, (canvasX + 0.5) * zoom - scrollViewer.ViewportWidth / 2));
+            scrollViewer.ScrollToVerticalOffset(Math.Max(0, (canvasY + 0.5) * zoom - scrollViewer.ViewportHeight / 2));
         }
 
         private string Describe(int x, int y)
@@ -2259,7 +2329,7 @@ namespace ArrayImageViewer.UI
         private sealed class PendingMemoryRead
         {
             public PendingMemoryRead(DebugMemoryFrameReader.RoiReadSession session, int sourceWidth, int sourceHeight,
-                int selectedGlobalX, int selectedGlobalY, bool isFullPreview, string sourceExpression)
+                int selectedGlobalX, int selectedGlobalY, bool isFullPreview, bool showFullFrameContext, string sourceExpression)
             {
                 Session = session;
                 SourceWidth = sourceWidth;
@@ -2267,6 +2337,7 @@ namespace ArrayImageViewer.UI
                 SelectedGlobalX = selectedGlobalX;
                 SelectedGlobalY = selectedGlobalY;
                 IsFullPreview = isFullPreview;
+                ShowFullFrameContext = showFullFrameContext;
                 SourceExpression = sourceExpression;
             }
 
@@ -2276,6 +2347,7 @@ namespace ArrayImageViewer.UI
             public int SelectedGlobalX { get; private set; }
             public int SelectedGlobalY { get; private set; }
             public bool IsFullPreview { get; private set; }
+            public bool ShowFullFrameContext { get; private set; }
             public string SourceExpression { get; private set; }
         }
 

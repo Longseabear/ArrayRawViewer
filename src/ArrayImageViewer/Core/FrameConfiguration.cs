@@ -121,6 +121,29 @@ namespace ArrayImageViewer.Core
 
     internal static class RoiGeometry
     {
+        public static RoiRectangle CreateContext(int frameWidth, int frameHeight, int requestedCenterX, int requestedCenterY,
+            int minimumWidth, int minimumHeight, int sampleLimit)
+        {
+            if (frameWidth <= 0 || frameHeight <= 0 || minimumWidth <= 0 || minimumHeight <= 0 || sampleLimit <= 0)
+            {
+                throw new ArgumentException("Frame, ROI, and context dimensions must be positive.");
+            }
+
+            var requiredWidth = Math.Min(frameWidth, minimumWidth);
+            var requiredHeight = Math.Min(frameHeight, minimumHeight);
+            if ((long)requiredWidth * requiredHeight >= sampleLimit)
+            {
+                return ClampCentered(frameWidth, frameHeight, requestedCenterX, requestedCenterY, requiredWidth, requiredHeight);
+            }
+
+            var aspectRatio = frameWidth / (double)frameHeight;
+            var targetWidth = (int)Math.Floor(Math.Sqrt(sampleLimit * aspectRatio));
+            targetWidth = Math.Max(requiredWidth, Math.Min(frameWidth, targetWidth));
+            var targetHeight = Math.Max(requiredHeight, Math.Min(frameHeight, sampleLimit / targetWidth));
+            targetWidth = Math.Max(requiredWidth, Math.Min(frameWidth, sampleLimit / targetHeight));
+            return ClampCentered(frameWidth, frameHeight, requestedCenterX, requestedCenterY, targetWidth, targetHeight);
+        }
+
         public static RoiRectangle ClampCentered(int frameWidth, int frameHeight, int requestedCenterX, int requestedCenterY,
             int requestedWidth, int requestedHeight)
         {

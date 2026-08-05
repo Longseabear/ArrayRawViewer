@@ -151,6 +151,15 @@ and returns a frozen bitmap to the Visual Studio UI thread. Its pixel conversion
 written in 64-row blocks, rather than allocating a second full-frame BGRA array
 alongside the raw samples.
 
+For the normal "find this pixel, then inspect its neighborhood" workflow, select
+**ROI context**. It reads only a bounded, aspect-ratio-preserving context around
+the configured ROI (at most 16,384 samples, typically about 147x111 for a
+4096x3072 frame). The context is drawn in its true full-frame location; the rest
+of the canvas is a distinct slate color and intentionally has no samples behind
+it. This makes the unrendered region obvious without allocating or converting a
+full-frame bitmap. The viewer starts centered on the requested coordinate; zoom
+until individual cells are visible to show raw and Q-format values.
+
 Full previews above the normal 4,194,304-sample interactive limit show a one-time
 confirmation with their approximate debuggee-memory read size. A 4096x3072 `uint*`
 frame is such a request; selecting **Yes** still reads it in responsive row batches.
