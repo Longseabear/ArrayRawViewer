@@ -1,6 +1,6 @@
 # Sensor RAW Array Image Viewer
 
-An installable Visual Studio 2015 through 2022 VSIX draft for viewing a
+An installable Visual Studio 2015 through 2022 VSIX for viewing a
 one-dimensional native sensor RAW buffer as a two-dimensional image.
 
 ## Build and install
@@ -129,15 +129,15 @@ also be saved explicitly with **Save settings**. Profiles contain configuration 
 nearest original samples in the loaded ROI; the hover/cell inspector always
 reports the original raw value and true Bayer site.
 
-## Draft limitation
+## Debugger read paths and performance
 
 The expression-evaluator reader is deliberately capped at 16,384 **ROI** samples
 because evaluating one debugger expression per sample is too slow. A 5x5 through
 128x128 filter ROI is therefore the intended debugger-backed workflow. For native
-engines that expose `IDebugMemoryBytes2`, the viewer now reads each ROI row as one
-memory range; the status line reports `Read debugger memory`. Unsupported engines
-automatically fall back to expression evaluation and report `Read expression
-fallback`.
+engines that expose `IDebugMemoryBytes2`, the viewer obtains the active native
+stack frame and reads each ROI row as one debugger-memory range; the status line
+reports `Read debugger memory`. Unsupported engines automatically fall back to
+expression evaluation and report `Read expression fallback`.
 
 On a native engine that reports `Read debugger memory`, **Full preview** reads the
 configured full frame and opens it as a fit-to-window image. Native reads run in
@@ -158,10 +158,11 @@ frame is such a request; selecting **Yes** still reads it in responsive row batc
 ## Core checks
 
 `tests\ArrayImageViewer.Tests` is a dependency-free .NET 4.5 console test project.
-It checks Q-format decoding/ranges, signed/unsigned source-element storage shape,
-stride handling, Bayer/Tetra/TetraSquare phase, small renderer output, the
-worker-thread bitmap handoff, and a real 4096x3072 Gray render. Build and run it
-with:
+It checks Q-format parsing/negative/high-fraction edge cases, signed/unsigned
+source-element storage shape, stride handling, all four Bayer tile orders plus
+Tetra/TetraSquare phase, individual green-plane visibility, ROI drag geometry,
+small renderer output, the worker-thread bitmap handoff, and a real 4096x3072
+Gray render. Build and run it with:
 
 ```powershell
 msbuild tests\ArrayImageViewer.Tests\ArrayImageViewer.Tests.csproj /t:Build /p:Configuration=Release
