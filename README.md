@@ -72,6 +72,12 @@ the image (or hold Shift while left-dragging); the new center is shown while
 dragging and the ROI is reread only when the mouse is released. The **Pan**
 buttons move by half of the current ROI size.
 
+The **Frame Navigator** is a lightweight geometric map of the complete configured
+frame. Drag from one corner to another to choose both ROI position and size with
+the mouse. It does not read or render the entire debuggee buffer; it reads only
+the selected rectangle after mouse release, so it remains responsive for a
+4096x3072 (or larger) source.
+
 When the expression box receives focus while the debuggee is paused, it refreshes
 the current stack's pointer locals and offers matching names as you type. Selecting
 a suggestion applies its signedness. Each pointer that is captured or successfully
@@ -79,6 +85,11 @@ loaded receives an in-window **Profile**: its dimensions, stride, Q-format, Baye
 settings, visualization mode, and ROI are restored when that profile is selected.
 Profiles contain configuration only (no samples are saved) and are discarded when
 the viewer window is closed.
+
+`Visualize` supports `Gray`, original color-coded `BayerRaw`, a lightweight
+`Composite` Bayer preview, and `R`/`G`/`Gr`/`Gb`/`B` planes. Composite uses the
+nearest original samples in the loaded ROI; the hover/cell inspector always
+reports the original raw value and true Bayer site.
 
 ## Draft limitation
 

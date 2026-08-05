@@ -30,6 +30,7 @@ namespace ArrayImageViewer.Core
     {
         Gray,
         BayerRaw,
+        Composite,
         R,
         G,
         Gr,
@@ -96,6 +97,7 @@ namespace ArrayImageViewer.Core
             {
                 case VisualizeChannel.Gray:
                 case VisualizeChannel.BayerRaw:
+                case VisualizeChannel.Composite:
                     return true;
                 case VisualizeChannel.R:
                     return site == BayerSite.R;

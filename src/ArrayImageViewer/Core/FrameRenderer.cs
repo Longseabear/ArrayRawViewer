@@ -40,6 +40,11 @@ namespace ArrayImageViewer.Core
         {
             var config = frame.Configuration;
             var site = config.GetBayerSite(x, y);
+            if (config.VisualizeChannel == VisualizeChannel.Composite)
+            {
+                return GetCompositeColor(frame, x, y, minimum, maximum);
+            }
+
             if (!BayerLayout.IsVisible(config.VisualizeChannel, site))
             {
                 return Colors.Black;
@@ -63,6 +68,44 @@ namespace ArrayImageViewer.Core
                 default:
                     return Color.FromRgb(value, value, value);
             }
+        }
+
+        private static Color GetCompositeColor(FrameBuffer frame, int x, int y, long minimum, long maximum)
+        {
+            var red = ToByte(GetNearestSiteValue(frame, x, y, BayerSite.R), minimum, maximum);
+            var greenGr = ToByte(GetNearestSiteValue(frame, x, y, BayerSite.Gr), minimum, maximum);
+            var greenGb = ToByte(GetNearestSiteValue(frame, x, y, BayerSite.Gb), minimum, maximum);
+            var blue = ToByte(GetNearestSiteValue(frame, x, y, BayerSite.B), minimum, maximum);
+            return Color.FromRgb(red, (byte)((greenGr + greenGb) / 2), blue);
+        }
+
+        private static long GetNearestSiteValue(FrameBuffer frame, int x, int y, BayerSite wantedSite)
+        {
+            var config = frame.Configuration;
+            var maximumRadius = BayerLayout.GetNearestSearchRadius(config.PixelType);
+            for (var radius = 0; radius <= maximumRadius; radius++)
+            {
+                for (var yOffset = -radius; yOffset <= radius; yOffset++)
+                {
+                    for (var xOffset = -radius; xOffset <= radius; xOffset++)
+                    {
+                        if (Math.Abs(xOffset) != radius && Math.Abs(yOffset) != radius)
+                        {
+                            continue;
+                        }
+
+                        var sampleX = x + xOffset;
+                        var sampleY = y + yOffset;
+                        if (sampleX >= 0 && sampleY >= 0 && sampleX < config.Width && sampleY < config.Height &&
+                            config.GetBayerSite(sampleX, sampleY) == wantedSite)
+                        {
+                            return frame.GetRaw(sampleX, sampleY);
+                        }
+                    }
+                }
+            }
+
+            return frame.GetRaw(x, y);
         }
 
         private static byte ToByte(long value, long minimum, long maximum)
