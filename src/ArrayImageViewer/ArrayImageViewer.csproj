@@ -42,6 +42,13 @@
     <Reference Include="WindowsBase" />
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
+    <!-- The debugger interop NuGet package only has a net11 assembly.  Mark
+         the compile reference private explicitly so the VSIX carries it for
+         Visual Studio installations that do not provide that legacy assembly. -->
+    <Reference Include="Microsoft.VisualStudio.Debugger.Interop">
+      <HintPath>$(NuGetPackageRoot)microsoft.visualstudio.debugger.interop\8.0.50729\lib\net11\Microsoft.VisualStudio.Debugger.Interop.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="CommandIds.cs" />
@@ -69,12 +76,19 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.Shell.15.0" Version="15.9.28307" />
-    <PackageReference Include="Microsoft.VisualStudio.Debugger.Interop" Version="8.0.50729">
-      <PrivateAssets>all</PrivateAssets>
-      <ExcludeAssets>runtime</ExcludeAssets>
-    </PackageReference>
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="15.9.3039" PrivateAssets="all" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Import Project="$(PkgMicrosoft_VSSDK_BuildTools)\tools\VSSDK\Microsoft.VsSDK.targets" Condition="Exists('$(PkgMicrosoft_VSSDK_BuildTools)\tools\VSSDK\Microsoft.VsSDK.targets')" />
+  <!-- VSSDK suppresses Debugger.Interop by default because most VS installs
+       provide a newer SDK variant. This extension uses the v8 interface and
+       must ship that exact managed interop assembly for VS 2017+ hosts. -->
+  <Target Name="AddDebuggerInteropToVsix" AfterTargets="GetVsixSourceItems">
+    <ItemGroup>
+      <VSIXSourceItem Include="$(NuGetPackageRoot)microsoft.visualstudio.debugger.interop\8.0.50729\lib\net11\Microsoft.VisualStudio.Debugger.Interop.dll">
+        <VSIXSubPath>$(AssemblyVSIXSubPath)</VSIXSubPath>
+        <InstallRoot>$(InstallRoot)</InstallRoot>
+      </VSIXSourceItem>
+    </ItemGroup>
+  </Target>
 </Project>

@@ -1,9 +1,11 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Debugger.Interop;
 using ArrayImageViewer.Core;
 
 namespace ArrayImageViewer.Debugging
@@ -111,7 +113,7 @@ namespace ArrayImageViewer.Debugging
         {
             LastRoiReadUsedMemory = false;
             var debugger = GetDebugger();
-            var currentStackFrame = GetOptionalMember(debugger, "CurrentStackFrame");
+            var currentStackFrame = GetCurrentStackFrame(debugger);
             return DebugMemoryFrameReader.TryStartRoiRead(currentStackFrame, expression, sourceConfiguration, originX, originY, roiWidth, roiHeight, out session);
         }
 
@@ -181,15 +183,99 @@ namespace ArrayImageViewer.Debugging
             var result = new List<LocalExpression>();
             var dte = Package.GetGlobalService(typeof(SDTE));
             var debugger = GetMember(dte, "Debugger");
-            var frame = GetMember(debugger, "CurrentStackFrame");
+            var frame = GetCurrentStackFrame(debugger);
             if (frame == null)
             {
                 throw new InvalidOperationException("No current stack frame. Pause the native debuggee first.");
             }
 
-            AddExpressions(result, GetOptionalMember(frame, "Locals"));
-            AddExpressions(result, GetOptionalMember(frame, "Arguments"));
+            try
+            {
+                AddExpressions(result, GetOptionalMember(frame, "Locals"));
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException("The native debugger exposed locals but they could not be enumerated: " + exception.Message, exception);
+            }
+
+            try
+            {
+                AddExpressions(result, GetOptionalMember(frame, "Arguments"));
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException("The native debugger exposed arguments but they could not be enumerated: " + exception.Message, exception);
+            }
             return result;
+        }
+
+        // EnvDTE.Debugger does not expose CurrentStackFrame for every native
+        // debug engine.  The selected thread is the stable automation entry
+        // point, and its CurrentStackFrame is available while C++ is paused.
+        // Keep the direct lookup as a fallback for engines which do expose it.
+        private static object GetCurrentStackFrame(object debugger)
+        {
+            var nativeFrame = TryGetNativeCurrentStackFrame(debugger);
+            if (nativeFrame != null)
+            {
+                return nativeFrame;
+            }
+
+            var frame = GetOptionalMember(debugger, "CurrentStackFrame");
+            if (frame != null)
+            {
+                return frame;
+            }
+
+            var thread = GetOptionalMember(debugger, "CurrentThread");
+            frame = GetOptionalMember(thread, "CurrentStackFrame");
+            if (frame != null)
+            {
+                return frame;
+            }
+
+            var frames = GetOptionalMember(thread, "StackFrames");
+            var count = GetOptionalMember(frames, "Count");
+            if (count != null && Convert.ToInt32(count, CultureInfo.InvariantCulture) > 0)
+            {
+                return GetItem(frames, 1);
+            }
+
+            return null;
+        }
+
+        // The EnvDTE StackFrame wrapper itself is not an IDebugStackFrame2.
+        // Query the underlying current native thread and enumerate its first
+        // frame, which is the frame Visual Studio has selected while stopped.
+        private static IDebugStackFrame2 TryGetNativeCurrentStackFrame(object debugger)
+        {
+            try
+            {
+                var thread = GetOptionalMember(debugger, "CurrentThread") as IDebugThread2;
+                if (thread == null)
+                {
+                    return null;
+                }
+
+                IEnumDebugFrameInfo2 frames;
+                if (thread.EnumFrameInfo((uint)enum_FRAMEINFO_FLAGS.FIF_FRAME, 10, out frames) < 0 || frames == null)
+                {
+                    return null;
+                }
+
+                var information = new FRAMEINFO[1];
+                uint fetched = 0;
+                if (frames.Next(1, information, ref fetched) < 0 || fetched != 1)
+                {
+                    return null;
+                }
+
+                return information[0].m_pFrame;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         private static void AddExpressions(IList<LocalExpression> result, object expressions)
@@ -199,17 +285,73 @@ namespace ArrayImageViewer.Debugging
                 return;
             }
 
-            var countObject = GetMember(expressions, "Count");
+            // Native C++ expression collections are COM enumerables.  Unlike
+            // the managed debugger collection, they do not consistently expose
+            // an IDispatch Item member, so enumerate them first.
+            var enumerable = expressions as IEnumerable;
+            if (enumerable != null)
+            {
+                var index = 0;
+                foreach (var local in enumerable)
+                {
+                    index++;
+                    AddExpression(result, local, index);
+                }
+
+                return;
+            }
+
+            object countObject;
+            try
+            {
+                countObject = GetMember(expressions, "Count");
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException("The local collection does not expose Count: " + exception.Message, exception);
+            }
             var count = countObject == null ? 0 : Convert.ToInt32(countObject, CultureInfo.InvariantCulture);
             for (var index = 1; index <= count; index++)
             {
-                var local = GetItem(expressions, index);
-                var name = Convert.ToString(GetMember(local, "Name"), CultureInfo.InvariantCulture);
-                var type = Convert.ToString(GetMember(local, "Type"), CultureInfo.InvariantCulture);
-                if (!String.IsNullOrWhiteSpace(name) && !String.IsNullOrWhiteSpace(type) && !ContainsName(result, name.Trim()))
+                object local;
+                try
                 {
-                    result.Add(new LocalExpression(name.Trim(), type.Trim()));
+                    local = GetItem(expressions, index);
                 }
+                catch (Exception exception)
+                {
+                    throw new InvalidOperationException("The local collection could not return item " + index + ": " + exception.Message, exception);
+                }
+
+                AddExpression(result, local, index);
+            }
+        }
+
+        private static void AddExpression(IList<LocalExpression> result, object local, int index)
+        {
+            string name;
+            try
+            {
+                name = Convert.ToString(GetMember(local, "Name"), CultureInfo.InvariantCulture);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException("Local item " + index + " does not expose Name: " + exception.Message, exception);
+            }
+
+            string type;
+            try
+            {
+                type = Convert.ToString(GetMember(local, "Type"), CultureInfo.InvariantCulture);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException("Local " + name + " does not expose Type: " + exception.Message, exception);
+            }
+
+            if (!String.IsNullOrWhiteSpace(name) && !String.IsNullOrWhiteSpace(type) && !ContainsName(result, name.Trim()))
+            {
+                result.Add(new LocalExpression(name.Trim(), type.Trim()));
             }
         }
 
@@ -308,7 +450,19 @@ namespace ArrayImageViewer.Debugging
 
         private static object GetMember(object target, string name)
         {
-            return target == null ? null : target.GetType().InvokeMember(name, BindingFlags.GetProperty, null, target, null);
+            if (target == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return target.GetType().InvokeMember(name, BindingFlags.GetProperty, null, target, null);
+            }
+            catch (TargetInvocationException exception)
+            {
+                throw exception.InnerException ?? exception;
+            }
         }
 
         private static object GetOptionalMember(object target, string name)
@@ -325,12 +479,26 @@ namespace ArrayImageViewer.Debugging
 
         private static object Invoke(object target, string name, params object[] parameters)
         {
-            return target.GetType().InvokeMember(name, BindingFlags.InvokeMethod, null, target, parameters);
+            try
+            {
+                return target.GetType().InvokeMember(name, BindingFlags.InvokeMethod, null, target, parameters);
+            }
+            catch (TargetInvocationException exception)
+            {
+                throw exception.InnerException ?? exception;
+            }
         }
 
         private static object GetItem(object collection, int index)
         {
-            return collection.GetType().InvokeMember("Item", BindingFlags.GetProperty, null, collection, new object[] { index });
+            try
+            {
+                return collection.GetType().InvokeMember("Item", BindingFlags.GetProperty, null, collection, new object[] { index });
+            }
+            catch (TargetInvocationException exception)
+            {
+                throw exception.InnerException ?? exception;
+            }
         }
 
         private static long ParseValue(string value, SourceElementType sourceElementType)

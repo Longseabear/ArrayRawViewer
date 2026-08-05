@@ -536,8 +536,28 @@ namespace ArrayImageViewer.UI
                     return;
                 }
 
+                // Make the common A/B workflow one click: Refresh discovers
+                // candidates and immediately activates the first one.  The
+                // user can still choose another entry from the list, and an
+                // existing expression is preserved when it remains valid.
+                var hasActiveCandidate = false;
+                for (var index = 0; index < pointers.Count; index++)
+                {
+                    if (String.Equals(pointers[index].Name, expression.Text == null ? String.Empty : expression.Text.Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasActiveCandidate = true;
+                        break;
+                    }
+                }
+
+                if (!hasActiveCandidate)
+                {
+                    availablePointers.SelectedItem = pointers[0];
+                }
+
                 UpdateExpressionSuggestions();
-                SetStatus("Found " + pointers.Count.ToString(CultureInfo.InvariantCulture) + " pointer variable(s). Type to filter or choose A/B from the list.");
+                SetStatus("Found " + pointers.Count.ToString(CultureInfo.InvariantCulture) + " pointer variable(s). " +
+                    (hasActiveCandidate ? "The current pointer remains selected." : "Selected " + pointers[0].Name + "; choose A/B from the list to change it."));
             }
             catch (Exception exception)
             {
