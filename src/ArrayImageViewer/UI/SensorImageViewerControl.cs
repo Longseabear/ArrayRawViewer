@@ -478,6 +478,11 @@ namespace ArrayImageViewer.UI
             }
         }
 
+        internal void CaptureActiveEditorSelection()
+        {
+            CaptureSelection(null, null);
+        }
+
         private void RefreshPointers(object sender, RoutedEventArgs e)
         {
             try

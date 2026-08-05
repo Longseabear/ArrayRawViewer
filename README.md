@@ -36,7 +36,11 @@ restart Visual Studio.
 
 ## Use the viewer
 
-Pause the debuggee in the function that owns your buffer, then choose **Refresh**
+Pause the debuggee in the function that owns your buffer. You can select `A`, `B`,
+or another pointer expression in the code editor, right-click it, and choose
+**Open Sensor RAW Viewer for Selection**; this opens the viewer and captures that
+expression. The **Tools > Sensor RAW Array Viewer** command remains available for
+manual entry. Then choose **Refresh**
 in the Pointer section. The list combines current-frame locals and arguments;
 selecting `A (int*)` or `B (unsigned int*)` sets the expression and signedness.
 **Capture** accepts a selected editor expression and cleans a declaration such as

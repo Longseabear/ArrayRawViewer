@@ -24,6 +24,8 @@ namespace ArrayImageViewer
 
             var commandId = new CommandID(CommandIds.CommandSet, CommandIds.ShowViewer);
             commandService.AddCommand(new MenuCommand(ShowViewer, commandId));
+            var selectionCommandId = new CommandID(CommandIds.CommandSet, CommandIds.ShowViewerFromSelection);
+            commandService.AddCommand(new MenuCommand(ShowViewerFromSelection, selectionCommandId));
         }
 
         private void ShowViewer(object sender, EventArgs e)
@@ -36,6 +38,18 @@ namespace ArrayImageViewer
 
             var frame = (IVsWindowFrame)window.Frame;
             Microsoft.VisualStudio.ErrorHandler.ThrowOnFailure(frame.Show());
+        }
+
+        private void ShowViewerFromSelection(object sender, EventArgs e)
+        {
+            ShowViewer(sender, e);
+
+            var window = FindToolWindow(typeof(SensorImageToolWindow), 0, false);
+            var viewer = window == null ? null : window.Content as UI.SensorImageViewerControl;
+            if (viewer != null)
+            {
+                viewer.CaptureActiveEditorSelection();
+            }
         }
     }
 }

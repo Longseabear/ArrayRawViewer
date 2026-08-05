@@ -7,6 +7,9 @@
       <Group guid="guidArrayImageViewerCommandSet" id="ArrayImageViewerGroup" priority="0x0600">
         <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
       </Group>
+      <Group guid="guidArrayImageViewerCommandSet" id="ArrayImageViewerEditorContextGroup" priority="0x0900">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN" />
+      </Group>
     </Groups>
     <Buttons>
       <Button guid="guidArrayImageViewerCommandSet" id="ShowViewerCommand" priority="0x0100" type="Button">
@@ -15,13 +18,21 @@
           <ButtonText>Sensor RAW Array Viewer</ButtonText>
         </Strings>
       </Button>
+      <Button guid="guidArrayImageViewerCommandSet" id="ShowViewerFromSelectionCommand" priority="0x0100" type="Button">
+        <Parent guid="guidArrayImageViewerCommandSet" id="ArrayImageViewerEditorContextGroup" />
+        <Strings>
+          <ButtonText>Open Sensor RAW Viewer for Selection</ButtonText>
+        </Strings>
+      </Button>
     </Buttons>
   </Commands>
   <Symbols>
     <GuidSymbol name="guidArrayImageViewerPackage" value="{6B770C22-4F19-45D6-B254-67903F8C8F11}" />
     <GuidSymbol name="guidArrayImageViewerCommandSet" value="{F9B0D30D-E8E8-4B76-BF0F-556C133D8FD3}">
       <IDSymbol name="ArrayImageViewerGroup" value="0x1020" />
+      <IDSymbol name="ArrayImageViewerEditorContextGroup" value="0x1021" />
       <IDSymbol name="ShowViewerCommand" value="0x0100" />
+      <IDSymbol name="ShowViewerFromSelectionCommand" value="0x0101" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>
