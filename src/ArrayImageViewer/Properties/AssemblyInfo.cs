@@ -6,5 +6,5 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCompany("ArrayImageViewer")]
 [assembly: AssemblyProduct("ArrayImageViewer")]
 [assembly: ComVisible(false)]
-[assembly: AssemblyVersion("0.11.4.0")]
-[assembly: AssemblyFileVersion("0.11.4.0")]
+[assembly: AssemblyVersion("0.11.5.0")]
+[assembly: AssemblyFileVersion("0.11.5.0")]

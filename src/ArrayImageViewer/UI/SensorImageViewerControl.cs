@@ -870,7 +870,14 @@ namespace ArrayImageViewer.UI
                     if (String.Equals(values[valueIndex].Name, preferredNames[preferredIndex], StringComparison.OrdinalIgnoreCase))
                     {
                         source.SelectedItem = values[valueIndex];
-                        target.Text = values[valueIndex].Name;
+                        try
+                        {
+                            target.Text = DebugExpressionFrameReader.EvaluateInt32(values[valueIndex].Name).ToString(CultureInfo.InvariantCulture);
+                        }
+                        catch (Exception)
+                        {
+                            // Keep the current value if this local became unavailable while the stack was refreshing.
+                        }
                         return;
                     }
                 }
