@@ -167,7 +167,11 @@ namespace ArrayImageViewer.UI
             navigatorCanvas.MouseMove += NavigatorMouseMove;
             navigatorCanvas.MouseLeftButtonUp += NavigatorMouseLeftButtonUp;
 
-            var root = new DockPanel { Background = RootBrush, LastChildFill = true };
+            var root = new Grid { Background = RootBrush };
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(260), MinHeight = 118 });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(7) });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 180 });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var header = CreateHeader();
             var configurationScroll = new ScrollViewer
             {
@@ -176,14 +180,26 @@ namespace ArrayImageViewer.UI
                 BorderThickness = new Thickness(0, 0, 0, 1),
                 BorderBrush = PanelBorderBrush,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                MaxHeight = 400
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
-            DockPanel.SetDock(configurationScroll, Dock.Top);
+            Grid.SetRow(configurationScroll, 0);
             root.Children.Add(configurationScroll);
+            var splitter = new GridSplitter
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Background = PanelBorderBrush,
+                ResizeDirection = GridResizeDirection.Rows,
+                ResizeBehavior = GridResizeBehavior.PreviousAndNext,
+                ShowsPreview = true,
+                Cursor = Cursors.SizeNS
+            };
+            Grid.SetRow(splitter, 1);
+            root.Children.Add(splitter);
             var footer = CreateFooter();
-            DockPanel.SetDock(footer, Dock.Bottom);
+            Grid.SetRow(footer, 3);
             root.Children.Add(footer);
+            Grid.SetRow(scrollViewer, 2);
             root.Children.Add(scrollViewer);
             Content = root;
             UpdateNavigator();
