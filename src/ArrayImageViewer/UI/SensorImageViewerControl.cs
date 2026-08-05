@@ -52,7 +52,7 @@ namespace ArrayImageViewer.UI
         private readonly TextBlock status = new TextBlock { Foreground = TextBrush, TextWrapping = TextWrapping.Wrap };
         private readonly TextBlock viewport = new TextBlock { Foreground = MutedBrush, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         private readonly ScrollViewer scrollViewer = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Background = CanvasBrush, Focusable = true };
-        private readonly Canvas canvas = new Canvas { Background = CanvasBrush, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, MinWidth = 520, MinHeight = 260 };
+        private readonly Canvas canvas = new Canvas { Background = CanvasBrush, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, MinWidth = 520, MinHeight = 260, Focusable = true };
         private readonly System.Windows.Controls.Image image = new System.Windows.Controls.Image { Stretch = Stretch.Fill, SnapsToDevicePixels = true };
         private readonly Border emptyState = CreateEmptyState();
         private readonly Rectangle roiRectangle = new Rectangle { Stroke = Brushes.OrangeRed, StrokeThickness = 2, Fill = Brushes.Transparent, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
@@ -118,6 +118,8 @@ namespace ArrayImageViewer.UI
             memoryReadTimer.Interval = TimeSpan.FromMilliseconds(1);
             memoryReadTimer.Tick += MemoryReadTimerTick;
             Unloaded += ViewerUnloaded;
+            Focusable = true;
+            PreviewKeyDown += ViewerPreviewKeyDown;
 
             canvas.Children.Add(image);
             canvas.Children.Add(emptyState);
@@ -223,7 +225,7 @@ namespace ArrayImageViewer.UI
             inspectRow.Children.Add(CreateAction("", CreateButton("Right", PanRight, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Up", PanUp, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Down", PanDown, false)));
-            inspectRow.Children.Add(new TextBlock { Text = "Middle-drag or Shift+drag pans the ROI; release reloads it. Wheel zooms; click selects.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+            inspectRow.Children.Add(new TextBlock { Text = "Middle-drag or Shift+drag pans the ROI; release reloads it. Wheel or +/- zooms; arrows pan.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
             panel.Children.Add(CreateSection("ROI", "Move the inspection window without manually typing new coordinates", inspectRow));
             panel.Children.Add(CreateNavigatorSection());
             return panel;
@@ -1330,7 +1332,9 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            ApplyZoom(Math.Max(0.05, Math.Min(64.0, zoom * (e.Delta > 0 ? 1.35 : 1.0 / 1.35))));
+            var pointInCanvas = e.GetPosition(canvas);
+            var pointInViewport = e.GetPosition(scrollViewer);
+            ZoomAroundPoint(pointInCanvas, pointInViewport, zoom * (e.Delta > 0 ? 1.35 : 1.0 / 1.35));
             e.Handled = true;
         }
 
@@ -1341,6 +1345,7 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
+            canvas.Focus();
             if ((Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
             {
                 BeginRoiPan(e.GetPosition(canvas));
@@ -1365,6 +1370,7 @@ namespace ArrayImageViewer.UI
         {
             if (e.ChangedButton == MouseButton.Middle)
             {
+                canvas.Focus();
                 BeginRoiPan(e.GetPosition(canvas));
                 e.Handled = true;
             }
@@ -1501,6 +1507,49 @@ namespace ArrayImageViewer.UI
             PanRoi(0, 1);
         }
 
+        private void ViewerPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (frame == null || e.OriginalSource is TextBox || e.OriginalSource is ComboBox || e.OriginalSource is ListBox)
+            {
+                return;
+            }
+
+            if (e.Key == Key.Left)
+            {
+                PanRoi(-1, 0);
+            }
+            else if (e.Key == Key.Right)
+            {
+                PanRoi(1, 0);
+            }
+            else if (e.Key == Key.Up)
+            {
+                PanRoi(0, -1);
+            }
+            else if (e.Key == Key.Down)
+            {
+                PanRoi(0, 1);
+            }
+            else if (e.Key == Key.Add || e.Key == Key.OemPlus || e.Key == Key.PageUp)
+            {
+                ZoomAroundSelection(1.35);
+            }
+            else if (e.Key == Key.Subtract || e.Key == Key.OemMinus || e.Key == Key.PageDown)
+            {
+                ZoomAroundSelection(1.0 / 1.35);
+            }
+            else if (e.Key == Key.Home)
+            {
+                CenterOnSelection();
+            }
+            else
+            {
+                return;
+            }
+
+            e.Handled = true;
+        }
+
         private void PanRoi(int horizontalDirection, int verticalDirection)
         {
             try
@@ -1569,6 +1618,33 @@ namespace ArrayImageViewer.UI
             {
                 SetStatus(Describe(currentX, currentY));
             }
+        }
+
+        private void ZoomAroundPoint(Point pointInCanvas, Point pointInViewport, double requestedZoom)
+        {
+            if (frame == null || zoom <= 0)
+            {
+                return;
+            }
+
+            var localX = pointInCanvas.X / zoom;
+            var localY = pointInCanvas.Y / zoom;
+            ApplyZoom(Math.Max(0.05, Math.Min(64.0, requestedZoom)));
+            scrollViewer.ScrollToHorizontalOffset(Math.Max(0, localX * zoom - pointInViewport.X));
+            scrollViewer.ScrollToVerticalOffset(Math.Max(0, localY * zoom - pointInViewport.Y));
+        }
+
+        private void ZoomAroundSelection(double factor)
+        {
+            if (frame == null)
+            {
+                return;
+            }
+
+            var localX = currentX - frame.Configuration.OriginX + 0.5;
+            var localY = currentY - frame.Configuration.OriginY + 0.5;
+            ZoomAroundPoint(new Point(localX * zoom, localY * zoom),
+                new Point(scrollViewer.ViewportWidth / 2.0, scrollViewer.ViewportHeight / 2.0), zoom * factor);
         }
 
         private void UpdateViewportAndOverlay()

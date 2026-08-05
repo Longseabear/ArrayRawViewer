@@ -84,6 +84,11 @@ the image (or hold Shift while left-dragging); the new center is shown while
 dragging and the ROI is reread only when the mouse is released. The **Pan**
 buttons move by half of the current ROI size.
 
+With the image canvas focused, arrow keys reload the ROI one half-ROI at a time.
+`+`/`-` (or Page Up/Page Down) zoom around the selected pixel, and Home centers
+the viewport on it. Mouse-wheel zoom is anchored at the cursor, so the sample
+under the pointer remains under the pointer.
+
 The **Frame Navigator** is a lightweight geometric map of the complete configured
 frame. Drag from one corner to another to choose both ROI position and size with
 the mouse. It does not read or render the entire debuggee buffer; it reads only
