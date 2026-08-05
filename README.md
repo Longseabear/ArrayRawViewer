@@ -145,6 +145,10 @@ and returns a frozen bitmap to the Visual Studio UI thread. Its pixel conversion
 written in 64-row blocks, rather than allocating a second full-frame BGRA array
 alongside the raw samples.
 
+Full previews above the normal 4,194,304-sample interactive limit show a one-time
+confirmation with their approximate debuggee-memory read size. A 4096x3072 `uint*`
+frame is such a request; selecting **Yes** still reads it in responsive row batches.
+
 ## Core checks
 
 `tests\ArrayImageViewer.Tests` is a dependency-free .NET 4.5 console test project.

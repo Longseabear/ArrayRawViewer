@@ -9,8 +9,8 @@ using ArrayImageViewer.Core;
 namespace ArrayImageViewer.Debugging
 {
     // The Visual Studio expression evaluator is intentionally kept behind this
-    // small adapter. It is suitable for small arrays in this draft; a production
-    // reader should replace it with a debugger-memory reader for large frames.
+    // small adapter. It is suitable for small ROI fallback reads; native debugger
+    // memory reads are used whenever the active engine exposes memory contexts.
     internal static class DebugExpressionFrameReader
     {
         public const int DraftSampleLimit = 16384;
@@ -26,7 +26,7 @@ namespace ArrayImageViewer.Debugging
             if (configuration.RequiredSampleCount > DraftSampleLimit)
             {
                 throw new InvalidOperationException(
-                    "Expression evaluation is limited to 16,384 samples in this draft. Use the synthetic preview for large-frame UI testing; direct debug-memory reads are the next implementation step.");
+                    "Expression evaluation is limited to 16,384 samples. Use Load ROI on a native engine with debugger-memory access for larger data.");
             }
 
             var dte = Package.GetGlobalService(typeof(SDTE));

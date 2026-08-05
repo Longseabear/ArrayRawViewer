@@ -16,6 +16,7 @@ namespace ArrayImageViewer.UI
 {
     internal sealed class SensorImageViewerControl : UserControl
     {
+        private const long NormalFullPreviewSampleLimit = 4L * 1024L * 1024L;
         private static readonly Brush RootBrush = new SolidColorBrush(Color.FromRgb(13, 19, 30));
         private static readonly Brush PanelBrush = new SolidColorBrush(Color.FromRgb(24, 33, 48));
         private static readonly Brush ControlBrush = new SolidColorBrush(Color.FromRgb(15, 23, 38));
@@ -977,7 +978,6 @@ namespace ArrayImageViewer.UI
         {
             try
             {
-                CancelPendingMemoryRead();
                 var configuration = ReadConfiguration();
                 var roi = GetRoiBounds(configuration);
                 var sampleCount = checked((long)roi.Width * roi.Height);
@@ -1005,6 +1005,23 @@ namespace ArrayImageViewer.UI
             {
                 CancelPendingMemoryRead();
                 var configuration = ReadConfiguration();
+                var fullPreviewSamples = checked((long)configuration.Width * configuration.Height);
+                if (fullPreviewSamples > NormalFullPreviewSampleLimit)
+                {
+                    var bytes = checked(fullPreviewSamples * configuration.ElementSizeInBytes);
+                    var confirmation = MessageBox.Show(
+                        String.Format(CultureInfo.InvariantCulture,
+                            "Full preview will read {0:N0} samples ({1:N1} MiB) from the paused debuggee and render a {2}x{3} image. Continue?",
+                            fullPreviewSamples, bytes / (1024.0 * 1024.0), configuration.Width, configuration.Height),
+                        "Sensor RAW Array Viewer", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+                    if (confirmation != MessageBoxResult.Yes)
+                    {
+                        SetStatus("Full preview canceled. Load a smaller ROI to inspect cells without reading the complete frame.");
+                        return;
+                    }
+                }
+
+                CancelPendingMemoryRead();
                 DebugMemoryFrameReader.RoiReadSession memoryRead;
                 if (!DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration, 0, 0, configuration.Width, configuration.Height, out memoryRead))
                 {
