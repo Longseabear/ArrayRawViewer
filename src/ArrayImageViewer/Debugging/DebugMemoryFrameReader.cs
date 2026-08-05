@@ -10,14 +10,13 @@ namespace ArrayImageViewer.Debugging
     // fallback for engines that do not support memory contexts.
     internal static class DebugMemoryFrameReader
     {
-        private const int ElementSizeInBytes = 4;
         private const uint ParseExpression = 1;
         private const uint EvaluateWithoutFunctionCalls = 0x00000002 | 0x00000004 | 0x00000080;
 
-        public static bool TryReadRoi(object currentStackFrame, string expression, FrameConfiguration sourceConfiguration,
-            int originX, int originY, int roiWidth, int roiHeight, out FrameBuffer frame)
+        public static bool TryStartRoiRead(object currentStackFrame, string expression, FrameConfiguration sourceConfiguration,
+            int originX, int originY, int roiWidth, int roiHeight, out RoiReadSession session)
         {
-            frame = null;
+            session = null;
             var stackFrame = currentStackFrame as IDebugStackFrame2;
             if (stackFrame == null)
             {
@@ -54,55 +53,156 @@ namespace ArrayImageViewer.Debugging
                     return false;
                 }
 
-                var roiConfiguration = new FrameConfiguration(roiWidth, roiHeight, roiWidth,
-                    sourceConfiguration.IntegerBits, sourceConfiguration.FractionalBits, sourceConfiguration.IsSigned,
-                    sourceConfiguration.PixelOrder, sourceConfiguration.PixelType, sourceConfiguration.VisualizeChannel,
-                    originX, originY);
-                var samples = new long[checked(roiWidth * roiHeight)];
-                var bytesPerRow = checked(roiWidth * ElementSizeInBytes);
-                for (var y = 0; y < roiHeight; y++)
-                {
-                    var byteOffset = checked(((long)(originY + y) * sourceConfiguration.Stride + originX) * ElementSizeInBytes);
-                    IDebugMemoryContext2 rowContext;
-                    if (byteOffset < 0 || Failed(memoryContext.Add((ulong)byteOffset, out rowContext)) || rowContext == null)
-                    {
-                        return false;
-                    }
-
-                    var row = new byte[bytesPerRow];
-                    uint bytesRead;
-                    uint unreadable = 0;
-                    if (Failed(memoryBytes.ReadAt(rowContext, (uint)bytesPerRow, row, out bytesRead, ref unreadable)) ||
-                        bytesRead != (uint)bytesPerRow || unreadable != 0)
-                    {
-                        return false;
-                    }
-
-                    for (var x = 0; x < roiWidth; x++)
-                    {
-                        samples[y * roiWidth + x] = DecodeInt32(row, x * ElementSizeInBytes, sourceConfiguration.IsSigned);
-                    }
-                }
-
-                frame = new FrameBuffer(roiConfiguration, samples);
+                session = new RoiReadSession(memoryBytes, memoryContext, sourceConfiguration, originX, originY, roiWidth, roiHeight);
                 return true;
             }
             catch (Exception)
             {
                 // Engines vary considerably in their IDebug* support. Falling
                 // back keeps the viewer usable for older/third-party engines.
-                frame = null;
+                session = null;
                 return false;
             }
         }
 
-        private static long DecodeInt32(byte[] bytes, int offset, bool isSigned)
+        public static bool TryReadRoi(object currentStackFrame, string expression, FrameConfiguration sourceConfiguration,
+            int originX, int originY, int roiWidth, int roiHeight, out FrameBuffer frame)
         {
-            var value = (uint)(bytes[offset] |
-                (bytes[offset + 1] << 8) |
-                (bytes[offset + 2] << 16) |
-                (bytes[offset + 3] << 24));
-            return isSigned ? unchecked((int)value) : (long)value;
+            frame = null;
+            RoiReadSession session;
+            if (!TryStartRoiRead(currentStackFrame, expression, sourceConfiguration, originX, originY, roiWidth, roiHeight, out session))
+            {
+                return false;
+            }
+
+            if (!session.TryReadRows(roiHeight))
+            {
+                return false;
+            }
+
+            frame = session.CreateFrame();
+            return true;
+        }
+
+        // Debugger memory interfaces are generally apartment-bound.  The session
+        // keeps every read on the VS UI thread, but lets the caller yield between
+        // row batches so a full-frame preview does not monopolize that thread.
+        internal sealed class RoiReadSession
+        {
+            private readonly IDebugMemoryBytes2 memoryBytes;
+            private readonly IDebugMemoryContext2 memoryContext;
+            private readonly FrameConfiguration sourceConfiguration;
+            private readonly FrameConfiguration roiConfiguration;
+            private readonly int originX;
+            private readonly int originY;
+            private readonly int width;
+            private readonly int height;
+            private readonly int bytesPerRow;
+            private readonly long[] samples;
+            private int nextRow;
+            private string errorMessage;
+
+            internal RoiReadSession(IDebugMemoryBytes2 memoryBytesValue, IDebugMemoryContext2 memoryContextValue,
+                FrameConfiguration sourceConfigurationValue, int originXValue, int originYValue, int widthValue, int heightValue)
+            {
+                memoryBytes = memoryBytesValue;
+                memoryContext = memoryContextValue;
+                sourceConfiguration = sourceConfigurationValue;
+                originX = originXValue;
+                originY = originYValue;
+                width = widthValue;
+                height = heightValue;
+                roiConfiguration = new FrameConfiguration(width, height, width,
+                    sourceConfiguration.IntegerBits, sourceConfiguration.FractionalBits, sourceConfiguration.IsSigned,
+                    sourceConfiguration.PixelOrder, sourceConfiguration.PixelType, sourceConfiguration.VisualizeChannel,
+                    originX, originY, sourceConfiguration.SourceElementType);
+                samples = new long[checked(width * height)];
+                bytesPerRow = checked(width * sourceConfiguration.ElementSizeInBytes);
+            }
+
+            public int RowsRead { get { return nextRow; } }
+            public int TotalRows { get { return height; } }
+            public int Width { get { return width; } }
+            public bool IsComplete { get { return nextRow == height; } }
+            public string ErrorMessage { get { return errorMessage; } }
+
+            public bool TryReadRows(int maximumRows)
+            {
+                if (maximumRows <= 0)
+                {
+                    throw new ArgumentOutOfRangeException("maximumRows");
+                }
+
+                try
+                {
+                    var finalRow = Math.Min(height, checked(nextRow + maximumRows));
+                    while (nextRow < finalRow)
+                    {
+                        var byteOffset = checked(((long)(originY + nextRow) * sourceConfiguration.Stride + originX) * sourceConfiguration.ElementSizeInBytes);
+                        IDebugMemoryContext2 rowContext;
+                        if (byteOffset < 0 || Failed(memoryContext.Add((ulong)byteOffset, out rowContext)) || rowContext == null)
+                        {
+                            errorMessage = "The debugger could not address a requested image row.";
+                            return false;
+                        }
+
+                        var row = new byte[bytesPerRow];
+                        uint bytesRead;
+                        uint unreadable = 0;
+                        if (Failed(memoryBytes.ReadAt(rowContext, (uint)bytesPerRow, row, out bytesRead, ref unreadable)) ||
+                            bytesRead != (uint)bytesPerRow || unreadable != 0)
+                        {
+                            errorMessage = "The debugger reported unreadable memory in row " + nextRow + ".";
+                            return false;
+                        }
+
+                        for (var x = 0; x < width; x++)
+                        {
+                            samples[nextRow * width + x] = DecodeSample(row, x * sourceConfiguration.ElementSizeInBytes, sourceConfiguration.SourceElementType);
+                        }
+
+                        nextRow++;
+                    }
+
+                    return true;
+                }
+                catch (Exception exception)
+                {
+                    errorMessage = "Native debugger-memory read failed: " + exception.Message;
+                    return false;
+                }
+            }
+
+            public FrameBuffer CreateFrame()
+            {
+                if (!IsComplete)
+                {
+                    throw new InvalidOperationException("The debugger-memory read is not complete.");
+                }
+
+                return new FrameBuffer(roiConfiguration, samples);
+            }
+        }
+
+        private static long DecodeSample(byte[] bytes, int offset, SourceElementType sourceElementType)
+        {
+            switch (sourceElementType)
+            {
+                case SourceElementType.Int8:
+                    return unchecked((sbyte)bytes[offset]);
+                case SourceElementType.UInt8:
+                    return bytes[offset];
+                case SourceElementType.Int16:
+                    return unchecked((short)(bytes[offset] | (bytes[offset + 1] << 8)));
+                case SourceElementType.UInt16:
+                    return (ushort)(bytes[offset] | (bytes[offset + 1] << 8));
+                default:
+                    var value = (uint)(bytes[offset] |
+                        (bytes[offset + 1] << 8) |
+                        (bytes[offset + 2] << 16) |
+                        (bytes[offset + 3] << 24));
+                    return sourceElementType == SourceElementType.Int32 ? unchecked((int)value) : (long)value;
+            }
         }
 
         private static bool Failed(int hr)

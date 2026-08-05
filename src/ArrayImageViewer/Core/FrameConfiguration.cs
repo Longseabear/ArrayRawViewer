@@ -2,6 +2,16 @@ using System;
 
 namespace ArrayImageViewer.Core
 {
+    internal enum SourceElementType
+    {
+        Int8,
+        UInt8,
+        Int16,
+        UInt16,
+        Int32,
+        UInt32
+    }
+
     internal sealed class FrameConfiguration
     {
         public FrameConfiguration(int width, int height, int stride, int integerBits, int fractionalBits, bool isSigned, PixelOrder pixelOrder, PixelType pixelType, VisualizeChannel visualizeChannel)
@@ -10,6 +20,13 @@ namespace ArrayImageViewer.Core
         }
 
         public FrameConfiguration(int width, int height, int stride, int integerBits, int fractionalBits, bool isSigned, PixelOrder pixelOrder, PixelType pixelType, VisualizeChannel visualizeChannel, int originX, int originY)
+            : this(width, height, stride, integerBits, fractionalBits, isSigned, pixelOrder, pixelType, visualizeChannel, originX, originY,
+                isSigned ? SourceElementType.Int32 : SourceElementType.UInt32)
+        {
+        }
+
+        public FrameConfiguration(int width, int height, int stride, int integerBits, int fractionalBits, bool isSigned, PixelOrder pixelOrder, PixelType pixelType,
+            VisualizeChannel visualizeChannel, int originX, int originY, SourceElementType sourceElementType)
         {
             Width = width;
             Height = height;
@@ -22,6 +39,7 @@ namespace ArrayImageViewer.Core
             VisualizeChannel = visualizeChannel;
             OriginX = originX;
             OriginY = originY;
+            SourceElementType = sourceElementType;
             Validate();
         }
 
@@ -37,6 +55,34 @@ namespace ArrayImageViewer.Core
         public VisualizeChannel VisualizeChannel { get; private set; }
         public int OriginX { get; private set; }
         public int OriginY { get; private set; }
+        public SourceElementType SourceElementType { get; private set; }
+
+        public int ElementSizeInBytes
+        {
+            get
+            {
+                switch (SourceElementType)
+                {
+                    case SourceElementType.Int8:
+                    case SourceElementType.UInt8:
+                        return 1;
+                    case SourceElementType.Int16:
+                    case SourceElementType.UInt16:
+                        return 2;
+                    default:
+                        return 4;
+                }
+            }
+        }
+
+        public bool SourceElementIsSigned
+        {
+            get
+            {
+                return SourceElementType == SourceElementType.Int8 || SourceElementType == SourceElementType.Int16 ||
+                    SourceElementType == SourceElementType.Int32;
+            }
+        }
 
         public long RequiredSampleCount
         {
@@ -101,6 +147,11 @@ namespace ArrayImageViewer.Core
                 IntegerBits > 32 - FractionalBits)
             {
                 throw new ArgumentException("Q format must contain 1 to 32 total bits.");
+            }
+
+            if (IsSigned != SourceElementIsSigned)
+            {
+                throw new ArgumentException("The signed interpretation must match the selected source element type.");
             }
 
             var samples = RequiredSampleCount;

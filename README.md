@@ -55,7 +55,12 @@ such as `sensorRaw`. Then enter the full-frame interpretation before loading:
   With **Signed int** clear, `8.8b` ranges from `0` to `255.996...`; with it set,
   the range is `-128` to `127.996...`. A 32-bit pointer with `8.8b` is interpreted
   from its lower 16 bits.
-- `signed`: select for `int*`; clear for `uint*`.
+- `Element`: the stored debugger-memory element type. Pointer choices infer it
+  automatically; choose `Int8`, `UInt8`, `Int16`, `UInt16`, `Int32`, or `UInt32`
+  for a manual expression. This controls address stride in bytes and raw-value
+  decoding, independently of the Q-format's valid-bit count.
+- `signed`: stays synchronized with `Element` (`int*`/`uint*`, etc.) so a signed
+  interpretation cannot accidentally use unsigned element addressing.
 - `Pixel order`: choose the Bayer tile orientation: `GRFirst` (GRBG), `RFirst`
   (RGGB), `BFirst` (BGGR), or `GBFirst` (GBRG).
 - `Pixel type`: choose physical sample grouping independently: `Bayer`, `Tetra`
@@ -88,11 +93,12 @@ moves its center; a drag defines a new size and position.
 
 When the expression box receives focus while the debuggee is paused, it refreshes
 the current stack's pointer locals and offers matching names as you type. Selecting
-a suggestion applies its signedness. Each pointer that is captured or successfully
-loaded receives an in-window **Profile**: its dimensions, stride, Q-format, Bayer
-settings, visualization mode, and ROI are restored when that profile is selected.
-Profiles contain configuration only (no samples are saved) and are discarded when
-the viewer window is closed.
+a suggestion applies its element type and signedness. Each pointer that is captured
+or successfully loaded receives an in-window **Session Profile**: its dimensions,
+stride, source element type, Q-format, Bayer settings, visualization mode, and ROI
+are restored when that profile is selected. Settings update automatically and can
+also be saved explicitly with **Save settings**. Profiles contain configuration only
+(no samples are saved) and are discarded when the viewer window is closed.
 
 `Visualize` supports `Gray`, original color-coded `BayerRaw`, a lightweight
 `Composite` Bayer preview, and `R`/`G`/`Gr`/`Gb`/`B` planes. Composite uses the
@@ -110,21 +116,24 @@ automatically fall back to expression evaluation and report `Read expression
 fallback`.
 
 On a native engine that reports `Read debugger memory`, **Full preview** reads the
-configured full frame and opens it as a fit-to-window image. No per-pixel text is
-created at that zoom level; text/grid cells appear only after zooming in far enough
-that at most 900 cells are visible. The orange ROI rectangle remains overlaid on
-the full preview, so the frame navigator can select a small inspectable region
-without losing full-frame context. Large preview rendering runs on a background
-STA worker and returns a frozen bitmap to the Visual Studio UI thread. Its pixel
-conversion is written in 64-row blocks, rather than allocating a second full-frame
-BGRA array alongside the raw samples.
+configured full frame and opens it as a fit-to-window image. Native reads run in
+small row batches on the Visual Studio UI apartment; the status line shows progress
+and allows paint/input events between batches. No per-pixel text is created at that
+zoom level; text/grid cells appear only after zooming in far enough that at most
+900 cells are visible. The orange ROI rectangle remains overlaid on the full
+preview, so the frame navigator can select a small inspectable region without
+losing full-frame context. Large preview rendering runs on a background STA worker
+and returns a frozen bitmap to the Visual Studio UI thread. Its pixel conversion is
+written in 64-row blocks, rather than allocating a second full-frame BGRA array
+alongside the raw samples.
 
 ## Core checks
 
 `tests\ArrayImageViewer.Tests` is a dependency-free .NET 4.5 console test project.
-It checks Q-format decoding/ranges, stride handling, Bayer/Tetra/TetraSquare phase,
-small renderer output, the worker-thread bitmap handoff, and a real 4096x3072 Gray
-render. Build and run it with:
+It checks Q-format decoding/ranges, signed/unsigned source-element storage shape,
+stride handling, Bayer/Tetra/TetraSquare phase, small renderer output, the
+worker-thread bitmap handoff, and a real 4096x3072 Gray render. Build and run it
+with:
 
 ```powershell
 msbuild tests\ArrayImageViewer.Tests\ArrayImageViewer.Tests.csproj /t:Build /p:Configuration=Release

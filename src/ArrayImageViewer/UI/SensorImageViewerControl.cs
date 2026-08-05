@@ -8,6 +8,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using ArrayImageViewer.Core;
 using ArrayImageViewer.Debugging;
 
@@ -40,6 +41,7 @@ namespace ArrayImageViewer.UI
         private readonly TextBox stride = CreateTextBox("4096", 60);
         private readonly TextBox qFormat = CreateTextBox("13.0b", 58);
         private readonly CheckBox signed = new CheckBox { Content = "Signed", Foreground = TextBrush, Height = 27, VerticalAlignment = VerticalAlignment.Center };
+        private readonly ComboBox sourceElementType = CreateComboBox(82);
         private readonly ComboBox pixelOrder = CreateComboBox(108);
         private readonly ComboBox pixelType = CreateComboBox(108);
         private readonly ComboBox visualizeChannel = CreateComboBox(116);
@@ -84,6 +86,8 @@ namespace ArrayImageViewer.UI
         private Rect navigatorFrameBounds;
         private string lastReadPath = "expression fallback";
         private int renderGeneration;
+        private readonly DispatcherTimer memoryReadTimer;
+        private PendingMemoryRead pendingMemoryRead;
 
         public SensorImageViewerControl()
         {
@@ -93,6 +97,8 @@ namespace ArrayImageViewer.UI
             pixelType.SelectedItem = PixelType.Bayer;
             visualizeChannel.ItemsSource = Enum.GetValues(typeof(VisualizeChannel));
             visualizeChannel.SelectedItem = VisualizeChannel.BayerRaw;
+            sourceElementType.ItemsSource = Enum.GetValues(typeof(SourceElementType));
+            sourceElementType.SelectedItem = SourceElementType.UInt32;
             availablePointers.SelectionChanged += AvailablePointerChanged;
             profilePicker.SelectionChanged += ProfilePickerChanged;
             expression.TextChanged += ExpressionTextChanged;
@@ -108,6 +114,10 @@ namespace ArrayImageViewer.UI
             xValueSource.SelectionChanged += XValueSelected;
             yValueSource.SelectionChanged += YValueSelected;
             ConfigureProfileAutoSave();
+            memoryReadTimer = new DispatcherTimer(DispatcherPriority.Background);
+            memoryReadTimer.Interval = TimeSpan.FromMilliseconds(1);
+            memoryReadTimer.Tick += MemoryReadTimerTick;
+            Unloaded += ViewerUnloaded;
 
             canvas.Children.Add(image);
             canvas.Children.Add(emptyState);
@@ -178,6 +188,7 @@ namespace ArrayImageViewer.UI
             formatRow.Children.Add(CreateField("HEIGHT", height));
             formatRow.Children.Add(CreateField("ROW STRIDE", stride));
             formatRow.Children.Add(CreateField("Q FORMAT", qFormat));
+            formatRow.Children.Add(CreateField("ELEMENT", sourceElementType));
             formatRow.Children.Add(CreateField("VALUE TYPE", signed));
             formatRow.Children.Add(CreateField("PIXEL ORDER", pixelOrder));
             formatRow.Children.Add(CreateField("PIXEL TYPE", pixelType));
@@ -580,6 +591,7 @@ namespace ArrayImageViewer.UI
                 isApplyingProfile = true;
                 expression.Text = pointer.Name;
                 signed.IsChecked = pointer.IsSigned;
+                sourceElementType.SelectedItem = pointer.SourceElementType;
                 isApplyingProfile = false;
                 EnsureProfile(pointer.Name);
             }
@@ -633,8 +645,9 @@ namespace ArrayImageViewer.UI
             selectedY.TextChanged += ProfileInputChanged;
             roiWidth.TextChanged += ProfileInputChanged;
             roiHeight.TextChanged += ProfileInputChanged;
-            signed.Checked += ProfileOptionChanged;
-            signed.Unchecked += ProfileOptionChanged;
+            signed.Checked += SignedInterpretationChanged;
+            signed.Unchecked += SignedInterpretationChanged;
+            sourceElementType.SelectionChanged += SourceElementTypeChanged;
             pixelOrder.SelectionChanged += ProfileOptionChanged;
             pixelType.SelectionChanged += ProfileOptionChanged;
             visualizeChannel.SelectionChanged += ProfileOptionChanged;
@@ -655,6 +668,53 @@ namespace ArrayImageViewer.UI
             SaveCurrentProfile();
         }
 
+        private void SourceElementTypeChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var selected = sourceElementType.SelectedItem;
+            if (selected == null)
+            {
+                return;
+            }
+
+            var elementType = (SourceElementType)selected;
+            signed.IsChecked = elementType == SourceElementType.Int8 || elementType == SourceElementType.Int16 || elementType == SourceElementType.Int32;
+            SaveCurrentProfile();
+        }
+
+        private void SignedInterpretationChanged(object sender, RoutedEventArgs e)
+        {
+            var selected = sourceElementType.SelectedItem;
+            if (selected == null)
+            {
+                return;
+            }
+
+            var targetSigned = signed.IsChecked == true;
+            var current = (SourceElementType)selected;
+            var currentSigned = current == SourceElementType.Int8 || current == SourceElementType.Int16 || current == SourceElementType.Int32;
+            if (targetSigned != currentSigned)
+            {
+                sourceElementType.SelectedItem = ToSignedVariant(current, targetSigned);
+            }
+
+            SaveCurrentProfile();
+        }
+
+        private static SourceElementType ToSignedVariant(SourceElementType sourceElementTypeValue, bool signedValue)
+        {
+            switch (sourceElementTypeValue)
+            {
+                case SourceElementType.Int8:
+                case SourceElementType.UInt8:
+                    return signedValue ? SourceElementType.Int8 : SourceElementType.UInt8;
+                case SourceElementType.Int16:
+                case SourceElementType.UInt16:
+                    return signedValue ? SourceElementType.Int16 : SourceElementType.UInt16;
+                default:
+                    return signedValue ? SourceElementType.Int32 : SourceElementType.UInt32;
+            }
+        }
+
         private void EnsureProfile(string sourceExpression)
         {
             if (String.IsNullOrWhiteSpace(sourceExpression) || profiles.ContainsKey(sourceExpression.Trim()))
@@ -663,7 +723,7 @@ namespace ArrayImageViewer.UI
             }
 
             profiles.Add(sourceExpression.Trim(), ViewerProfile.Create(sourceExpression.Trim(), width.Text, height.Text, stride.Text, qFormat.Text,
-                signed.IsChecked == true, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
+                signed.IsChecked == true, (SourceElementType)sourceElementType.SelectedItem, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
                 (VisualizeChannel)visualizeChannel.SelectedItem, selectedX.Text, selectedY.Text, roiWidth.Text, roiHeight.Text));
         }
 
@@ -681,7 +741,7 @@ namespace ArrayImageViewer.UI
             }
 
             profiles[sourceExpression] = ViewerProfile.Create(sourceExpression, width.Text, height.Text, stride.Text, qFormat.Text,
-                signed.IsChecked == true, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
+                signed.IsChecked == true, (SourceElementType)sourceElementType.SelectedItem, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
                 (VisualizeChannel)visualizeChannel.SelectedItem, selectedX.Text, selectedY.Text, roiWidth.Text, roiHeight.Text);
         }
 
@@ -717,6 +777,7 @@ namespace ArrayImageViewer.UI
             stride.Text = profile.Stride;
             qFormat.Text = profile.QFormat;
             signed.IsChecked = profile.IsSigned;
+            sourceElementType.SelectedItem = profile.SourceElementType;
             pixelOrder.SelectedItem = profile.PixelOrder;
             pixelType.SelectedItem = profile.PixelType;
             visualizeChannel.SelectedItem = profile.VisualizeChannel;
@@ -818,8 +879,18 @@ namespace ArrayImageViewer.UI
         {
             try
             {
+                CancelPendingMemoryRead();
                 var configuration = ReadConfiguration();
                 var roi = GetRoiBounds(configuration);
+                var sampleCount = checked((long)roi.Width * roi.Height);
+                DebugMemoryFrameReader.RoiReadSession memoryRead;
+                if (sampleCount > 32768 && DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration,
+                    roi.X, roi.Y, roi.Width, roi.Height, out memoryRead))
+                {
+                    BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, roi.CenterX, roi.CenterY, false, expression.Text.Trim());
+                    return;
+                }
+
                 SetStatus("Reading ROI " + roi.Width + "x" + roi.Height + " from the debugger.");
                 var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, roi.X, roi.Y, roi.Width, roi.Height);
                 ApplyLoadedFrame(source, configuration.Width, configuration.Height, roi.CenterX, roi.CenterY, false, expression.Text.Trim());
@@ -834,22 +905,79 @@ namespace ArrayImageViewer.UI
         {
             try
             {
+                CancelPendingMemoryRead();
                 var configuration = ReadConfiguration();
-                SetStatus("Reading full " + configuration.Width + "x" + configuration.Height + " preview from the debugger.");
-                var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, 0, 0, configuration.Width, configuration.Height);
-                if (!DebugExpressionFrameReader.LastRoiReadUsedMemory)
+                DebugMemoryFrameReader.RoiReadSession memoryRead;
+                if (!DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration, 0, 0, configuration.Width, configuration.Height, out memoryRead))
                 {
                     throw new InvalidOperationException("Full preview requires the native debugger-memory reader. Use Load ROI on this debug engine.");
                 }
 
                 var centerX = Math.Max(0, Math.Min(configuration.Width - 1, ResolveInteger(selectedX, "ROI center X")));
                 var centerY = Math.Max(0, Math.Min(configuration.Height - 1, ResolveInteger(selectedY, "ROI center Y")));
-                ApplyLoadedFrame(source, configuration.Width, configuration.Height, centerX, centerY, true, expression.Text.Trim());
+                BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, centerX, centerY, true, expression.Text.Trim());
             }
             catch (Exception exception)
             {
                 SetStatus("Cannot read full preview: " + exception.Message);
             }
+        }
+
+        private void BeginMemoryRead(DebugMemoryFrameReader.RoiReadSession memoryRead, int sourceWidth, int sourceHeight,
+            int selectedGlobalX, int selectedGlobalY, bool isFullPreview, string sourceExpression)
+        {
+            pendingMemoryRead = new PendingMemoryRead(memoryRead, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, sourceExpression);
+            SetStatus("Reading " + memoryRead.TotalRows.ToString(CultureInfo.InvariantCulture) + " debugger-memory rows in responsive batches (0%).");
+            memoryReadTimer.Start();
+        }
+
+        private void MemoryReadTimerTick(object sender, EventArgs e)
+        {
+            var pending = pendingMemoryRead;
+            if (pending == null)
+            {
+                memoryReadTimer.Stop();
+                return;
+            }
+
+            // Limit a single UI turn to roughly 512 KiB of debuggee memory.
+            // This keeps mouse/paint operations responsive for a 4096-wide frame.
+            var rowsPerBatch = Math.Max(1, Math.Min(64, 131072 / Math.Max(1, pending.Session.Width * 4)));
+            if (!pending.Session.TryReadRows(rowsPerBatch))
+            {
+                memoryReadTimer.Stop();
+                pendingMemoryRead = null;
+                SetStatus("Cannot read debugger memory: " + (pending.Session.ErrorMessage ?? "unknown native debugger read error"));
+                return;
+            }
+
+            if (!pending.Session.IsComplete)
+            {
+                var percent = pending.Session.RowsRead * 100 / Math.Max(1, pending.Session.TotalRows);
+                SetStatus("Reading " + pending.Session.RowsRead.ToString(CultureInfo.InvariantCulture) + "/" + pending.Session.TotalRows.ToString(CultureInfo.InvariantCulture) +
+                    " debugger-memory rows in responsive batches (" + percent.ToString(CultureInfo.InvariantCulture) + "%).");
+                return;
+            }
+
+            memoryReadTimer.Stop();
+            pendingMemoryRead = null;
+            DebugExpressionFrameReader.MarkMemoryReadComplete();
+            ApplyLoadedFrame(pending.Session.CreateFrame(), pending.SourceWidth, pending.SourceHeight,
+                pending.SelectedGlobalX, pending.SelectedGlobalY, pending.IsFullPreview, pending.SourceExpression);
+        }
+
+        private void CancelPendingMemoryRead()
+        {
+            if (pendingMemoryRead != null)
+            {
+                pendingMemoryRead = null;
+                memoryReadTimer.Stop();
+            }
+        }
+
+        private void ViewerUnloaded(object sender, RoutedEventArgs e)
+        {
+            CancelPendingMemoryRead();
         }
 
         private void ApplyLoadedFrame(FrameBuffer source, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY, bool isFullPreview, string sourceExpression)
@@ -926,7 +1054,8 @@ namespace ArrayImageViewer.UI
             }
 
             return new FrameConfiguration(parsedWidth, parsedHeight, parsedStride, parsedIntegerBits, parsedFractionalBits, signed.IsChecked == true,
-                (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem, (VisualizeChannel)visualizeChannel.SelectedItem);
+                (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem, (VisualizeChannel)visualizeChannel.SelectedItem, 0, 0,
+                (SourceElementType)sourceElementType.SelectedItem);
         }
 
         private static int ResolveInteger(TextBox field, string fieldName)
@@ -1603,6 +1732,7 @@ namespace ArrayImageViewer.UI
             public string Stride { get; private set; }
             public string QFormat { get; private set; }
             public bool IsSigned { get; private set; }
+            public SourceElementType SourceElementType { get; private set; }
             public PixelOrder PixelOrder { get; private set; }
             public PixelType PixelType { get; private set; }
             public VisualizeChannel VisualizeChannel { get; private set; }
@@ -1612,7 +1742,7 @@ namespace ArrayImageViewer.UI
             public string RoiHeight { get; private set; }
 
             public static ViewerProfile Create(string expressionValue, string widthValue, string heightValue, string strideValue, string qFormatValue,
-                bool signedValue, PixelOrder pixelOrderValue, PixelType pixelTypeValue, VisualizeChannel visualizeChannelValue,
+                bool signedValue, SourceElementType sourceElementTypeValue, PixelOrder pixelOrderValue, PixelType pixelTypeValue, VisualizeChannel visualizeChannelValue,
                 string selectedXValue, string selectedYValue, string roiWidthValue, string roiHeightValue)
             {
                 return new ViewerProfile
@@ -1623,6 +1753,7 @@ namespace ArrayImageViewer.UI
                     Stride = strideValue,
                     QFormat = qFormatValue,
                     IsSigned = signedValue,
+                    SourceElementType = sourceElementTypeValue,
                     PixelOrder = pixelOrderValue,
                     PixelType = pixelTypeValue,
                     VisualizeChannel = visualizeChannelValue,
@@ -1635,8 +1766,31 @@ namespace ArrayImageViewer.UI
 
             public override string ToString()
             {
-                return Expression + "  |  " + Width + "x" + Height + "  |  " + QFormat + "  |  " + PixelType + "/" + PixelOrder;
+                return Expression + "  |  " + Width + "x" + Height + "  |  " + SourceElementType + "  |  " + QFormat + "  |  " + PixelType + "/" + PixelOrder;
             }
+        }
+
+        private sealed class PendingMemoryRead
+        {
+            public PendingMemoryRead(DebugMemoryFrameReader.RoiReadSession session, int sourceWidth, int sourceHeight,
+                int selectedGlobalX, int selectedGlobalY, bool isFullPreview, string sourceExpression)
+            {
+                Session = session;
+                SourceWidth = sourceWidth;
+                SourceHeight = sourceHeight;
+                SelectedGlobalX = selectedGlobalX;
+                SelectedGlobalY = selectedGlobalY;
+                IsFullPreview = isFullPreview;
+                SourceExpression = sourceExpression;
+            }
+
+            public DebugMemoryFrameReader.RoiReadSession Session { get; private set; }
+            public int SourceWidth { get; private set; }
+            public int SourceHeight { get; private set; }
+            public int SelectedGlobalX { get; private set; }
+            public int SelectedGlobalY { get; private set; }
+            public bool IsFullPreview { get; private set; }
+            public string SourceExpression { get; private set; }
         }
 
         private struct RoiBounds

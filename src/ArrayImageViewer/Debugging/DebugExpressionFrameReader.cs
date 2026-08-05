@@ -47,7 +47,7 @@ namespace ArrayImageViewer.Debugging
                 var debuggerExpression = String.Format(CultureInfo.InvariantCulture, "({0})[{1}]", expression, index);
                 var evaluated = Invoke(debugger, "GetExpression", debuggerExpression, true, 2000);
                 var value = Convert.ToString(GetMember(evaluated, "Value"), CultureInfo.InvariantCulture);
-                data[index] = ParseValue(value, configuration.IsSigned);
+                data[index] = ParseValue(value, configuration.SourceElementType);
             }
 
             return new FrameBuffer(configuration, data);
@@ -68,13 +68,16 @@ namespace ArrayImageViewer.Debugging
             }
 
             var roiSampleCount = checked((long)roiWidth * roiHeight);
-            var debugger = GetDebugger();
-            var currentStackFrame = GetOptionalMember(debugger, "CurrentStackFrame");
-            FrameBuffer memoryFrame;
-            if (DebugMemoryFrameReader.TryReadRoi(currentStackFrame, expression, sourceConfiguration, originX, originY, roiWidth, roiHeight, out memoryFrame))
+            DebugMemoryFrameReader.RoiReadSession memoryRead;
+            if (TryStartMemoryRoiRead(expression, sourceConfiguration, originX, originY, roiWidth, roiHeight, out memoryRead))
             {
+                if (!memoryRead.TryReadRows(roiHeight))
+                {
+                    throw new InvalidOperationException(memoryRead.ErrorMessage ?? "The debugger could not read the requested memory.");
+                }
+
                 LastRoiReadUsedMemory = true;
-                return memoryFrame;
+                return memoryRead.CreateFrame();
             }
 
             if (roiSampleCount > DraftSampleLimit)
@@ -85,7 +88,8 @@ namespace ArrayImageViewer.Debugging
             var roiConfiguration = new FrameConfiguration(roiWidth, roiHeight, roiWidth,
                 sourceConfiguration.IntegerBits, sourceConfiguration.FractionalBits, sourceConfiguration.IsSigned,
                 sourceConfiguration.PixelOrder, sourceConfiguration.PixelType, sourceConfiguration.VisualizeChannel,
-                originX, originY);
+                originX, originY, sourceConfiguration.SourceElementType);
+            var debugger = GetDebugger();
             var data = new long[checked((int)roiSampleCount)];
             for (var y = 0; y < roiHeight; y++)
             {
@@ -95,11 +99,25 @@ namespace ArrayImageViewer.Debugging
                     var debuggerExpression = String.Format(CultureInfo.InvariantCulture, "({0})[{1}]", expression, sourceIndex);
                     var evaluated = Invoke(debugger, "GetExpression", debuggerExpression, true, 2000);
                     var value = Convert.ToString(GetMember(evaluated, "Value"), CultureInfo.InvariantCulture);
-                    data[y * roiWidth + x] = ParseValue(value, sourceConfiguration.IsSigned);
+                    data[y * roiWidth + x] = ParseValue(value, sourceConfiguration.SourceElementType);
                 }
             }
 
             return new FrameBuffer(roiConfiguration, data);
+        }
+
+        internal static bool TryStartMemoryRoiRead(string expression, FrameConfiguration sourceConfiguration, int originX, int originY,
+            int roiWidth, int roiHeight, out DebugMemoryFrameReader.RoiReadSession session)
+        {
+            LastRoiReadUsedMemory = false;
+            var debugger = GetDebugger();
+            var currentStackFrame = GetOptionalMember(debugger, "CurrentStackFrame");
+            return DebugMemoryFrameReader.TryStartRoiRead(currentStackFrame, expression, sourceConfiguration, originX, originY, roiWidth, roiHeight, out session);
+        }
+
+        internal static void MarkMemoryReadComplete()
+        {
+            LastRoiReadUsedMemory = true;
         }
 
         public static string GetActiveEditorSelection()
@@ -228,6 +246,24 @@ namespace ArrayImageViewer.Debugging
                    normalized.IndexOf("word") >= 0;
         }
 
+        private static SourceElementType GetSourceElementType(string type)
+        {
+            var normalized = type == null ? String.Empty : type.ToLowerInvariant();
+            var isUnsigned = normalized.IndexOf("unsigned") >= 0 || normalized.IndexOf("uint") >= 0 ||
+                normalized.IndexOf("byte") >= 0 || normalized.IndexOf("dword") >= 0 || normalized.IndexOf("size_t") >= 0;
+            if (normalized.IndexOf("int8") >= 0 || normalized.IndexOf("char") >= 0 || normalized.IndexOf("byte") >= 0)
+            {
+                return isUnsigned ? SourceElementType.UInt8 : SourceElementType.Int8;
+            }
+
+            if (normalized.IndexOf("int16") >= 0 || normalized.IndexOf("short") >= 0 || normalized.IndexOf("word") >= 0)
+            {
+                return isUnsigned ? SourceElementType.UInt16 : SourceElementType.Int16;
+            }
+
+            return isUnsigned ? SourceElementType.UInt32 : SourceElementType.Int32;
+        }
+
         private static bool TryParseInteger(string value, out long parsed)
         {
             parsed = 0;
@@ -297,7 +333,7 @@ namespace ArrayImageViewer.Debugging
             return collection.GetType().InvokeMember("Item", BindingFlags.GetProperty, null, collection, new object[] { index });
         }
 
-        private static long ParseValue(string value, bool isSigned)
+        private static long ParseValue(string value, SourceElementType sourceElementType)
         {
             if (String.IsNullOrWhiteSpace(value))
             {
@@ -309,12 +345,25 @@ namespace ArrayImageViewer.Debugging
             if (hexadecimal)
             {
                 var raw = UInt32.Parse(trimmed.Substring(2), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
-                return isSigned ? (long)unchecked((int)raw) : (long)raw;
+                return DecodeExpressionRaw(raw, sourceElementType);
             }
 
-            return isSigned
+            return sourceElementType == SourceElementType.Int8 || sourceElementType == SourceElementType.Int16 || sourceElementType == SourceElementType.Int32
                 ? (long)Int32.Parse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture)
                 : (long)UInt32.Parse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture);
+        }
+
+        private static long DecodeExpressionRaw(uint raw, SourceElementType sourceElementType)
+        {
+            switch (sourceElementType)
+            {
+                case SourceElementType.Int8: return unchecked((sbyte)raw);
+                case SourceElementType.UInt8: return (byte)raw;
+                case SourceElementType.Int16: return unchecked((short)raw);
+                case SourceElementType.UInt16: return (ushort)raw;
+                case SourceElementType.Int32: return unchecked((int)raw);
+                default: return raw;
+            }
         }
 
         private static string NormalizePointerExpression(string selectedText)
@@ -349,10 +398,14 @@ namespace ArrayImageViewer.Debugging
             {
                 get
                 {
-                    var normalized = Type.ToLowerInvariant();
-                    return normalized.IndexOf("unsigned") < 0 && normalized.IndexOf("uint") < 0 &&
-                           normalized.IndexOf("dword") < 0 && normalized.IndexOf("size_t") < 0;
+                    return SourceElementType == SourceElementType.Int8 || SourceElementType == SourceElementType.Int16 ||
+                        SourceElementType == SourceElementType.Int32;
                 }
+            }
+
+            public SourceElementType SourceElementType
+            {
+                get { return GetSourceElementType(Type); }
             }
 
             public override string ToString()

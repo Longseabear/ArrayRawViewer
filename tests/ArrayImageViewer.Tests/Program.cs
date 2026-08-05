@@ -14,6 +14,7 @@ namespace ArrayImageViewer.Tests
             try
             {
                 QFormatAndRangeAreExact();
+                SourceElementTypesPreserveStorageShape();
                 StrideAndOriginRemainFullFrameRelative();
                 BayerLayoutsRepeatAtExpectedBlockSizes();
                 RendererWritesExpectedGrayPixels();
@@ -49,6 +50,21 @@ namespace ArrayImageViewer.Tests
             var frame = new FrameBuffer(config, new long[] { 0, 1, 2, 99, 99, 5, 6, 7, 99, 99 });
             Assert(frame.GetRaw(2, 1) == 7, "Padding is not a pixel.");
             Assert(config.GetBayerSite(0, 0) == BayerSite.R, "ROI origin preserves GRBG phase.");
+        }
+
+        private static void SourceElementTypesPreserveStorageShape()
+        {
+            var signed16 = new FrameConfiguration(2, 1, 2, 8, 8, true, PixelOrder.GRFirst, PixelType.Bayer,
+                VisualizeChannel.Gray, 0, 0, SourceElementType.Int16);
+            var unsigned8 = new FrameConfiguration(2, 1, 2, 8, 0, false, PixelOrder.GRFirst, PixelType.Bayer,
+                VisualizeChannel.Gray, 0, 0, SourceElementType.UInt8);
+            Assert(signed16.ElementSizeInBytes == 2 && signed16.SourceElementIsSigned, "int16 storage is retained.");
+            Assert(unsigned8.ElementSizeInBytes == 1 && !unsigned8.SourceElementIsSigned, "uint8 storage is retained.");
+            ExpectArgumentException(delegate
+            {
+                new FrameConfiguration(1, 1, 1, 8, 0, false, PixelOrder.GRFirst, PixelType.Bayer,
+                    VisualizeChannel.Gray, 0, 0, SourceElementType.Int16);
+            }, "Mismatched signed source type is rejected.");
         }
 
         private static void BayerLayoutsRepeatAtExpectedBlockSizes()
