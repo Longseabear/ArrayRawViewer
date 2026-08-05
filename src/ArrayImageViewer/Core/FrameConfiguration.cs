@@ -12,6 +12,69 @@ namespace ArrayImageViewer.Core
         UInt32
     }
 
+    internal static class SourceElementCodec
+    {
+        public static long DecodeLittleEndian(byte[] bytes, int offset, SourceElementType sourceElementType)
+        {
+            if (bytes == null)
+            {
+                throw new ArgumentNullException("bytes");
+            }
+
+            var requiredBytes = GetSizeInBytes(sourceElementType);
+            if (offset < 0 || offset > bytes.Length - requiredBytes)
+            {
+                throw new ArgumentOutOfRangeException("offset");
+            }
+
+            switch (sourceElementType)
+            {
+                case SourceElementType.Int8:
+                    return unchecked((sbyte)bytes[offset]);
+                case SourceElementType.UInt8:
+                    return bytes[offset];
+                case SourceElementType.Int16:
+                    return unchecked((short)(bytes[offset] | (bytes[offset + 1] << 8)));
+                case SourceElementType.UInt16:
+                    return (ushort)(bytes[offset] | (bytes[offset + 1] << 8));
+                default:
+                    var value = (uint)(bytes[offset] |
+                        (bytes[offset + 1] << 8) |
+                        (bytes[offset + 2] << 16) |
+                        (bytes[offset + 3] << 24));
+                    return sourceElementType == SourceElementType.Int32 ? unchecked((int)value) : (long)value;
+            }
+        }
+
+        public static long DecodeUInt32(uint value, SourceElementType sourceElementType)
+        {
+            switch (sourceElementType)
+            {
+                case SourceElementType.Int8: return unchecked((sbyte)value);
+                case SourceElementType.UInt8: return (byte)value;
+                case SourceElementType.Int16: return unchecked((short)value);
+                case SourceElementType.UInt16: return (ushort)value;
+                case SourceElementType.Int32: return unchecked((int)value);
+                default: return value;
+            }
+        }
+
+        public static int GetSizeInBytes(SourceElementType sourceElementType)
+        {
+            switch (sourceElementType)
+            {
+                case SourceElementType.Int8:
+                case SourceElementType.UInt8:
+                    return 1;
+                case SourceElementType.Int16:
+                case SourceElementType.UInt16:
+                    return 2;
+                default:
+                    return 4;
+            }
+        }
+    }
+
     internal sealed class FrameConfiguration
     {
         public FrameConfiguration(int width, int height, int stride, int integerBits, int fractionalBits, bool isSigned, PixelOrder pixelOrder, PixelType pixelType, VisualizeChannel visualizeChannel)
@@ -59,20 +122,7 @@ namespace ArrayImageViewer.Core
 
         public int ElementSizeInBytes
         {
-            get
-            {
-                switch (SourceElementType)
-                {
-                    case SourceElementType.Int8:
-                    case SourceElementType.UInt8:
-                        return 1;
-                    case SourceElementType.Int16:
-                    case SourceElementType.UInt16:
-                        return 2;
-                    default:
-                        return 4;
-                }
-            }
+            get { return SourceElementCodec.GetSizeInBytes(SourceElementType); }
         }
 
         public bool SourceElementIsSigned

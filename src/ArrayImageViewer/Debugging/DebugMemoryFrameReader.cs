@@ -158,7 +158,8 @@ namespace ArrayImageViewer.Debugging
 
                         for (var x = 0; x < width; x++)
                         {
-                            samples[nextRow * width + x] = DecodeSample(row, x * sourceConfiguration.ElementSizeInBytes, sourceConfiguration.SourceElementType);
+                            samples[nextRow * width + x] = SourceElementCodec.DecodeLittleEndian(row,
+                                x * sourceConfiguration.ElementSizeInBytes, sourceConfiguration.SourceElementType);
                         }
 
                         nextRow++;
@@ -181,27 +182,6 @@ namespace ArrayImageViewer.Debugging
                 }
 
                 return new FrameBuffer(roiConfiguration, samples);
-            }
-        }
-
-        private static long DecodeSample(byte[] bytes, int offset, SourceElementType sourceElementType)
-        {
-            switch (sourceElementType)
-            {
-                case SourceElementType.Int8:
-                    return unchecked((sbyte)bytes[offset]);
-                case SourceElementType.UInt8:
-                    return bytes[offset];
-                case SourceElementType.Int16:
-                    return unchecked((short)(bytes[offset] | (bytes[offset + 1] << 8)));
-                case SourceElementType.UInt16:
-                    return (ushort)(bytes[offset] | (bytes[offset + 1] << 8));
-                default:
-                    var value = (uint)(bytes[offset] |
-                        (bytes[offset + 1] << 8) |
-                        (bytes[offset + 2] << 16) |
-                        (bytes[offset + 3] << 24));
-                    return sourceElementType == SourceElementType.Int32 ? unchecked((int)value) : (long)value;
             }
         }
 

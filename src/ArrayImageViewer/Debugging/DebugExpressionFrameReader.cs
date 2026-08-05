@@ -355,15 +355,7 @@ namespace ArrayImageViewer.Debugging
 
         private static long DecodeExpressionRaw(uint raw, SourceElementType sourceElementType)
         {
-            switch (sourceElementType)
-            {
-                case SourceElementType.Int8: return unchecked((sbyte)raw);
-                case SourceElementType.UInt8: return (byte)raw;
-                case SourceElementType.Int16: return unchecked((short)raw);
-                case SourceElementType.UInt16: return (ushort)raw;
-                case SourceElementType.Int32: return unchecked((int)raw);
-                default: return raw;
-            }
+            return SourceElementCodec.DecodeUInt32(raw, sourceElementType);
         }
 
         private static string NormalizePointerExpression(string selectedText)

@@ -15,6 +15,7 @@ namespace ArrayImageViewer.Tests
             {
                 QFormatAndRangeAreExact();
                 SourceElementTypesPreserveStorageShape();
+                SourceElementCodecDecodesSignedAndUnsignedValues();
                 StrideAndOriginRemainFullFrameRelative();
                 BayerLayoutsRepeatAtExpectedBlockSizes();
                 RendererWritesExpectedGrayPixels();
@@ -65,6 +66,17 @@ namespace ArrayImageViewer.Tests
                 new FrameConfiguration(1, 1, 1, 8, 0, false, PixelOrder.GRFirst, PixelType.Bayer,
                     VisualizeChannel.Gray, 0, 0, SourceElementType.Int16);
             }, "Mismatched signed source type is rejected.");
+        }
+
+        private static void SourceElementCodecDecodesSignedAndUnsignedValues()
+        {
+            var bytes = new byte[] { 0xFE, 0xFF, 0xFF, 0xFF, 0x7F };
+            Assert(SourceElementCodec.DecodeLittleEndian(bytes, 0, SourceElementType.Int8) == -2, "int8 decodes sign.");
+            Assert(SourceElementCodec.DecodeLittleEndian(bytes, 0, SourceElementType.UInt8) == 254, "uint8 decodes value.");
+            Assert(SourceElementCodec.DecodeLittleEndian(bytes, 0, SourceElementType.Int16) == -2, "int16 decodes sign.");
+            Assert(SourceElementCodec.DecodeLittleEndian(bytes, 0, SourceElementType.UInt16) == 65534, "uint16 decodes value.");
+            Assert(SourceElementCodec.DecodeLittleEndian(bytes, 0, SourceElementType.Int32) == -2, "int32 decodes sign.");
+            Assert(SourceElementCodec.DecodeUInt32(0xffffffffU, SourceElementType.UInt32) == UInt32.MaxValue, "uint32 preserves full range.");
         }
 
         private static void BayerLayoutsRepeatAtExpectedBlockSizes()
