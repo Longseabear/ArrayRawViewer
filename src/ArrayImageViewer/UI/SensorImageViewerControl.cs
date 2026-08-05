@@ -97,15 +97,17 @@ namespace ArrayImageViewer.UI
             profilePicker.SelectionChanged += ProfilePickerChanged;
             expression.TextChanged += ExpressionTextChanged;
             expression.GotKeyboardFocus += ExpressionGotKeyboardFocus;
+            expression.PreviewKeyDown += ExpressionPreviewKeyDown;
             expressionSuggestionList.SelectionChanged += ExpressionSuggestionSelected;
             ConfigureExpressionSuggestions();
-            profilePicker.ItemsSource = new object[] { "Capture or load a pointer to create a profile" };
+            profilePicker.ItemsSource = new object[] { "No session profiles yet" };
             profilePicker.SelectedIndex = 0;
             widthValueSource.SelectionChanged += WidthValueSelected;
             heightValueSource.SelectionChanged += HeightValueSelected;
             strideValueSource.SelectionChanged += StrideValueSelected;
             xValueSource.SelectionChanged += XValueSelected;
             yValueSource.SelectionChanged += YValueSelected;
+            ConfigureProfileAutoSave();
 
             canvas.Children.Add(image);
             canvas.Children.Add(emptyState);
@@ -165,10 +167,11 @@ namespace ArrayImageViewer.UI
             pointerRow.Children.Add(CreateAction("LOCALS", CreateButton("Refresh", RefreshPointers, false)));
             pointerRow.Children.Add(CreateField("EXPRESSION", expression));
             pointerRow.Children.Add(CreateAction("EDITOR", CreateButton("Capture", CaptureSelection, false)));
-            pointerRow.Children.Add(CreateField("PROFILE", profilePicker));
+            pointerRow.Children.Add(CreateField("SESSION PROFILE", profilePicker));
+            pointerRow.Children.Add(CreateAction("", CreateButton("Save settings", SaveProfileSettings, false)));
             pointerRow.Children.Add(CreateAction("", CreateButton("Load ROI", LoadExpression, true)));
             pointerRow.Children.Add(CreateAction("", CreateButton("Full preview", LoadFullPreview, false)));
-            panel.Children.Add(CreateSection("SOURCE", "Type for local-pointer suggestions. Full preview uses native debugger memory; profiles retain settings for this window only.", pointerRow));
+            panel.Children.Add(CreateSection("SOURCE", "Type while paused for local-pointer suggestions. A session profile saves interpretation settings only (never RAW memory) for this Viewer window.", pointerRow));
 
             var formatRow = CreateRow();
             formatRow.Children.Add(CreateField("WIDTH", width));
@@ -514,6 +517,26 @@ namespace ArrayImageViewer.UI
             }
         }
 
+        private void ExpressionPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (!expressionSuggestions.IsOpen)
+            {
+                return;
+            }
+
+            if (e.Key == Key.Down)
+            {
+                expressionSuggestionList.SelectedIndex = Math.Min(expressionSuggestionList.Items.Count - 1,
+                    Math.Max(0, expressionSuggestionList.SelectedIndex + 1));
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                expressionSuggestions.IsOpen = false;
+                e.Handled = true;
+            }
+        }
+
         private void UpdateExpressionSuggestions()
         {
             var typed = expression.Text == null ? String.Empty : expression.Text.Trim();
@@ -582,6 +605,54 @@ namespace ArrayImageViewer.UI
             SaveCurrentProfile();
             ApplyProfile(profile);
             SetStatus("Restored profile for " + profile.Expression + ". Select Load ROI to read its current debugger values.");
+        }
+
+        private void SaveProfileSettings(object sender, RoutedEventArgs e)
+        {
+            var sourceExpression = expression.Text == null ? String.Empty : expression.Text.Trim();
+            if (sourceExpression.Length == 0)
+            {
+                SetStatus("Choose a pointer or capture an expression before saving a session profile.");
+                return;
+            }
+
+            EnsureProfile(sourceExpression);
+            activeProfileExpression = sourceExpression;
+            SaveCurrentProfile();
+            RebuildProfilePicker(sourceExpression);
+            SetStatus("Saved interpretation settings for " + sourceExpression + " in this Viewer window. RAW samples were not retained.");
+        }
+
+        private void ConfigureProfileAutoSave()
+        {
+            width.TextChanged += ProfileInputChanged;
+            height.TextChanged += ProfileInputChanged;
+            stride.TextChanged += ProfileInputChanged;
+            qFormat.TextChanged += ProfileInputChanged;
+            selectedX.TextChanged += ProfileInputChanged;
+            selectedY.TextChanged += ProfileInputChanged;
+            roiWidth.TextChanged += ProfileInputChanged;
+            roiHeight.TextChanged += ProfileInputChanged;
+            signed.Checked += ProfileOptionChanged;
+            signed.Unchecked += ProfileOptionChanged;
+            pixelOrder.SelectionChanged += ProfileOptionChanged;
+            pixelType.SelectionChanged += ProfileOptionChanged;
+            visualizeChannel.SelectionChanged += ProfileOptionChanged;
+        }
+
+        private void ProfileInputChanged(object sender, TextChangedEventArgs e)
+        {
+            SaveCurrentProfile();
+        }
+
+        private void ProfileOptionChanged(object sender, RoutedEventArgs e)
+        {
+            SaveCurrentProfile();
+        }
+
+        private void ProfileOptionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            SaveCurrentProfile();
         }
 
         private void EnsureProfile(string sourceExpression)
@@ -1564,7 +1635,7 @@ namespace ArrayImageViewer.UI
 
             public override string ToString()
             {
-                return Expression + "  |  " + Width + "x" + Height + "  |  " + QFormat;
+                return Expression + "  |  " + Width + "x" + Height + "  |  " + QFormat + "  |  " + PixelType + "/" + PixelOrder;
             }
         }
 

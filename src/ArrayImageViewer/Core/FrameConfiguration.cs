@@ -97,7 +97,7 @@ namespace ArrayImageViewer.Core
                 throw new ArgumentException("Stride must be at least the image width.");
             }
 
-            if (IntegerBits < 0 || FractionalBits < 0 || IntegerBits > 32 || FractionalBits > 32 ||
+            if (IntegerBits < 0 || FractionalBits < 0 || TotalBits == 0 || IntegerBits > 32 || FractionalBits > 32 ||
                 IntegerBits > 32 - FractionalBits)
             {
                 throw new ArgumentException("Q format must contain 1 to 32 total bits.");

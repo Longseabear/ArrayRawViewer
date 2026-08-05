@@ -111,6 +111,7 @@ namespace ArrayImageViewer.Tests
         private static void FrameLimitRejectsUnsafeRequests()
         {
             ExpectArgumentException(delegate { Config(Int32.MaxValue, 2, Int32.MaxValue, 8, 0, false, PixelType.Bayer); }, "Unsafe frame request is rejected.");
+            ExpectArgumentException(delegate { Config(1, 1, 1, 0, 0, false, PixelType.Bayer); }, "0.0b is rejected.");
         }
 
         private static FrameConfiguration Config(int width, int height, int stride, int integerBits, int fractionalBits, bool isSigned, PixelType pixelType)
