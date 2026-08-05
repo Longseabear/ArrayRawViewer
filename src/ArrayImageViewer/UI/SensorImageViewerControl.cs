@@ -201,16 +201,33 @@ namespace ArrayImageViewer.UI
                 Margin = new Thickness(0, 3, 0, 11)
             });
 
-            var pointerRow = CreateRow();
-            pointerRow.Children.Add(CreateField("POINTER", availablePointers));
-            pointerRow.Children.Add(CreateAction("LOCALS", CreateButton("Refresh", RefreshPointers, false)));
-            pointerRow.Children.Add(CreateField("EXPRESSION", expression));
-            pointerRow.Children.Add(CreateAction("EDITOR", CreateButton("Capture", CaptureSelection, false)));
-            pointerRow.Children.Add(CreateField("SESSION PROFILE", profilePicker));
-            pointerRow.Children.Add(CreateAction("", CreateButton("Save settings", SaveProfileSettings, false)));
-            pointerRow.Children.Add(CreateAction("", CreateButton("Load ROI", LoadExpression, true)));
-            pointerRow.Children.Add(CreateAction("", CreateButton("Full preview", LoadFullPreview, false)));
-            panel.Children.Add(CreateSection("SOURCE", "Type while paused for local-pointer suggestions. A session profile saves interpretation settings only (never RAW memory) for this Viewer window.", pointerRow));
+            // Keep the actual inspection flow together: choose/capture a
+            // pointer, then immediately read it. Profiles are supporting
+            // state, so they live on a quieter second line instead of forcing
+            // the primary actions to wrap on ordinary tool-window widths.
+            var sourceRow = CreateRow();
+            sourceRow.Children.Add(CreateField("POINTER", availablePointers));
+            sourceRow.Children.Add(CreateAction("LOCALS", CreateButton("Refresh", RefreshPointers, false)));
+            sourceRow.Children.Add(CreateField("EXPRESSION", expression));
+            sourceRow.Children.Add(CreateAction("EDITOR", CreateButton("Capture", CaptureSelection, false)));
+            sourceRow.Children.Add(CreateAction("READ", CreateButton("Load ROI", LoadExpression, true)));
+            sourceRow.Children.Add(CreateAction("", CreateButton("Full preview", LoadFullPreview, false)));
+            var profileRow = CreateRow();
+            profileRow.Margin = new Thickness(0, 8, 0, 0);
+            profileRow.Children.Add(CreateField("SESSION PROFILE", profilePicker));
+            profileRow.Children.Add(CreateAction("", CreateButton("Save settings", SaveProfileSettings, false)));
+            profileRow.Children.Add(new TextBlock
+            {
+                Text = "Profiles retain interpretation only; RAW samples stay in the paused debuggee.",
+                Foreground = MutedBrush,
+                FontSize = 10,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 20, 0, 0)
+            });
+            var sourceContent = new StackPanel();
+            sourceContent.Children.Add(sourceRow);
+            sourceContent.Children.Add(profileRow);
+            panel.Children.Add(CreateSection("SOURCE", "Type while paused for local-pointer suggestions. Capture a selected expression, or choose a discovered A/B pointer.", sourceContent));
 
             var formatRow = CreateRow();
             formatRow.Children.Add(CreateField("WIDTH", width));
