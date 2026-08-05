@@ -1,6 +1,6 @@
 # Sensor RAW Array Image Viewer
 
-An installable Visual Studio 2013, 2017, 2019, and 2022 VSIX draft for viewing a
+An installable Visual Studio 2015, 2017, 2019, and 2022 VSIX draft for viewing a
 one-dimensional native sensor RAW buffer as a two-dimensional image.
 
 ## Build and install
@@ -12,9 +12,9 @@ one-dimensional native sensor RAW buffer as a two-dimensional image.
    `src\ArrayImageViewer\bin\Debug\ArrayImageViewer.vsix` (or Release equivalent).
 4. In Visual Studio 2017, open **Tools > Sensor RAW Array Viewer**.
 
-The manifest accepts Visual Studio 2013 (12.x), 2017 (15.x), 2019 (16.x), and
-2022 (17.x) Community, Professional, and Enterprise editions. Visual Studio 2013
-Premium and Ultimate editions are included as well.
+The manifest accepts Visual Studio 2015 (14.x), 2017 (15.x), 2019 (16.x), and
+2022 (17.x) Community, Professional, and Enterprise editions. The extension is
+built against the Microsoft Visual Studio 2015 SDK baseline.
 
 `ArrayImageViewer` is correctly a **class-library** project, so it cannot launch
 by itself. In its Debug configuration, F5 starts a separate Experimental Instance
@@ -88,8 +88,8 @@ frame coordinates into 2x2 and 4x4 blocks respectively.
 ## Included native debuggee
 
 `samples\SensorRawDebuggee` is an x64 C++ console application that chooses the
-newest C++ toolset actually installed in the opened Visual Studio (normally v120
-in 2013, v141 in 2017, v142 in 2019, or v143 in 2022). It allocates and fills
+newest C++ toolset actually installed in the opened Visual Studio (normally v140
+in 2015, v141 in 2017, v142 in 2019, or v143 in 2022). It allocates and fills
 `sensorRaw`, a `uint32_t*` containing a 4096x3072 GRBG 13-bit test pattern, then
 stops at `__debugbreak()`.
 

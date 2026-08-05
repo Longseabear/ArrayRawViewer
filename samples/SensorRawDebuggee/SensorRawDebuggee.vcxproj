@@ -21,7 +21,7 @@
     <DefaultX64PlatformToolset Condition="'$(DefaultX64PlatformToolset)' == '' and Exists('$(VCTargetsPath)\Platforms\x64\PlatformToolsets\v143\Toolset.props')">v143</DefaultX64PlatformToolset>
     <DefaultX64PlatformToolset Condition="'$(DefaultX64PlatformToolset)' == '' and Exists('$(VCTargetsPath)\Platforms\x64\PlatformToolsets\v142\Toolset.props')">v142</DefaultX64PlatformToolset>
     <DefaultX64PlatformToolset Condition="'$(DefaultX64PlatformToolset)' == '' and Exists('$(VCTargetsPath)\Platforms\x64\PlatformToolsets\v141\Toolset.props')">v141</DefaultX64PlatformToolset>
-    <DefaultX64PlatformToolset Condition="'$(DefaultX64PlatformToolset)' == '' and Exists('$(VCTargetsPath)\Platforms\x64\PlatformToolsets\v120\Toolset.props')">v120</DefaultX64PlatformToolset>
+    <DefaultX64PlatformToolset Condition="'$(DefaultX64PlatformToolset)' == '' and Exists('$(VCTargetsPath)\Platforms\x64\PlatformToolsets\v140\Toolset.props')">v140</DefaultX64PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">

@@ -5,7 +5,7 @@
 Build a Visual Studio debugger extension that visualizes pointer-backed sensor RAW
 arrays (`int*`, `uint*`, and compatible signed/unsigned integral element types) as
 two-dimensional images. The source is normally a plain one-dimensional buffer, not
-a metadata-bearing type such as `cv::Mat`. The compatibility baseline is **Visual Studio 2013 through 2022**; do not use
+a metadata-bearing type such as `cv::Mat`. The compatibility baseline is **Visual Studio 2015 through 2022**; do not use
 APIs, language features, or dependencies that require a newer Visual Studio shell.
 
 The extension must help a developer inspect:
@@ -19,11 +19,11 @@ The extension must help a developer inspect:
 
 ## Compatibility baseline
 
-- Target the Visual Studio 2013 extensibility SDK baseline and a VSIX installation.
+- Target the Visual Studio 2015 extensibility SDK baseline and a VSIX installation.
 - Prefer C# 5.0-compatible language features and .NET Framework 4.5 so the
-  extension can run in Visual Studio 2013. Do not introduce newer runtime API
+  extension can run in Visual Studio 2015. Do not introduce newer runtime API
   requirements without a compatibility fallback.
-- Avoid WPF/WinForms packages that are not available in the VS 2013 SDK by default.
+- Avoid WPF/WinForms packages that are not available in the VS 2015 SDK by default.
 - Keep the extension functional for both 32-bit and 64-bit debuggee processes.
 
 ## Functional requirements
@@ -163,8 +163,8 @@ The extension must help a developer inspect:
 - Include deterministic test matrices for a 4x4 Bayer tile so channel placement is
   obvious.
 - Add integration/manual verification instructions for a native C++ debuggee in
-  Visual Studio 2013 with `int*` and `uint*` arrays.
-- Before adding dependencies, verify they build and run under the VS 2013 target.
+  Visual Studio 2015 with `int*` and `uint*` arrays.
+- Before adding dependencies, verify they build and run under the VS 2015 target.
 
 ## Implementation workflow
 
