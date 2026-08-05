@@ -26,6 +26,9 @@ namespace ArrayImageViewer.UI
 
         private readonly TextBox expression = CreateTextBox("sensorRaw", 240);
         private readonly ComboBox availablePointers = CreateComboBox(190);
+        private readonly ComboBox profilePicker = CreateComboBox(185);
+        private readonly Popup expressionSuggestions = new Popup { AllowsTransparency = true, Placement = PlacementMode.Bottom, StaysOpen = false };
+        private readonly ListBox expressionSuggestionList = new ListBox { Background = ControlBrush, Foreground = TextBrush, BorderThickness = new Thickness(0), MaxHeight = 220, MinWidth = 240 };
         private readonly ComboBox widthValueSource = CreateComboBox(145);
         private readonly ComboBox heightValueSource = CreateComboBox(145);
         private readonly ComboBox strideValueSource = CreateComboBox(145);
@@ -62,6 +65,10 @@ namespace ArrayImageViewer.UI
         private Point roiPanStart;
         private int roiPanStartX;
         private int roiPanStartY;
+        private readonly Dictionary<string, ViewerProfile> profiles = new Dictionary<string, ViewerProfile>(StringComparer.OrdinalIgnoreCase);
+        private readonly List<DebugExpressionFrameReader.PointerExpression> pointerCandidates = new List<DebugExpressionFrameReader.PointerExpression>();
+        private bool isApplyingProfile;
+        private string activeProfileExpression;
 
         public SensorImageViewerControl()
         {
@@ -72,6 +79,13 @@ namespace ArrayImageViewer.UI
             visualizeChannel.ItemsSource = Enum.GetValues(typeof(VisualizeChannel));
             visualizeChannel.SelectedItem = VisualizeChannel.BayerRaw;
             availablePointers.SelectionChanged += AvailablePointerChanged;
+            profilePicker.SelectionChanged += ProfilePickerChanged;
+            expression.TextChanged += ExpressionTextChanged;
+            expression.GotKeyboardFocus += ExpressionGotKeyboardFocus;
+            expressionSuggestionList.SelectionChanged += ExpressionSuggestionSelected;
+            ConfigureExpressionSuggestions();
+            profilePicker.ItemsSource = new object[] { "Capture or load a pointer to create a profile" };
+            profilePicker.SelectedIndex = 0;
             widthValueSource.SelectionChanged += WidthValueSelected;
             heightValueSource.SelectionChanged += HeightValueSelected;
             strideValueSource.SelectionChanged += StrideValueSelected;
@@ -126,8 +140,9 @@ namespace ArrayImageViewer.UI
             pointerRow.Children.Add(CreateAction("LOCALS", CreateButton("Refresh", RefreshPointers, false)));
             pointerRow.Children.Add(CreateField("EXPRESSION", expression));
             pointerRow.Children.Add(CreateAction("EDITOR", CreateButton("Capture", CaptureSelection, false)));
+            pointerRow.Children.Add(CreateField("PROFILE", profilePicker));
             pointerRow.Children.Add(CreateAction("", CreateButton("Load ROI", LoadExpression, true)));
-            panel.Children.Add(CreateSection("SOURCE", "Choose a pointer or type an expression, then load only the requested ROI", pointerRow));
+            panel.Children.Add(CreateSection("SOURCE", "Type for local-pointer suggestions. Profiles retain each captured pointer's settings for this window only.", pointerRow));
 
             var formatRow = CreateRow();
             formatRow.Children.Add(CreateField("WIDTH", width));
@@ -363,11 +378,31 @@ namespace ArrayImageViewer.UI
             return state;
         }
 
+        private void ConfigureExpressionSuggestions()
+        {
+            var popupBorder = new Border
+            {
+                Background = ControlBrush,
+                BorderBrush = AccentBrush,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(2),
+                Child = expressionSuggestionList
+            };
+            expressionSuggestions.Child = popupBorder;
+            expressionSuggestions.PlacementTarget = expression;
+            expressionSuggestions.Closed += delegate { expressionSuggestionList.SelectedItem = null; };
+        }
+
         private void CaptureSelection(object sender, RoutedEventArgs e)
         {
             try
             {
+                SaveCurrentProfile();
                 expression.Text = DebugExpressionFrameReader.GetActiveEditorSelection();
+                EnsureProfile(expression.Text);
+                activeProfileExpression = expression.Text.Trim();
+                RebuildProfilePicker(expression.Text);
                 SetStatus("Captured pointer expression: " + expression.Text);
             }
             catch (Exception exception)
@@ -381,6 +416,8 @@ namespace ArrayImageViewer.UI
             try
             {
                 var pointers = DebugExpressionFrameReader.GetCurrentFramePointers();
+                pointerCandidates.Clear();
+                pointerCandidates.AddRange(pointers);
                 availablePointers.ItemsSource = pointers;
                 if (pointers.Count == 0)
                 {
@@ -388,8 +425,8 @@ namespace ArrayImageViewer.UI
                     return;
                 }
 
-                availablePointers.SelectedIndex = 0;
-                SetStatus("Found " + pointers.Count.ToString(CultureInfo.InvariantCulture) + " pointer variable(s). Choose A or B from the list.");
+                UpdateExpressionSuggestions();
+                SetStatus("Found " + pointers.Count.ToString(CultureInfo.InvariantCulture) + " pointer variable(s). Type to filter or choose A/B from the list.");
             }
             catch (Exception exception)
             {
@@ -405,9 +442,169 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            expression.Text = pointer.Name;
-            signed.IsChecked = pointer.IsSigned;
-            SetStatus("Selected " + pointer.Name + " as " + pointer.Type + ".");
+            ActivatePointer(pointer);
+        }
+
+        private void ExpressionGotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            if (pointerCandidates.Count == 0)
+            {
+                RefreshPointers(null, null);
+            }
+
+            UpdateExpressionSuggestions();
+        }
+
+        private void ExpressionTextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!isApplyingProfile)
+            {
+                UpdateExpressionSuggestions();
+            }
+        }
+
+        private void UpdateExpressionSuggestions()
+        {
+            var typed = expression.Text == null ? String.Empty : expression.Text.Trim();
+            var matches = new List<DebugExpressionFrameReader.PointerExpression>();
+            for (var index = 0; index < pointerCandidates.Count; index++)
+            {
+                var candidate = pointerCandidates[index];
+                if (typed.Length == 0 || candidate.Name.IndexOf(typed, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    matches.Add(candidate);
+                }
+            }
+
+            expressionSuggestionList.ItemsSource = matches;
+            expressionSuggestions.IsOpen = expression.IsKeyboardFocusWithin && matches.Count > 0;
+        }
+
+        private void ExpressionSuggestionSelected(object sender, SelectionChangedEventArgs e)
+        {
+            var pointer = expressionSuggestionList.SelectedItem as DebugExpressionFrameReader.PointerExpression;
+            if (pointer == null)
+            {
+                return;
+            }
+
+            ActivatePointer(pointer);
+            expressionSuggestions.IsOpen = false;
+        }
+
+        private void ActivatePointer(DebugExpressionFrameReader.PointerExpression pointer)
+        {
+            SaveCurrentProfile();
+            expressionSuggestions.IsOpen = false;
+            ViewerProfile profile;
+            if (profiles.TryGetValue(pointer.Name, out profile))
+            {
+                ApplyProfile(profile);
+            }
+            else
+            {
+                isApplyingProfile = true;
+                expression.Text = pointer.Name;
+                signed.IsChecked = pointer.IsSigned;
+                isApplyingProfile = false;
+                EnsureProfile(pointer.Name);
+            }
+
+            activeProfileExpression = pointer.Name;
+            RebuildProfilePicker(pointer.Name);
+            SetStatus("Selected " + pointer.Name + " as " + pointer.Type + ". Its profile is retained for this viewer window.");
+        }
+
+        private void ProfilePickerChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (isApplyingProfile)
+            {
+                return;
+            }
+
+            var profile = profilePicker.SelectedItem as ViewerProfile;
+            if (profile == null)
+            {
+                return;
+            }
+
+            SaveCurrentProfile();
+            ApplyProfile(profile);
+            SetStatus("Restored profile for " + profile.Expression + ". Select Load ROI to read its current debugger values.");
+        }
+
+        private void EnsureProfile(string sourceExpression)
+        {
+            if (String.IsNullOrWhiteSpace(sourceExpression) || profiles.ContainsKey(sourceExpression.Trim()))
+            {
+                return;
+            }
+
+            profiles.Add(sourceExpression.Trim(), ViewerProfile.Create(sourceExpression.Trim(), width.Text, height.Text, stride.Text, qFormat.Text,
+                signed.IsChecked == true, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
+                (VisualizeChannel)visualizeChannel.SelectedItem, selectedX.Text, selectedY.Text, roiWidth.Text, roiHeight.Text));
+        }
+
+        private void SaveCurrentProfile()
+        {
+            if (isApplyingProfile || String.IsNullOrWhiteSpace(expression.Text))
+            {
+                return;
+            }
+
+            var sourceExpression = expression.Text.Trim();
+            if (!String.Equals(activeProfileExpression, sourceExpression, StringComparison.OrdinalIgnoreCase) || !profiles.ContainsKey(sourceExpression))
+            {
+                return;
+            }
+
+            profiles[sourceExpression] = ViewerProfile.Create(sourceExpression, width.Text, height.Text, stride.Text, qFormat.Text,
+                signed.IsChecked == true, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
+                (VisualizeChannel)visualizeChannel.SelectedItem, selectedX.Text, selectedY.Text, roiWidth.Text, roiHeight.Text);
+        }
+
+        private void RebuildProfilePicker(string selectedExpression)
+        {
+            isApplyingProfile = true;
+            var items = new List<ViewerProfile>();
+            foreach (var profile in profiles.Values)
+            {
+                items.Add(profile);
+            }
+
+            profilePicker.ItemsSource = items;
+            profilePicker.SelectedItem = null;
+            for (var index = 0; index < items.Count; index++)
+            {
+                if (String.Equals(items[index].Expression, selectedExpression, StringComparison.OrdinalIgnoreCase))
+                {
+                    profilePicker.SelectedItem = items[index];
+                    break;
+                }
+            }
+
+            isApplyingProfile = false;
+        }
+
+        private void ApplyProfile(ViewerProfile profile)
+        {
+            isApplyingProfile = true;
+            expression.Text = profile.Expression;
+            width.Text = profile.Width;
+            height.Text = profile.Height;
+            stride.Text = profile.Stride;
+            qFormat.Text = profile.QFormat;
+            signed.IsChecked = profile.IsSigned;
+            pixelOrder.SelectedItem = profile.PixelOrder;
+            pixelType.SelectedItem = profile.PixelType;
+            visualizeChannel.SelectedItem = profile.VisualizeChannel;
+            selectedX.Text = profile.SelectedX;
+            selectedY.Text = profile.SelectedY;
+            roiWidth.Text = profile.RoiWidth;
+            roiHeight.Text = profile.RoiHeight;
+            isApplyingProfile = false;
+            activeProfileExpression = profile.Expression;
+            RebuildProfilePicker(profile.Expression);
         }
 
         private void RefreshScalarValues(object sender, RoutedEventArgs e)
@@ -505,6 +702,10 @@ namespace ArrayImageViewer.UI
                 var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, roi.X, roi.Y, roi.Width, roi.Height);
                 ApplyFrame(source, FrameRenderer.Render(source), configuration.Width, configuration.Height, roi.CenterX, roi.CenterY);
                 ApplyZoom(Math.Max(18.0, zoom));
+                EnsureProfile(expression.Text);
+                activeProfileExpression = expression.Text.Trim();
+                SaveCurrentProfile();
+                RebuildProfilePicker(expression.Text);
             }
             catch (Exception exception)
             {
@@ -938,6 +1139,54 @@ namespace ArrayImageViewer.UI
         private void SetStatus(string text)
         {
             status.Text = text;
+        }
+
+        private sealed class ViewerProfile
+        {
+            private ViewerProfile()
+            {
+            }
+
+            public string Expression { get; private set; }
+            public string Width { get; private set; }
+            public string Height { get; private set; }
+            public string Stride { get; private set; }
+            public string QFormat { get; private set; }
+            public bool IsSigned { get; private set; }
+            public PixelOrder PixelOrder { get; private set; }
+            public PixelType PixelType { get; private set; }
+            public VisualizeChannel VisualizeChannel { get; private set; }
+            public string SelectedX { get; private set; }
+            public string SelectedY { get; private set; }
+            public string RoiWidth { get; private set; }
+            public string RoiHeight { get; private set; }
+
+            public static ViewerProfile Create(string expressionValue, string widthValue, string heightValue, string strideValue, string qFormatValue,
+                bool signedValue, PixelOrder pixelOrderValue, PixelType pixelTypeValue, VisualizeChannel visualizeChannelValue,
+                string selectedXValue, string selectedYValue, string roiWidthValue, string roiHeightValue)
+            {
+                return new ViewerProfile
+                {
+                    Expression = expressionValue,
+                    Width = widthValue,
+                    Height = heightValue,
+                    Stride = strideValue,
+                    QFormat = qFormatValue,
+                    IsSigned = signedValue,
+                    PixelOrder = pixelOrderValue,
+                    PixelType = pixelTypeValue,
+                    VisualizeChannel = visualizeChannelValue,
+                    SelectedX = selectedXValue,
+                    SelectedY = selectedYValue,
+                    RoiWidth = roiWidthValue,
+                    RoiHeight = roiHeightValue
+                };
+            }
+
+            public override string ToString()
+            {
+                return Expression + "  |  " + Width + "x" + Height + "  |  " + QFormat;
+            }
         }
 
         private struct RoiBounds

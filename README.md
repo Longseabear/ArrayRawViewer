@@ -72,6 +72,14 @@ the image (or hold Shift while left-dragging); the new center is shown while
 dragging and the ROI is reread only when the mouse is released. The **Pan**
 buttons move by half of the current ROI size.
 
+When the expression box receives focus while the debuggee is paused, it refreshes
+the current stack's pointer locals and offers matching names as you type. Selecting
+a suggestion applies its signedness. Each pointer that is captured or successfully
+loaded receives an in-window **Profile**: its dimensions, stride, Q-format, Bayer
+settings, visualization mode, and ROI are restored when that profile is selected.
+Profiles contain configuration only (no samples are saved) and are discarded when
+the viewer window is closed.
+
 ## Draft limitation
 
 The expression-evaluator reader is deliberately capped at 16,384 **ROI** samples
