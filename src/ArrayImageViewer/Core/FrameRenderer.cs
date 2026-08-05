@@ -36,17 +36,13 @@ namespace ArrayImageViewer.Core
             for (var blockY = 0; blockY < config.Height; blockY += blockRows)
             {
                 var rowCount = Math.Min(blockRows, config.Height - blockY);
-                var offset = 0;
-                for (var y = blockY; y < blockY + rowCount; y++)
+                if (config.VisualizeChannel == VisualizeChannel.Composite)
                 {
-                    for (var x = 0; x < config.Width; x++)
-                    {
-                        var color = GetColor(frame, x, y, range.Minimum, range.Maximum);
-                        pixels[offset++] = color.B;
-                        pixels[offset++] = color.G;
-                        pixels[offset++] = color.R;
-                        pixels[offset++] = 255;
-                    }
+                    RenderCompositeBlock(frame, range.Minimum, range.Maximum, blockY, rowCount, pixels);
+                }
+                else
+                {
+                    RenderDirectBlock(frame, range.Minimum, range.Maximum, blockY, rowCount, pixels);
                 }
 
                 bitmap.WritePixels(new System.Windows.Int32Rect(0, blockY, config.Width, rowCount), pixels, rowByteCount, 0);
@@ -56,37 +52,89 @@ namespace ArrayImageViewer.Core
             return bitmap;
         }
 
-        private static Color GetColor(FrameBuffer frame, int x, int y, long minimum, long maximum)
+        private static void RenderDirectBlock(FrameBuffer frame, long minimum, long maximum, int blockY, int rowCount, byte[] pixels)
         {
             var config = frame.Configuration;
-            var site = config.GetBayerSite(x, y);
-            if (config.VisualizeChannel == VisualizeChannel.Composite)
+            var samples = frame.RawSamples;
+            var mask = config.TotalBits == 32 ? 0xffffffffL : (1L << config.TotalBits) - 1L;
+            var signBit = 1L << (config.TotalBits - 1);
+            var scale = maximum <= minimum ? 0.0 : 255.0 / (maximum - minimum);
+            var offset = 0;
+            for (var y = blockY; y < blockY + rowCount; y++)
             {
-                return GetCompositeColor(frame, x, y, minimum, maximum);
-            }
+                var sourceOffset = y * config.Stride;
+                for (var x = 0; x < config.Width; x++)
+                {
+                    var raw = samples[sourceOffset + x] & mask;
+                    if (config.IsSigned && (raw & signBit) != 0)
+                    {
+                        raw -= 1L << config.TotalBits;
+                    }
 
-            if (!BayerLayout.IsVisible(config.VisualizeChannel, site))
-            {
-                return Colors.Black;
-            }
+                    var value = ToByte(raw, minimum, maximum, scale);
+                    if (config.VisualizeChannel == VisualizeChannel.Gray)
+                    {
+                        pixels[offset++] = value;
+                        pixels[offset++] = value;
+                        pixels[offset++] = value;
+                        pixels[offset++] = 255;
+                        continue;
+                    }
 
-            var value = ToByte(frame.GetRaw(x, y), minimum, maximum);
-            if (config.VisualizeChannel == VisualizeChannel.Gray)
-            {
-                return Color.FromRgb(value, value, value);
-            }
+                    var site = BayerLayout.GetSite(config.PixelOrder, config.PixelType, config.OriginX + x, config.OriginY + y);
+                    if (!BayerLayout.IsVisible(config.VisualizeChannel, site))
+                    {
+                        pixels[offset++] = 0;
+                        pixels[offset++] = 0;
+                        pixels[offset++] = 0;
+                        pixels[offset++] = 255;
+                        continue;
+                    }
 
-            switch (site)
+                    switch (site)
+                    {
+                        case BayerSite.R:
+                            pixels[offset++] = 0;
+                            pixels[offset++] = 0;
+                            pixels[offset++] = value;
+                            break;
+                        case BayerSite.Gr:
+                        case BayerSite.Gb:
+                            pixels[offset++] = 0;
+                            pixels[offset++] = value;
+                            pixels[offset++] = 0;
+                            break;
+                        case BayerSite.B:
+                            pixels[offset++] = value;
+                            pixels[offset++] = 0;
+                            pixels[offset++] = 0;
+                            break;
+                        default:
+                            pixels[offset++] = value;
+                            pixels[offset++] = value;
+                            pixels[offset++] = value;
+                            break;
+                    }
+
+                    pixels[offset++] = 255;
+                }
+            }
+        }
+
+        private static void RenderCompositeBlock(FrameBuffer frame, long minimum, long maximum, int blockY, int rowCount, byte[] pixels)
+        {
+            var offset = 0;
+            var config = frame.Configuration;
+            for (var y = blockY; y < blockY + rowCount; y++)
             {
-                case BayerSite.R:
-                    return Color.FromRgb(value, 0, 0);
-                case BayerSite.Gr:
-                case BayerSite.Gb:
-                    return Color.FromRgb(0, value, 0);
-                case BayerSite.B:
-                    return Color.FromRgb(0, 0, value);
-                default:
-                    return Color.FromRgb(value, value, value);
+                for (var x = 0; x < config.Width; x++)
+                {
+                    var color = GetCompositeColor(frame, x, y, minimum, maximum);
+                    pixels[offset++] = color.B;
+                    pixels[offset++] = color.G;
+                    pixels[offset++] = color.R;
+                    pixels[offset++] = 255;
+                }
             }
         }
 
@@ -137,6 +185,16 @@ namespace ArrayImageViewer.Core
 
             var normalized = (value - minimum) / (double)(maximum - minimum);
             return (byte)Math.Max(0, Math.Min(255, Math.Round(normalized * 255)));
+        }
+
+        private static byte ToByte(long value, long minimum, long maximum, double scale)
+        {
+            if (maximum <= minimum)
+            {
+                return 0;
+            }
+
+            return (byte)Math.Max(0, Math.Min(255, Math.Round((value - minimum) * scale)));
         }
 
     }

@@ -29,6 +29,13 @@ namespace ArrayImageViewer.Core
 
         public FrameConfiguration Configuration { get; private set; }
 
+        // Rendering owns no copy of the debugger samples. This internal view avoids
+        // per-pixel coordinate validation while a known-valid frame is converted.
+        internal long[] RawSamples
+        {
+            get { return samples; }
+        }
+
         public long GetRaw(int x, int y)
         {
             return Configuration.NormalizeRawValue(samples[Configuration.GetSampleIndex(x, y)]);

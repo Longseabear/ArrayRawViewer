@@ -20,6 +20,7 @@ namespace ArrayImageViewer.Tests
                 RoiGeometryClampsAndPreservesDragSelection();
                 BayerLayoutsRepeatAtExpectedBlockSizes();
                 RendererWritesExpectedGrayPixels();
+                RendererWritesExpectedBayerMosaicPixels();
                 DisplayNormalizationUsesCachedRawSamples();
                 FrozenRendererResultCrossesStaThread();
                 FullFrameRendererCompletes();
@@ -145,6 +146,17 @@ namespace ArrayImageViewer.Tests
             bitmap.CopyPixels(pixels, 8, 0);
             Assert(pixels[0] == 0 && pixels[1] == 0 && pixels[2] == 0 && pixels[3] == 255, "Black BGRA pixel is correct.");
             Assert(pixels[4] == 255 && pixels[5] == 255 && pixels[6] == 255 && pixels[7] == 255, "White BGRA pixel is correct.");
+        }
+
+        private static void RendererWritesExpectedBayerMosaicPixels()
+        {
+            var config = new FrameConfiguration(2, 2, 2, 8, 0, false, PixelOrder.GRFirst, PixelType.Bayer, VisualizeChannel.BayerRaw);
+            var bitmap = FrameRenderer.Render(new FrameBuffer(config, new long[] { 0, 255, 128, 64 }));
+            var pixels = new byte[16];
+            bitmap.CopyPixels(pixels, 8, 0);
+            Assert(pixels[4] == 0 && pixels[5] == 0 && pixels[6] == 255, "GRBG R pixel is rendered as red.");
+            Assert(pixels[8] == 128 && pixels[9] == 0 && pixels[10] == 0, "GRBG B pixel is rendered as blue.");
+            Assert(pixels[12] == 0 && pixels[13] == 64 && pixels[14] == 0, "GRBG Gb pixel is rendered as green.");
         }
 
         private static void DisplayNormalizationUsesCachedRawSamples()

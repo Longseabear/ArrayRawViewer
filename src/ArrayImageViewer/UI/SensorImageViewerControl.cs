@@ -302,7 +302,7 @@ namespace ArrayImageViewer.UI
             inspectRow.Children.Add(CreateAction("", CreateButton("Right", PanRight, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Up", PanUp, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Down", PanDown, false)));
-            inspectRow.Children.Add(new TextBlock { Text = "Ctrl+drag selects ROI size. Middle-drag or Shift+drag pans it. Wheel or +/- zooms; arrows pan.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+            inspectRow.Children.Add(new TextBlock { Text = "Click centers the current ROI size. Ctrl+drag sets ROI W/H. Middle-drag or Shift+drag pans; wheel or +/- zooms.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
             panel.Children.Add(CreateSection("ROI", "Move the inspection window without manually typing new coordinates", inspectRow));
             panel.Children.Add(CreateNavigatorSection());
             return panel;
@@ -1708,9 +1708,10 @@ namespace ArrayImageViewer.UI
             var point = e.GetPosition(canvas);
             int globalX;
             int globalY;
-            if (TryGetGlobalImageCoordinate(point, out globalX, out globalY))
+            if (TryGetGlobalCanvasCoordinate(point, out globalX, out globalY))
             {
-                UpdateSelection(globalX, globalY, false);
+                SelectRoiAt(globalX, globalY);
+                e.Handled = true;
             }
         }
 
@@ -1796,9 +1797,9 @@ namespace ArrayImageViewer.UI
         {
             int startX;
             int startY;
-            if (!TryGetGlobalImageCoordinate(point, out startX, out startY))
+            if (!TryGetGlobalCanvasCoordinate(point, out startX, out startY))
             {
-                SetStatus("Start Ctrl+drag inside the loaded image.");
+                SetStatus("Start Ctrl+drag inside the frame canvas.");
                 return;
             }
 
@@ -1814,7 +1815,7 @@ namespace ArrayImageViewer.UI
         {
             int endX;
             int endY;
-            if (!TryGetGlobalImageCoordinate(point, out endX, out endY))
+            if (!TryGetGlobalCanvasCoordinate(point, out endX, out endY))
             {
                 return;
             }
@@ -1836,7 +1837,7 @@ namespace ArrayImageViewer.UI
         {
             int endX;
             int endY;
-            if (!TryGetGlobalImageCoordinate(point, out endX, out endY))
+            if (!TryGetGlobalCanvasCoordinate(point, out endX, out endY))
             {
                 endX = mouseRoiStartX;
                 endY = mouseRoiStartY;
@@ -1855,6 +1856,32 @@ namespace ArrayImageViewer.UI
             currentY = roi.CenterY;
             UpdateNavigator();
             LoadExpression(null, null);
+        }
+
+        private void SelectRoiAt(int x, int y)
+        {
+            try
+            {
+                var configuration = ReadConfiguration();
+                var requestedWidth = ResolveInteger(roiWidth, "ROI width");
+                var requestedHeight = ResolveInteger(roiHeight, "ROI height");
+                var roi = RoiGeometry.ClampCentered(configuration.Width, configuration.Height, x, y, requestedWidth, requestedHeight);
+                selectedX.Text = roi.CenterX.ToString(CultureInfo.InvariantCulture);
+                selectedY.Text = roi.CenterY.ToString(CultureInfo.InvariantCulture);
+                roiWidth.Text = roi.Width.ToString(CultureInfo.InvariantCulture);
+                roiHeight.Text = roi.Height.ToString(CultureInfo.InvariantCulture);
+                currentX = roi.CenterX;
+                currentY = roi.CenterY;
+                UpdateNavigator();
+                SetStatus(String.Format(CultureInfo.InvariantCulture,
+                    "ROI  x={0}..{1}, y={2}..{3}  ({4} x {5}). Reading debugger cells.",
+                    roi.X, roi.X + roi.Width - 1, roi.Y, roi.Y + roi.Height - 1, roi.Width, roi.Height));
+                LoadExpression(null, null);
+            }
+            catch (Exception exception)
+            {
+                SetStatus("Cannot select ROI: " + exception.Message);
+            }
         }
 
         private bool TryGetGlobalImageCoordinate(Point point, out int globalX, out int globalY)
@@ -1878,6 +1905,18 @@ namespace ArrayImageViewer.UI
             globalX = frame.Configuration.OriginX + localX;
             globalY = frame.Configuration.OriginY + localY;
             return true;
+        }
+
+        private bool TryGetGlobalCanvasCoordinate(Point point, out int globalX, out int globalY)
+        {
+            if (!showsFullFrameContext)
+            {
+                return TryGetGlobalImageCoordinate(point, out globalX, out globalY);
+            }
+
+            globalX = (int)Math.Floor(point.X / zoom);
+            globalY = (int)Math.Floor(point.Y / zoom);
+            return globalX >= 0 && globalY >= 0 && globalX < fullFrameWidth && globalY < fullFrameHeight;
         }
 
         private void PreviewRoiPan(Point point)

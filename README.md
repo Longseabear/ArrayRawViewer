@@ -92,7 +92,12 @@ and covers `(0..4, 0..4)`. The reader evaluates only those ROI samples, so a
 rectangle marks the loaded filter ROI; it replaces the old full crosshair so cell
 values stay readable. **Load ROI cells** enters high zoom and renders raw and
 Q-format values inside the cells. The footer reports the current `X lim` and
-`Y lim` in full-frame coordinates. To inspect a neighboring region, middle-drag
+`Y lim` in full-frame coordinates. Click directly on the loaded image to center
+the current ROI W/H at that sample; it rereads the resulting ROI rather than
+selecting a single pixel. Hold **Ctrl** and drag directly on the image to make
+the drag bounds become the next ROI W/H. In ROI-context mode, the distinct empty
+area is also selectable: it supplies coordinates for the next read even though
+it has no currently loaded samples. To inspect a neighboring region, middle-drag
 the image (or hold Shift while left-dragging); the new center is shown while
 dragging and the ROI is reread only when the mouse is released. The **Pan**
 buttons move by half of the current ROI size.
@@ -102,18 +107,15 @@ With the image canvas focused, arrow keys reload the ROI one half-ROI at a time.
 the viewport on it. Mouse-wheel zoom is anchored at the cursor, so the sample
 under the pointer remains under the pointer.
 
-The **Frame Navigator** is a lightweight geometric map of the complete configured
-frame. Drag from one corner to another to choose both ROI position and size with
-the mouse. It does not read or render the entire debuggee buffer; it reads only
-the selected rectangle after mouse release, so it remains responsive for a
-4096x3072 (or larger) source. A simple click keeps the current ROI size and
-moves its center; a drag defines a new size and position.
+The **Frame Navigator** is an optional lightweight overview map. The primary ROI
+interaction is on the image itself: click for the current ROI size, or Ctrl+drag
+for a new ROI size. Both use full-frame coordinates and read only the selected
+rectangle. Shift+drag and middle-drag remain reserved for panning the current ROI.
 
-You can also hold **Ctrl** and left-drag directly on a loaded image to draw the
-next ROI. This works in both a full preview and a zoomed ROI: its bounds use the
-full-frame coordinates shown by the viewer, and mouse release updates X/Y and
-ROI W/H then reads only that selected rectangle. Shift+drag and middle-drag remain
-reserved for panning the current ROI.
+Full-frame **Gray** and Bayer mosaic rendering use a direct sample-to-BGRA path;
+the 4096x3072 Gray benchmark on the development machine dropped from about 5-6
+seconds to about 1 second. Composite demosaic remains intentionally more expensive
+because each output pixel searches neighboring Bayer samples.
 
 When the expression box receives focus while the debuggee is paused, it refreshes
 the current stack's pointer locals and offers matching names as you type. Selecting
