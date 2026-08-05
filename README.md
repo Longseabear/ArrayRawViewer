@@ -92,10 +92,11 @@ and covers `(0..4, 0..4)`. The reader evaluates only those ROI samples, so a
 rectangle marks the loaded filter ROI; it replaces the old full crosshair so cell
 values stay readable. **Load ROI cells** enters high zoom and renders raw and
 Q-format values inside the cells. The footer reports the current `X lim` and
-`Y lim` in full-frame coordinates. Click directly on the loaded image to center
-the current ROI W/H at that sample; it rereads the resulting ROI rather than
-selecting a single pixel. Hold **Ctrl** and drag directly on the image to make
-the drag bounds become the next ROI W/H. In ROI-context mode, the distinct empty
+`Y lim` in full-frame coordinates. Click and hold directly on the loaded image to
+preview the current ROI W/H at that sample, then release to read it; this avoids
+an accidental debugger read while choosing the location. Hold **Ctrl** and drag
+directly on the image to make the drag bounds become the next ROI W/H. Press
+**Esc** before release to cancel either selection. In ROI-context mode, the distinct empty
 area is also selectable: it supplies coordinates for the next read even though
 it has no currently loaded samples. To inspect a neighboring region, middle-drag
 the image (or hold Shift while left-dragging); the new center is shown while
@@ -108,9 +109,10 @@ the viewport on it. Mouse-wheel zoom is anchored at the cursor, so the sample
 under the pointer remains under the pointer.
 
 The **Frame Navigator** is an optional lightweight overview map. The primary ROI
-interaction is on the image itself: click for the current ROI size, or Ctrl+drag
-for a new ROI size. Both use full-frame coordinates and read only the selected
-rectangle. Shift+drag and middle-drag remain reserved for panning the current ROI.
+interaction is on the image itself: click-hold for the current ROI size, or
+Ctrl+drag for a new ROI size. Both show a temporary teal outline, use full-frame
+coordinates, and read only the selected rectangle on mouse release. Shift+drag
+and middle-drag remain reserved for panning the current ROI.
 
 Full-frame **Gray** and Bayer mosaic rendering use a direct sample-to-BGRA path;
 the 4096x3072 Gray benchmark on the development machine dropped from about 5-6
