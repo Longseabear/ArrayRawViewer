@@ -67,7 +67,10 @@ and covers `(0..4, 0..4)`. The reader evaluates only those ROI samples, so a
 rectangle marks the loaded filter ROI; it replaces the old full crosshair so cell
 values stay readable. **Load ROI cells** enters high zoom and renders raw and
 Q-format values inside the cells. The footer reports the current `X lim` and
-`Y lim` in full-frame coordinates.
+`Y lim` in full-frame coordinates. To inspect a neighboring region, middle-drag
+the image (or hold Shift while left-dragging); the new center is shown while
+dragging and the ROI is reread only when the mouse is released. The **Pan**
+buttons move by half of the current ROI size.
 
 ## Draft limitation
 

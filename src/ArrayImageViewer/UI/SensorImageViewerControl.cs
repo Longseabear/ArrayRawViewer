@@ -58,6 +58,10 @@ namespace ArrayImageViewer.UI
         private int currentY;
         private int fullFrameWidth;
         private int fullFrameHeight;
+        private bool isRoiPanning;
+        private Point roiPanStart;
+        private int roiPanStartX;
+        private int roiPanStartY;
 
         public SensorImageViewerControl()
         {
@@ -79,6 +83,9 @@ namespace ArrayImageViewer.UI
             canvas.Children.Add(roiRectangle);
             canvas.MouseMove += CanvasMouseMove;
             canvas.MouseLeftButtonDown += CanvasMouseLeftButtonDown;
+            canvas.MouseLeftButtonUp += CanvasMouseLeftButtonUp;
+            canvas.MouseDown += CanvasMouseDown;
+            canvas.MouseUp += CanvasMouseUp;
             canvas.PreviewMouseWheel += CanvasMouseWheel;
             scrollViewer.ScrollChanged += ScrollViewerChanged;
             scrollViewer.SizeChanged += ScrollViewerSizeChanged;
@@ -157,8 +164,12 @@ namespace ArrayImageViewer.UI
             inspectRow.Children.Add(CreateField("ROI H", roiHeight));
             inspectRow.Children.Add(CreateAction("", CreateButton("Center view", JumpToCoordinate, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Load ROI cells", InspectCells, true)));
-            inspectRow.Children.Add(new TextBlock { Text = "ROI is centered at X/Y  |  Mouse wheel zooms  |  Click selects a loaded sample", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
-            panel.Children.Add(CreateSection("ROI", "A red rectangle marks the exact requested filter window", inspectRow));
+            inspectRow.Children.Add(CreateAction("PAN", CreateButton("Left", PanLeft, false)));
+            inspectRow.Children.Add(CreateAction("", CreateButton("Right", PanRight, false)));
+            inspectRow.Children.Add(CreateAction("", CreateButton("Up", PanUp, false)));
+            inspectRow.Children.Add(CreateAction("", CreateButton("Down", PanDown, false)));
+            inspectRow.Children.Add(new TextBlock { Text = "Middle-drag or Shift+drag pans the ROI; release reloads it. Wheel zooms; click selects.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+            panel.Children.Add(CreateSection("ROI", "Move the inspection window without manually typing new coordinates", inspectRow));
             return panel;
         }
 
@@ -588,14 +599,54 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
+            {
+                BeginRoiPan(e.GetPosition(canvas));
+                e.Handled = true;
+                return;
+            }
+
             var point = e.GetPosition(canvas);
             UpdateSelection(frame.Configuration.OriginX + (int)(point.X / zoom), frame.Configuration.OriginY + (int)(point.Y / zoom), false);
+        }
+
+        private void CanvasMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (isRoiPanning)
+            {
+                FinishRoiPan(e.GetPosition(canvas));
+                e.Handled = true;
+            }
+        }
+
+        private void CanvasMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton == MouseButton.Middle)
+            {
+                BeginRoiPan(e.GetPosition(canvas));
+                e.Handled = true;
+            }
+        }
+
+        private void CanvasMouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (isRoiPanning && e.ChangedButton == MouseButton.Middle)
+            {
+                FinishRoiPan(e.GetPosition(canvas));
+                e.Handled = true;
+            }
         }
 
         private void CanvasMouseMove(object sender, MouseEventArgs e)
         {
             if (frame == null)
             {
+                return;
+            }
+
+            if (isRoiPanning)
+            {
+                PreviewRoiPan(e.GetPosition(canvas));
                 return;
             }
 
@@ -606,6 +657,42 @@ namespace ArrayImageViewer.UI
             {
                 SetStatus(Describe(frame.Configuration.OriginX + x, frame.Configuration.OriginY + y));
             }
+        }
+
+        private void BeginRoiPan(Point point)
+        {
+            if (frame == null)
+            {
+                return;
+            }
+
+            isRoiPanning = true;
+            roiPanStart = point;
+            roiPanStartX = frame.Configuration.OriginX + frame.Configuration.Width / 2;
+            roiPanStartY = frame.Configuration.OriginY + frame.Configuration.Height / 2;
+            canvas.CaptureMouse();
+            canvas.Cursor = Cursors.SizeAll;
+            SetStatus("Drag the ROI, then release to read the new debugger cells.");
+        }
+
+        private void PreviewRoiPan(Point point)
+        {
+            var targetX = roiPanStartX + (int)Math.Round((point.X - roiPanStart.X) / zoom, MidpointRounding.AwayFromZero);
+            var targetY = roiPanStartY + (int)Math.Round((point.Y - roiPanStart.Y) / zoom, MidpointRounding.AwayFromZero);
+            targetX = Math.Max(0, Math.Min(fullFrameWidth - 1, targetX));
+            targetY = Math.Max(0, Math.Min(fullFrameHeight - 1, targetY));
+            selectedX.Text = targetX.ToString(CultureInfo.InvariantCulture);
+            selectedY.Text = targetY.ToString(CultureInfo.InvariantCulture);
+            SetStatus("New ROI center: (" + targetX + ", " + targetY + "). Release to read it.");
+        }
+
+        private void FinishRoiPan(Point point)
+        {
+            PreviewRoiPan(point);
+            isRoiPanning = false;
+            canvas.ReleaseMouseCapture();
+            canvas.Cursor = null;
+            LoadExpression(null, null);
         }
 
         private void ScrollViewerChanged(object sender, ScrollChangedEventArgs e)
@@ -648,6 +735,46 @@ namespace ArrayImageViewer.UI
             {
                 ApplyZoom(48.0);
                 Dispatcher.BeginInvoke(new Action(CenterOnSelection));
+            }
+        }
+
+        private void PanLeft(object sender, RoutedEventArgs e)
+        {
+            PanRoi(-1, 0);
+        }
+
+        private void PanRight(object sender, RoutedEventArgs e)
+        {
+            PanRoi(1, 0);
+        }
+
+        private void PanUp(object sender, RoutedEventArgs e)
+        {
+            PanRoi(0, -1);
+        }
+
+        private void PanDown(object sender, RoutedEventArgs e)
+        {
+            PanRoi(0, 1);
+        }
+
+        private void PanRoi(int horizontalDirection, int verticalDirection)
+        {
+            try
+            {
+                var configuration = ReadConfiguration();
+                var roi = GetRoiBounds(configuration);
+                var xStep = Math.Max(1, roi.Width / 2);
+                var yStep = Math.Max(1, roi.Height / 2);
+                var targetX = Math.Max(0, Math.Min(configuration.Width - 1, roi.CenterX + horizontalDirection * xStep));
+                var targetY = Math.Max(0, Math.Min(configuration.Height - 1, roi.CenterY + verticalDirection * yStep));
+                selectedX.Text = targetX.ToString(CultureInfo.InvariantCulture);
+                selectedY.Text = targetY.ToString(CultureInfo.InvariantCulture);
+                LoadExpression(null, null);
+            }
+            catch (Exception exception)
+            {
+                SetStatus("Cannot move ROI: " + exception.Message);
             }
         }
 
