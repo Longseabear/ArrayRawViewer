@@ -206,7 +206,7 @@ namespace ArrayImageViewer.UI
             root.Children.Add(scrollViewer);
             Content = root;
             UpdateNavigator();
-            SetStatus("Pause the debuggee, refresh pointers, then load a small ROI around the requested X/Y.");
+            SetStatus("Pause the debuggee, choose a pointer or editor selection, then show ROI + context around X/Y.");
         }
 
         private UIElement CreateHeader()
@@ -235,9 +235,9 @@ namespace ArrayImageViewer.UI
             sourceRow.Children.Add(CreateField("POINTER", availablePointers));
             sourceRow.Children.Add(CreateAction("LOCALS", CreateButton("Refresh", RefreshPointers, false)));
             sourceRow.Children.Add(CreateField("EXPRESSION", expression));
-            sourceRow.Children.Add(CreateAction("EDITOR", CreateButton("Capture", CaptureSelection, false)));
-            sourceRow.Children.Add(CreateAction("READ", CreateButton("Load ROI", LoadExpression, true)));
-            sourceRow.Children.Add(CreateAction("CONTEXT", CreateButton("ROI context", LoadContextPreview, false)));
+            sourceRow.Children.Add(CreateAction("EDITOR", CreateButton("Use selection", CaptureSelection, false)));
+            sourceRow.Children.Add(CreateAction("SHOW", CreateButton("ROI + context", LoadContextPreview, true)));
+            sourceRow.Children.Add(CreateAction("PIXELS", CreateButton("Exact ROI", LoadExpression, false)));
             sourceRow.Children.Add(CreateAction("", CreateButton("Full preview", LoadFullPreview, false)));
             var profileRow = CreateRow();
             profileRow.Margin = new Thickness(0, 8, 0, 0);
@@ -254,7 +254,7 @@ namespace ArrayImageViewer.UI
             var sourceContent = new StackPanel();
             sourceContent.Children.Add(sourceRow);
             sourceContent.Children.Add(profileRow);
-            panel.Children.Add(CreateSection("SOURCE", "Type while paused for local-pointer suggestions. Capture a selected expression, or choose a discovered A/B pointer.", sourceContent));
+            panel.Children.Add(CreateSection("SOURCE", "Choose a pointer, or use the selected editor expression. ROI + context is the normal first view; Exact ROI is for close-up values.", sourceContent));
 
             var formatRow = CreateRow();
             formatRow.Children.Add(CreateField("WIDTH", width));
@@ -300,13 +300,13 @@ namespace ArrayImageViewer.UI
             inspectRow.Children.Add(CreateField("ROI W", roiWidth));
             inspectRow.Children.Add(CreateField("ROI H", roiHeight));
             inspectRow.Children.Add(CreateAction("", CreateButton("Center view", JumpToCoordinate, false)));
-            inspectRow.Children.Add(CreateAction("", CreateButton("Load ROI cells", InspectCells, true)));
+            inspectRow.Children.Add(CreateAction("", CreateButton("Read exact cells", InspectCells, true)));
             inspectRow.Children.Add(CreateAction("PAN", CreateButton("Left", PanLeft, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Right", PanRight, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Up", PanUp, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Down", PanDown, false)));
             inspectRow.Children.Add(new TextBlock { Text = "Click-drag previews current ROI W/H; release loads it. Ctrl+drag sets ROI W/H. Esc cancels; middle/Shift-drag pans.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
-            panel.Children.Add(CreateSection("ROI", "Move the inspection window without manually typing new coordinates", inspectRow));
+            panel.Children.Add(CreateSection("ROI", "The orange rectangle is always ROI W/H; the surrounding image is the loaded context", inspectRow));
             panel.Children.Add(CreateNavigatorSection());
             return panel;
         }
@@ -553,7 +553,7 @@ namespace ArrayImageViewer.UI
                 EnsureProfile(expression.Text);
                 activeProfileExpression = expression.Text.Trim();
                 RebuildProfilePicker(expression.Text);
-                SetStatus("Captured pointer expression: " + expression.Text);
+                SetStatus("Expression set from the editor selection: " + expression.Text + ". Select ROI + context to inspect it.");
             }
             catch (Exception exception)
             {
@@ -726,7 +726,7 @@ namespace ArrayImageViewer.UI
 
             SaveCurrentProfile();
             ApplyProfile(profile);
-            SetStatus("Restored profile for " + profile.Expression + ". Select Load ROI to read its current debugger values.");
+            SetStatus("Restored profile for " + profile.Expression + ". Select ROI + context to read its current debugger values.");
         }
 
         private void SaveProfileSettings(object sender, RoutedEventArgs e)
@@ -1058,7 +1058,7 @@ namespace ArrayImageViewer.UI
                     return;
                 }
 
-                SetStatus("Reading ROI " + roi.Width + "x" + roi.Height + " from the debugger.");
+                SetStatus("Reading exact ROI " + roi.Width + "x" + roi.Height + " from the debugger.");
                 var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, roi.X, roi.Y, roi.Width, roi.Height);
                 ApplyLoadedFrame(source, configuration.Width, configuration.Height, roi.CenterX, roi.CenterY, false, false, expression.Text.Trim());
             }
@@ -1121,7 +1121,7 @@ namespace ArrayImageViewer.UI
                 DebugMemoryFrameReader.RoiReadSession memoryRead;
                 if (!DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration, 0, 0, configuration.Width, configuration.Height, out memoryRead))
                 {
-                    throw new InvalidOperationException("Full preview requires the native debugger-memory reader. Use Load ROI on this debug engine.");
+                    throw new InvalidOperationException("Full preview requires the native debugger-memory reader. Use ROI + context on this debug engine.");
                 }
 
                 var centerX = Math.Max(0, Math.Min(configuration.Width - 1, ResolveInteger(selectedX, "ROI center X")));
@@ -1512,7 +1512,7 @@ namespace ArrayImageViewer.UI
 
             isNavigatorSelecting = false;
             navigatorCanvas.ReleaseMouseCapture();
-            LoadExpression(null, null);
+            LoadContextPreview(null, null);
             e.Handled = true;
         }
 
@@ -1953,7 +1953,7 @@ namespace ArrayImageViewer.UI
             currentX = roi.CenterX;
             currentY = roi.CenterY;
             UpdateNavigator();
-            LoadExpression(null, null);
+            LoadContextPreview(null, null);
         }
 
         private bool TryGetGlobalImageCoordinate(Point point, out int globalX, out int globalY)
@@ -2009,7 +2009,7 @@ namespace ArrayImageViewer.UI
             isRoiPanning = false;
             canvas.ReleaseMouseCapture();
             canvas.Cursor = null;
-            LoadExpression(null, null);
+            LoadContextPreview(null, null);
         }
 
         private void ScrollViewerChanged(object sender, ScrollChangedEventArgs e)
@@ -2036,7 +2036,7 @@ namespace ArrayImageViewer.UI
                 }
                 else
                 {
-                    SetStatus("ROI " + roi.Width + "x" + roi.Height + " is centered at (" + currentX + ", " + currentY + "). Select Load ROI to read its debugger values.");
+                    SetStatus("ROI " + roi.Width + "x" + roi.Height + " is centered at (" + currentX + ", " + currentY + "). Select ROI + context to read it with surroundings.");
                 }
             }
             catch (Exception exception)
@@ -2137,7 +2137,7 @@ namespace ArrayImageViewer.UI
                 var targetY = Math.Max(0, Math.Min(configuration.Height - 1, roi.CenterY + verticalDirection * yStep));
                 selectedX.Text = targetX.ToString(CultureInfo.InvariantCulture);
                 selectedY.Text = targetY.ToString(CultureInfo.InvariantCulture);
-                LoadExpression(null, null);
+                LoadContextPreview(null, null);
             }
             catch (Exception exception)
             {
@@ -2170,7 +2170,7 @@ namespace ArrayImageViewer.UI
             }
             else
             {
-                SetStatus("Pixel (" + x + ", " + y + ") is outside the loaded ROI. Select Load ROI to inspect it.");
+                SetStatus("Pixel (" + x + ", " + y + ") is outside the loaded context. Select ROI + context to inspect it.");
             }
         }
 
@@ -2339,7 +2339,7 @@ namespace ArrayImageViewer.UI
 
         private void UpdateSelectedCellRectangle()
         {
-            if (frame == null || !IsLoadedCoordinate(currentX, currentY))
+            if (frame == null || !IsLoadedCoordinate(currentX, currentY) || zoom < 12)
             {
                 selectedCellRectangle.Visibility = Visibility.Collapsed;
                 return;

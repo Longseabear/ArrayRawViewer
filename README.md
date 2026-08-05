@@ -85,12 +85,14 @@ Use **Auto-fill** to query numeric locals and match common names such as
 `imageWidth`, `height`, `pitch`, `centerX`, and `centerY`. The expanded **LOCAL
 VALUES** section remains available for an explicit variable choice.
 
-Enter **Go to X/Y** and **ROI W/H**, then select **Load ROI**. The ROI is clamped
+Enter **Go to X/Y** and **ROI W/H**, then select **ROI + context**. The ROI is clamped
 to the full frame: a 5x5 ROI requested at `(0, 0)` becomes centered at `(2, 2)`
-and covers `(0..4, 0..4)`. The reader evaluates only those ROI samples, so a
-4096x3072 buffer can be inspected without reading 12 million expressions. The red
-rectangle marks the loaded filter ROI; it replaces the old full crosshair so cell
-values stay readable. **Load ROI cells** enters high zoom and renders raw and
+and covers `(0..4, 0..4)`. The reader evaluates a bounded context surrounding that
+ROI, so a 4096x3072 buffer can be inspected without reading 12 million expressions.
+The orange rectangle always marks exactly ROI W/H, while the surrounding rendered
+area is the contextual data read with it; the rest of the full-frame canvas uses a
+distinct unloaded color. **Read exact cells** is the deliberate close-up action:
+it reads only the ROI, enters high zoom, and renders raw and
 Q-format values inside the cells. The footer reports the current `X lim` and
 `Y lim` in full-frame coordinates. Click and hold directly on the loaded image to
 preview the current ROI W/H at that sample, then release to read it; this avoids
