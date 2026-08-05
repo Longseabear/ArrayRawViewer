@@ -29,16 +29,18 @@ restart Visual Studio.
 
 ## Use the viewer
 
-Pause the debuggee in the function that owns your buffer, then choose **Refresh
-locals**. Select `A (int*)` or `B (unsigned int*)` from the Pointer list; this
-sets the expression and signedness automatically. **Capture selection** remains an
-alternative for a pointer expression selected in the active editor, and the
-Expression field accepts manual input such as `sensorRaw`. Then enter the frame
-interpretation before loading:
+Pause the debuggee in the function that owns your buffer, then choose **Refresh**
+in the Pointer section. The list combines current-frame locals and arguments;
+selecting `A (int*)` or `B (unsigned int*)` sets the expression and signedness.
+**Capture** accepts a selected editor expression and cleans a declaration such as
+`unsigned int* B` to `B`. The Expression field also accepts a manual expression
+such as `sensorRaw`. Then enter the full-frame interpretation before loading:
 
 - `expr`: native pointer or array expression, for example `raw` or `imageBuffer`.
-- `W`, `H`: full image width and height.
-- `stride`: samples per row, including any padding. It defaults to `W`.
+- `W`, `H`: full image width and height. Enter an integer or a current-stack
+  integer expression such as `imageWidth` or `height`.
+- `stride`: samples per row, including any padding. It defaults to `W` and also
+  accepts a current-stack integer expression such as `pitch`.
 - `Q format`: enter `integerBits.fractionalBitsb`, for example `8.8b`. Its total
   is the number of valid stored bits (16 bits for `8.8b`) and values are displayed
   as `raw / 2^fractionalBits`. The renderer uses the complete configured Q range
@@ -47,35 +49,33 @@ interpretation before loading:
   the range is `-128` to `127.996...`. A 32-bit pointer with `8.8b` is interpreted
   from its lower 16 bits.
 - `signed`: select for `int*`; clear for `uint*`.
-- `Pixel layout`: `Gray` for generic loss/score/heatmap arrays with no Bayer
-  interpretation, or `GRBG`, `Tetra`, `TetraSquare`, `RGGB`, `GBRG`, `BGGR` for
-  sensor RAW. `Tetra` expands the GRBG sites into 2x2 blocks
-  (`GGRR / GGRR / BBGG / BBGG`); `TetraSquare` expands every GRBG site into a
-  4x4 block (an 8x8 repeating tile).
-- `view`: `Raw` grayscale values, `Mosaic` color-coded original Bayer samples,
-  `Composite` demosaicked preview, or an individual Bayer plane.
+- `Pixel order`: choose the Bayer tile orientation: `GRFirst` (GRBG), `RFirst`
+  (RGGB), `BFirst` (BGGR), or `GBFirst` (GBRG).
+- `Pixel type`: choose physical sample grouping independently: `Bayer`, `Tetra`
+  (each site is a 2x2 block), or `TetraSquare` (each site is a 4x4 block).
+- `Visualize`: `Gray` for generic loss/score maps, `BayerRaw` for the original
+  color-coded mosaic, or an individual `R`, `G`, `Gr`, `Gb`, or `B` plane.
 
-The **LOCAL VALUES** row can populate these fields from debugger locals instead of
-manual typing. Choose **Refresh numeric locals**, then select the required local
-beside each target: for example `imageWidth -> W`, `imageHeight -> H`,
-`imageStride -> Stride`, `centerX -> X`, and `centerY -> Y`.
+Use **Auto-fill** to query numeric locals and match common names such as
+`imageWidth`, `height`, `pitch`, `centerX`, and `centerY`. The expanded **LOCAL
+VALUES** section remains available for an explicit variable choice.
 
-Use **Synthetic preview** to validate the renderer and UI without a debuggee.
-When the native debuggee is paused, **Load pointer** evaluates `expr[index]`
-through the Visual Studio expression evaluator. Enter `Go to X` and `Y`, then
-press **Center** to center the exact full-frame coordinate. **Inspect cells**
-centers the coordinate, enters high zoom, and displays the raw value (and the
-Q-format value at larger cell sizes) inside each visible pixel cell. The orange
-crosshair and status line always report raw value, Q-format value, and Bayer site.
+Enter **Go to X/Y** and **ROI W/H**, then select **Load ROI**. The ROI is clamped
+to the full frame: a 5x5 ROI requested at `(0, 0)` becomes centered at `(2, 2)`
+and covers `(0..4, 0..4)`. The reader evaluates only those ROI samples, so a
+4096x3072 buffer can be inspected without reading 12 million expressions. The red
+rectangle marks the loaded filter ROI; it replaces the old full crosshair so cell
+values stay readable. **Load ROI cells** enters high zoom and renders raw and
+Q-format values inside the cells. The footer reports the current `X lim` and
+`Y lim` in full-frame coordinates.
 
 ## Draft limitation
 
-The expression-evaluator reader is deliberately capped at 16,384 samples because
-evaluating one debugger expression per pixel is too slow for a 4096x3072 image.
-The full-frame renderer itself supports up to 16,777,216 samples, so it can be
-exercised using Synthetic preview. The next required implementation step is a
-native debugger-memory reader that reads a pointer range in blocks; it will replace
-only `DebugExpressionFrameReader` and leave the viewer/core logic unchanged.
+The expression-evaluator reader is deliberately capped at 16,384 **ROI** samples
+because evaluating one debugger expression per sample is too slow. A 5x5 through
+128x128 filter ROI is therefore the intended debugger-backed workflow. The next
+performance step is still a native debugger-memory reader that reads ranges in
+blocks; it will replace only `DebugExpressionFrameReader`.
 
 ## Bayer coordinate rule
 
@@ -96,9 +96,10 @@ stops at `__debugbreak()`.
 Set `SensorRawDebuggee` as the startup project and start debugging. At the break:
 
 - Set `expr` to `previewRaw`, `W/H/stride` to `128/128/128`, Q format to
-  `13.0b`, **Signed int** off, and Bayer to `GRBG`; then select **Load expression**. This
+  `13.0b`, **Signed int** off, Pixel order to `GRFirst`, Pixel type to `Bayer`,
+  Visualize to `BayerRaw`, and ROI W/H to `5/5`; then select **Load ROI**. This
   exercises the debugger-backed input path immediately.
 - Set `expr` to `sensorRaw` and dimensions to `4096/3072/4096` to use the same
-  settings intended for the full buffer. The current expression reader will show
-  its explicit large-frame limit; use **Synthetic preview** to inspect the
-  full-resolution renderer until block memory reading is added.
+  settings intended for the full buffer. Set Go to X/Y and ROI W/H before
+  selecting **Load ROI**; the 4096x3072 frame is never read as 12 million
+  individual debugger expressions.

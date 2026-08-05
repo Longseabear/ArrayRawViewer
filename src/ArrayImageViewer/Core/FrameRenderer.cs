@@ -39,22 +39,14 @@ namespace ArrayImageViewer.Core
         private static Color GetColor(FrameBuffer frame, int x, int y, long minimum, long maximum)
         {
             var config = frame.Configuration;
-            var site = BayerLayout.GetSite(config.BayerPattern, x, y);
-            if (config.DisplayMode == DisplayMode.Composite && config.BayerPattern != BayerPattern.Gray)
-            {
-                return Color.FromRgb(
-                    ToByte(FindNearest(frame, x, y, BayerSite.R), minimum, maximum),
-                    ToByte((FindNearest(frame, x, y, BayerSite.Gr) + FindNearest(frame, x, y, BayerSite.Gb)) / 2, minimum, maximum),
-                    ToByte(FindNearest(frame, x, y, BayerSite.B), minimum, maximum));
-            }
-
-            if (!BayerLayout.IsVisible(config.DisplayMode, site))
+            var site = config.GetBayerSite(x, y);
+            if (!BayerLayout.IsVisible(config.VisualizeChannel, site))
             {
                 return Colors.Black;
             }
 
             var value = ToByte(frame.GetRaw(x, y), minimum, maximum);
-            if (config.DisplayMode == DisplayMode.Raw || config.BayerPattern == BayerPattern.Gray)
+            if (config.VisualizeChannel == VisualizeChannel.Gray)
             {
                 return Color.FromRgb(value, value, value);
             }
@@ -71,34 +63,6 @@ namespace ArrayImageViewer.Core
                 default:
                     return Color.FromRgb(value, value, value);
             }
-        }
-
-        private static long FindNearest(FrameBuffer frame, int x, int y, BayerSite target)
-        {
-            var config = frame.Configuration;
-            var maxDistance = BayerLayout.GetNearestSearchRadius(config.BayerPattern);
-            for (var distance = 0; distance <= maxDistance; distance++)
-            {
-                for (var offsetY = -distance; offsetY <= distance; offsetY++)
-                {
-                    for (var offsetX = -distance; offsetX <= distance; offsetX++)
-                    {
-                        var candidateX = x + offsetX;
-                        var candidateY = y + offsetY;
-                        if (candidateX < 0 || candidateY < 0 || candidateX >= config.Width || candidateY >= config.Height)
-                        {
-                            continue;
-                        }
-
-                        if (BayerLayout.GetSite(config.BayerPattern, candidateX, candidateY) == target)
-                        {
-                            return frame.GetRaw(candidateX, candidateY);
-                        }
-                    }
-                }
-            }
-
-            return frame.GetRaw(x, y);
         }
 
         private static byte ToByte(long value, long minimum, long maximum)

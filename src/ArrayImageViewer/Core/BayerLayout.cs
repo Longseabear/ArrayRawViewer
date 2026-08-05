@@ -2,15 +2,19 @@ using System;
 
 namespace ArrayImageViewer.Core
 {
-    internal enum BayerPattern
+    internal enum PixelOrder
     {
-        Gray,
-        GRBG,
+        GRFirst,
+        RFirst,
+        BFirst,
+        GBFirst
+    }
+
+    internal enum PixelType
+    {
+        Bayer,
         Tetra,
-        TetraSquare,
-        RGGB,
-        GBRG,
-        BGGR
+        TetraSquare
     }
 
     internal enum BayerSite
@@ -22,11 +26,10 @@ namespace ArrayImageViewer.Core
         B
     }
 
-    internal enum DisplayMode
+    internal enum VisualizeChannel
     {
-        Raw,
-        Mosaic,
-        Composite,
+        Gray,
+        BayerRaw,
         R,
         G,
         Gr,
@@ -36,47 +39,44 @@ namespace ArrayImageViewer.Core
 
     internal static class BayerLayout
     {
-        public static BayerSite GetSite(BayerPattern pattern, int x, int y)
+        public static BayerSite GetSite(PixelOrder order, PixelType pixelType, int x, int y)
         {
-            if (pattern == BayerPattern.Gray)
+            if (pixelType == PixelType.Tetra)
             {
-                return BayerSite.Mono;
+                x /= 2;
+                y /= 2;
             }
 
-            if (pattern == BayerPattern.Tetra)
+            if (pixelType == PixelType.TetraSquare)
             {
-                return GetGrbgSite(x / 2, y / 2);
-            }
-
-            if (pattern == BayerPattern.TetraSquare)
-            {
-                return GetGrbgSite(x / 4, y / 4);
+                x /= 4;
+                y /= 4;
             }
 
             var evenX = (x & 1) == 0;
             var evenY = (y & 1) == 0;
-            switch (pattern)
+            switch (order)
             {
-                case BayerPattern.GRBG:
+                case PixelOrder.GRFirst:
                     return GetGrbgSite(x, y);
-                case BayerPattern.RGGB:
+                case PixelOrder.RFirst:
                     return evenY ? (evenX ? BayerSite.R : BayerSite.Gr) : (evenX ? BayerSite.Gb : BayerSite.B);
-                case BayerPattern.GBRG:
-                    return evenY ? (evenX ? BayerSite.Gb : BayerSite.B) : (evenX ? BayerSite.R : BayerSite.Gr);
-                case BayerPattern.BGGR:
+                case PixelOrder.BFirst:
                     return evenY ? (evenX ? BayerSite.B : BayerSite.Gb) : (evenX ? BayerSite.Gr : BayerSite.R);
+                case PixelOrder.GBFirst:
+                    return evenY ? (evenX ? BayerSite.Gb : BayerSite.B) : (evenX ? BayerSite.R : BayerSite.Gr);
                 default:
-                    throw new ArgumentOutOfRangeException("pattern");
+                    throw new ArgumentOutOfRangeException("order");
             }
         }
 
-        public static int GetNearestSearchRadius(BayerPattern pattern)
+        public static int GetNearestSearchRadius(PixelType pixelType)
         {
-            switch (pattern)
+            switch (pixelType)
             {
-                case BayerPattern.Tetra:
+                case PixelType.Tetra:
                     return 2;
-                case BayerPattern.TetraSquare:
+                case PixelType.TetraSquare:
                     return 4;
                 default:
                     return 2;
@@ -90,23 +90,22 @@ namespace ArrayImageViewer.Core
             return evenY ? (evenX ? BayerSite.Gr : BayerSite.R) : (evenX ? BayerSite.B : BayerSite.Gb);
         }
 
-        public static bool IsVisible(DisplayMode mode, BayerSite site)
+        public static bool IsVisible(VisualizeChannel channel, BayerSite site)
         {
-            switch (mode)
+            switch (channel)
             {
-                case DisplayMode.Raw:
-                case DisplayMode.Mosaic:
-                case DisplayMode.Composite:
+                case VisualizeChannel.Gray:
+                case VisualizeChannel.BayerRaw:
                     return true;
-                case DisplayMode.R:
+                case VisualizeChannel.R:
                     return site == BayerSite.R;
-                case DisplayMode.G:
+                case VisualizeChannel.G:
                     return site == BayerSite.Gr || site == BayerSite.Gb;
-                case DisplayMode.Gr:
+                case VisualizeChannel.Gr:
                     return site == BayerSite.Gr;
-                case DisplayMode.Gb:
+                case VisualizeChannel.Gb:
                     return site == BayerSite.Gb;
-                case DisplayMode.B:
+                case VisualizeChannel.B:
                     return site == BayerSite.B;
                 default:
                     return false;

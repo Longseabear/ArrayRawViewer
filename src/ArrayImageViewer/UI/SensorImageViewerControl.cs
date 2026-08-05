@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -17,6 +17,7 @@ namespace ArrayImageViewer.UI
         private static readonly Brush RootBrush = new SolidColorBrush(Color.FromRgb(13, 19, 30));
         private static readonly Brush PanelBrush = new SolidColorBrush(Color.FromRgb(24, 33, 48));
         private static readonly Brush ControlBrush = new SolidColorBrush(Color.FromRgb(15, 23, 38));
+        private static readonly Brush CanvasBrush = new SolidColorBrush(Color.FromRgb(6, 10, 17));
         private static readonly Brush AccentBrush = new SolidColorBrush(Color.FromRgb(67, 214, 177));
         private static readonly Brush AccentSoftBrush = new SolidColorBrush(Color.FromRgb(24, 65, 64));
         private static readonly Brush PanelBorderBrush = new SolidColorBrush(Color.FromRgb(58, 75, 98));
@@ -35,31 +36,37 @@ namespace ArrayImageViewer.UI
         private readonly TextBox stride = CreateTextBox("4096", 60);
         private readonly TextBox qFormat = CreateTextBox("13.0b", 58);
         private readonly CheckBox signed = new CheckBox { Content = "Signed", Foreground = TextBrush, Height = 27, VerticalAlignment = VerticalAlignment.Center };
-        private readonly ComboBox pattern = CreateComboBox(88);
-        private readonly ComboBox display = CreateComboBox(108);
+        private readonly ComboBox pixelOrder = CreateComboBox(108);
+        private readonly ComboBox pixelType = CreateComboBox(108);
+        private readonly ComboBox visualizeChannel = CreateComboBox(116);
         private readonly TextBox selectedX = CreateTextBox("0", 60);
         private readonly TextBox selectedY = CreateTextBox("0", 60);
+        private readonly TextBox roiWidth = CreateTextBox("5", 54);
+        private readonly TextBox roiHeight = CreateTextBox("5", 54);
         private readonly TextBlock status = new TextBlock { Foreground = TextBrush, TextWrapping = TextWrapping.Wrap };
         private readonly TextBlock viewport = new TextBlock { Foreground = MutedBrush, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-        private readonly ScrollViewer scrollViewer = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Background = ControlBrush, Focusable = true };
-        private readonly Canvas canvas = new Canvas { Background = new SolidColorBrush(Color.FromRgb(6, 10, 17)), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, MinWidth = 520, MinHeight = 260 };
+        private readonly ScrollViewer scrollViewer = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Background = CanvasBrush, Focusable = true };
+        private readonly Canvas canvas = new Canvas { Background = CanvasBrush, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, MinWidth = 520, MinHeight = 260 };
         private readonly System.Windows.Controls.Image image = new System.Windows.Controls.Image { Stretch = Stretch.Fill, SnapsToDevicePixels = true };
         private readonly Border emptyState = CreateEmptyState();
-        private readonly Rectangle verticalCrosshair = new Rectangle { Fill = Brushes.OrangeRed, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
-        private readonly Rectangle horizontalCrosshair = new Rectangle { Fill = Brushes.OrangeRed, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+        private readonly Rectangle roiRectangle = new Rectangle { Stroke = Brushes.OrangeRed, StrokeThickness = 2, Fill = Brushes.Transparent, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
         private readonly List<UIElement> valueOverlay = new List<UIElement>();
 
         private FrameBuffer frame;
         private double zoom = 0.15;
         private int currentX;
         private int currentY;
+        private int fullFrameWidth;
+        private int fullFrameHeight;
 
         public SensorImageViewerControl()
         {
-            pattern.ItemsSource = Enum.GetValues(typeof(BayerPattern));
-            pattern.SelectedItem = BayerPattern.GRBG;
-            display.ItemsSource = Enum.GetValues(typeof(DisplayMode));
-            display.SelectedItem = DisplayMode.Composite;
+            pixelOrder.ItemsSource = Enum.GetValues(typeof(PixelOrder));
+            pixelOrder.SelectedItem = PixelOrder.GRFirst;
+            pixelType.ItemsSource = Enum.GetValues(typeof(PixelType));
+            pixelType.SelectedItem = PixelType.Bayer;
+            visualizeChannel.ItemsSource = Enum.GetValues(typeof(VisualizeChannel));
+            visualizeChannel.SelectedItem = VisualizeChannel.BayerRaw;
             availablePointers.SelectionChanged += AvailablePointerChanged;
             widthValueSource.SelectionChanged += WidthValueSelected;
             heightValueSource.SelectionChanged += HeightValueSelected;
@@ -69,8 +76,7 @@ namespace ArrayImageViewer.UI
 
             canvas.Children.Add(image);
             canvas.Children.Add(emptyState);
-            canvas.Children.Add(verticalCrosshair);
-            canvas.Children.Add(horizontalCrosshair);
+            canvas.Children.Add(roiRectangle);
             canvas.MouseMove += CanvasMouseMove;
             canvas.MouseLeftButtonDown += CanvasMouseLeftButtonDown;
             canvas.PreviewMouseWheel += CanvasMouseWheel;
@@ -87,7 +93,7 @@ namespace ArrayImageViewer.UI
             root.Children.Add(footer);
             root.Children.Add(scrollViewer);
             Content = root;
-            SetStatus("Select a pointer in the editor, then use Capture selection. Pause the debuggee before Load pointer.");
+            SetStatus("Pause the debuggee, refresh pointers, then load a small ROI around the requested X/Y.");
         }
 
         private UIElement CreateHeader()
@@ -113,9 +119,8 @@ namespace ArrayImageViewer.UI
             pointerRow.Children.Add(CreateAction("LOCALS", CreateButton("Refresh", RefreshPointers, false)));
             pointerRow.Children.Add(CreateField("EXPRESSION", expression));
             pointerRow.Children.Add(CreateAction("EDITOR", CreateButton("Capture", CaptureSelection, false)));
-            pointerRow.Children.Add(CreateAction("", CreateButton("Load frame", LoadExpression, true)));
-            pointerRow.Children.Add(CreateAction("", CreateButton("Synthetic", RenderSyntheticClick, false)));
-            panel.Children.Add(CreateSection("SOURCE", "Choose a pointer or type an expression", pointerRow));
+            pointerRow.Children.Add(CreateAction("", CreateButton("Load ROI", LoadExpression, true)));
+            panel.Children.Add(CreateSection("SOURCE", "Choose a pointer or type an expression, then load only the requested ROI", pointerRow));
 
             var formatRow = CreateRow();
             formatRow.Children.Add(CreateField("WIDTH", width));
@@ -123,9 +128,11 @@ namespace ArrayImageViewer.UI
             formatRow.Children.Add(CreateField("ROW STRIDE", stride));
             formatRow.Children.Add(CreateField("Q FORMAT", qFormat));
             formatRow.Children.Add(CreateField("VALUE TYPE", signed));
-            formatRow.Children.Add(CreateField("PIXEL LAYOUT", pattern));
-            formatRow.Children.Add(CreateField("RENDER", display));
-            panel.Children.Add(CreateSection("FRAME", "Full-frame interpretation and color mapping", formatRow));
+            formatRow.Children.Add(CreateField("PIXEL ORDER", pixelOrder));
+            formatRow.Children.Add(CreateField("PIXEL TYPE", pixelType));
+            formatRow.Children.Add(CreateField("VISUALIZE", visualizeChannel));
+            formatRow.Children.Add(CreateAction("LOCAL STACK", CreateButton("Auto-fill", RefreshScalarValues, false)));
+            panel.Children.Add(CreateSection("FRAME", "Full-frame dimensions; pixel order, physical type, and channel are independent", formatRow));
 
             var localValuesRow = CreateRow();
             localValuesRow.Children.Add(CreateAction("", CreateButton("Refresh numeric locals", RefreshScalarValues, false)));
@@ -146,10 +153,12 @@ namespace ArrayImageViewer.UI
             var inspectRow = CreateRow();
             inspectRow.Children.Add(CreateField("GO TO X", selectedX));
             inspectRow.Children.Add(CreateField("GO TO Y", selectedY));
+            inspectRow.Children.Add(CreateField("ROI W", roiWidth));
+            inspectRow.Children.Add(CreateField("ROI H", roiHeight));
             inspectRow.Children.Add(CreateAction("", CreateButton("Center view", JumpToCoordinate, false)));
-            inspectRow.Children.Add(CreateAction("", CreateButton("Inspect cells", InspectCells, true)));
-            inspectRow.Children.Add(new TextBlock { Text = "Mouse wheel zooms  |  Click selects a pixel", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
-            panel.Children.Add(CreateSection("NAVIGATE", "Jump directly to a full-frame coordinate", inspectRow));
+            inspectRow.Children.Add(CreateAction("", CreateButton("Load ROI cells", InspectCells, true)));
+            inspectRow.Children.Add(new TextBlock { Text = "ROI is centered at X/Y  |  Mouse wheel zooms  |  Click selects a loaded sample", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+            panel.Children.Add(CreateSection("ROI", "A red rectangle marks the exact requested filter window", inspectRow));
             return panel;
         }
 
@@ -192,7 +201,105 @@ namespace ArrayImageViewer.UI
 
         private static ComboBox CreateComboBox(double width)
         {
-            return new ComboBox { Width = width, Height = 27, Background = ControlBrush, Foreground = TextBrush, BorderBrush = PanelBorderBrush, Padding = new Thickness(5, 2, 5, 2), VerticalContentAlignment = VerticalAlignment.Center };
+            var items = new Style(typeof(ComboBoxItem));
+            items.Setters.Add(new Setter(Control.BackgroundProperty, ControlBrush));
+            items.Setters.Add(new Setter(Control.ForegroundProperty, TextBrush));
+            items.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(7, 4, 7, 4)));
+            var highlighted = new Trigger { Property = ComboBoxItem.IsHighlightedProperty, Value = true };
+            highlighted.Setters.Add(new Setter(Control.BackgroundProperty, AccentSoftBrush));
+            highlighted.Setters.Add(new Setter(Control.ForegroundProperty, TextBrush));
+            items.Triggers.Add(highlighted);
+            var selected = new Trigger { Property = ComboBoxItem.IsSelectedProperty, Value = true };
+            selected.Setters.Add(new Setter(Control.BackgroundProperty, AccentSoftBrush));
+            selected.Setters.Add(new Setter(Control.ForegroundProperty, TextBrush));
+            items.Triggers.Add(selected);
+
+            return new ComboBox
+            {
+                Width = width,
+                Height = 27,
+                Background = ControlBrush,
+                Foreground = TextBrush,
+                BorderBrush = PanelBorderBrush,
+                Padding = new Thickness(5, 2, 5, 2),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                ItemContainerStyle = items,
+                ItemTemplate = CreateComboBoxItemTemplate(),
+                Template = CreateComboBoxTemplate(width)
+            };
+        }
+
+        private static DataTemplate CreateComboBoxItemTemplate()
+        {
+            var text = new FrameworkElementFactory(typeof(TextBlock));
+            text.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding());
+            text.SetValue(TextBlock.ForegroundProperty, TextBrush);
+            text.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
+            return new DataTemplate { VisualTree = text };
+        }
+
+        private static ControlTemplate CreateComboBoxTemplate(double width)
+        {
+            var template = new ControlTemplate(typeof(ComboBox));
+            var root = new FrameworkElementFactory(typeof(Grid));
+
+            var border = new FrameworkElementFactory(typeof(Border));
+            border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+            border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+            border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(3));
+
+            var toggle = new FrameworkElementFactory(typeof(ToggleButton));
+            toggle.Name = "ToggleButton";
+            toggle.SetValue(ToggleButton.BackgroundProperty, Brushes.Transparent);
+            toggle.SetValue(ToggleButton.BorderThicknessProperty, new Thickness(0));
+            toggle.SetValue(ToggleButton.FocusableProperty, false);
+            toggle.SetValue(ToggleButton.ClickModeProperty, ClickMode.Press);
+            toggle.SetBinding(ToggleButton.IsCheckedProperty, new System.Windows.Data.Binding("IsDropDownOpen") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent), Mode = System.Windows.Data.BindingMode.TwoWay });
+
+            var toggleGrid = new FrameworkElementFactory(typeof(Grid));
+            var content = new FrameworkElementFactory(typeof(ContentPresenter));
+            content.SetValue(ContentPresenter.MarginProperty, new Thickness(7, 0, 25, 0));
+            content.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+            content.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(ComboBox.SelectionBoxItemProperty));
+            content.SetValue(ContentPresenter.ContentTemplateProperty, new TemplateBindingExtension(ComboBox.SelectionBoxItemTemplateProperty));
+            toggleGrid.AppendChild(content);
+            var arrow = new FrameworkElementFactory(typeof(TextBlock));
+            arrow.SetValue(TextBlock.TextProperty, "▼");
+            arrow.SetValue(TextBlock.ForegroundProperty, MutedBrush);
+            arrow.SetValue(TextBlock.FontSizeProperty, 9.0);
+            arrow.SetValue(TextBlock.HorizontalAlignmentProperty, HorizontalAlignment.Right);
+            arrow.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
+            arrow.SetValue(TextBlock.MarginProperty, new Thickness(0, 0, 8, 0));
+            toggleGrid.AppendChild(arrow);
+            toggle.AppendChild(toggleGrid);
+            border.AppendChild(toggle);
+            root.AppendChild(border);
+
+            var popup = new FrameworkElementFactory(typeof(Popup));
+            popup.Name = "PART_Popup";
+            popup.SetValue(Popup.PlacementProperty, PlacementMode.Bottom);
+            popup.SetValue(Popup.AllowsTransparencyProperty, true);
+            popup.SetBinding(Popup.IsOpenProperty, new System.Windows.Data.Binding("IsDropDownOpen") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent), Mode = System.Windows.Data.BindingMode.TwoWay });
+            var popupBorder = new FrameworkElementFactory(typeof(Border));
+            popupBorder.SetValue(Border.BackgroundProperty, ControlBrush);
+            popupBorder.SetValue(Border.BorderBrushProperty, AccentBrush);
+            popupBorder.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            popupBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(3));
+            popupBorder.SetValue(FrameworkElement.MinWidthProperty, width);
+            popupBorder.SetValue(FrameworkElement.MaxHeightProperty, 280.0);
+            var scroll = new FrameworkElementFactory(typeof(ScrollViewer));
+            scroll.Name = "PART_ScrollViewer";
+            scroll.SetValue(ScrollViewer.CanContentScrollProperty, true);
+            scroll.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
+            var presenter = new FrameworkElementFactory(typeof(ItemsPresenter));
+            scroll.AppendChild(presenter);
+            popupBorder.AppendChild(scroll);
+            popup.AppendChild(popupBorder);
+            root.AppendChild(popup);
+
+            template.VisualTree = root;
+            return template;
         }
 
         private static StackPanel CreateField(string label, UIElement input)
@@ -222,7 +329,7 @@ namespace ArrayImageViewer.UI
         {
             var text = new TextBlock
             {
-                Text = "NO FRAME LOADED\n\nChoose a pointer, enter its dimensions, then load the frame.\nSynthetic preview is available without a paused debuggee.",
+                Text = "NO ROI LOADED\n\nChoose a pointer, enter full-frame dimensions and ROI W/H,\nthen load the requested debugger ROI.",
                 Foreground = MutedBrush,
                 FontSize = 13,
                 TextAlignment = TextAlignment.Center,
@@ -243,25 +350,6 @@ namespace ArrayImageViewer.UI
             Canvas.SetLeft(state, 40);
             Canvas.SetTop(state, 40);
             return state;
-        }
-
-        private async void RenderSyntheticClick(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                var configuration = ReadConfiguration();
-                SetStatus("Rendering synthetic Bayer frame...");
-                var rendered = await Task.Run(() =>
-                {
-                    var source = FrameBuffer.CreateSynthetic(configuration);
-                    return new RenderedFrame(source, FrameRenderer.Render(source));
-                });
-                ApplyFrame(rendered.Frame, rendered.Bitmap);
-            }
-            catch (Exception exception)
-            {
-                SetStatus("Cannot render: " + exception.Message);
-            }
         }
 
         private void CaptureSelection(object sender, RoutedEventArgs e)
@@ -321,9 +409,14 @@ namespace ArrayImageViewer.UI
                 strideValueSource.ItemsSource = values;
                 xValueSource.ItemsSource = values;
                 yValueSource.ItemsSource = values;
+                AutoFillScalar(values, widthValueSource, width, "width", "imagewidth", "framewidth", "w");
+                AutoFillScalar(values, heightValueSource, height, "height", "imageheight", "frameheight", "h");
+                AutoFillScalar(values, strideValueSource, stride, "stride", "pitch", "rowstride", "imagepitch");
+                AutoFillScalar(values, xValueSource, selectedX, "centerx", "roi_x", "x");
+                AutoFillScalar(values, yValueSource, selectedY, "centery", "roi_y", "y");
                 SetStatus(values.Count == 0
                     ? "No integer locals found. Pause in the function that owns width, height, X, and Y."
-                    : "Choose a local variable beside W, H, stride, X, or Y to copy its debugger value.");
+                    : "Loaded " + values.Count.ToString(CultureInfo.InvariantCulture) + " numeric locals and filled matching W/H/stride/X/Y names.");
             }
             catch (Exception exception)
             {
@@ -375,14 +468,32 @@ namespace ArrayImageViewer.UI
             }
         }
 
+        private static void AutoFillScalar(IList<DebugExpressionFrameReader.ScalarExpression> values, ComboBox source, TextBox target, params string[] preferredNames)
+        {
+            for (var preferredIndex = 0; preferredIndex < preferredNames.Length; preferredIndex++)
+            {
+                for (var valueIndex = 0; valueIndex < values.Count; valueIndex++)
+                {
+                    if (String.Equals(values[valueIndex].Name, preferredNames[preferredIndex], StringComparison.OrdinalIgnoreCase))
+                    {
+                        source.SelectedItem = values[valueIndex];
+                        target.Text = values[valueIndex].Name;
+                        return;
+                    }
+                }
+            }
+        }
+
         private void LoadExpression(object sender, RoutedEventArgs e)
         {
             try
             {
                 var configuration = ReadConfiguration();
-                SetStatus("Reading debugger expression. This draft is limited to 16,384 samples.");
-                var source = DebugExpressionFrameReader.Read(expression.Text, configuration);
-                ApplyFrame(source, FrameRenderer.Render(source));
+                var roi = GetRoiBounds(configuration);
+                SetStatus("Reading ROI " + roi.Width + "x" + roi.Height + " from the debugger.");
+                var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, roi.X, roi.Y, roi.Width, roi.Height);
+                ApplyFrame(source, FrameRenderer.Render(source), configuration.Width, configuration.Height, roi.CenterX, roi.CenterY);
+                ApplyZoom(Math.Max(18.0, zoom));
             }
             catch (Exception exception)
             {
@@ -392,30 +503,69 @@ namespace ArrayImageViewer.UI
 
         private FrameConfiguration ReadConfiguration()
         {
-            int parsedWidth;
-            int parsedHeight;
-            int parsedStride;
+            var parsedWidth = ResolveInteger(width, "width");
+            var parsedHeight = ResolveInteger(height, "height");
+            var parsedStride = ResolveInteger(stride, "stride");
             int parsedIntegerBits;
             int parsedFractionalBits;
-            if (!Int32.TryParse(width.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsedWidth) ||
-                !Int32.TryParse(height.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsedHeight) ||
-                !Int32.TryParse(stride.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsedStride) ||
-                !QFormat.TryParse(qFormat.Text, out parsedIntegerBits, out parsedFractionalBits))
+            if (!QFormat.TryParse(qFormat.Text, out parsedIntegerBits, out parsedFractionalBits))
             {
-                throw new ArgumentException("Enter W, H, and stride as integers; use Q format such as 8.8b.");
+                throw new ArgumentException("Use Q format such as 8.8b.");
             }
 
             return new FrameConfiguration(parsedWidth, parsedHeight, parsedStride, parsedIntegerBits, parsedFractionalBits, signed.IsChecked == true,
-                (BayerPattern)pattern.SelectedItem, (DisplayMode)display.SelectedItem);
+                (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem, (VisualizeChannel)visualizeChannel.SelectedItem);
         }
 
-        private void ApplyFrame(FrameBuffer source, ImageSource bitmap)
+        private static int ResolveInteger(TextBox field, string fieldName)
+        {
+            int value;
+            if (Int32.TryParse(field.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+            {
+                return value;
+            }
+
+            if (String.IsNullOrWhiteSpace(field.Text))
+            {
+                throw new ArgumentException("Enter a " + fieldName + " integer or a current-stack integer variable.");
+            }
+
+            return DebugExpressionFrameReader.EvaluateInt32(field.Text.Trim());
+        }
+
+        private RoiBounds GetRoiBounds(FrameConfiguration configuration)
+        {
+            var requestedX = ResolveInteger(selectedX, "ROI center X");
+            var requestedY = ResolveInteger(selectedY, "ROI center Y");
+            var requestedWidth = ResolveInteger(roiWidth, "ROI width");
+            var requestedHeight = ResolveInteger(roiHeight, "ROI height");
+            if (requestedWidth <= 0 || requestedHeight <= 0)
+            {
+                throw new ArgumentException("ROI W and H must be positive.");
+            }
+
+            var actualWidth = Math.Min(requestedWidth, configuration.Width);
+            var actualHeight = Math.Min(requestedHeight, configuration.Height);
+            var x = Math.Max(0, Math.Min(configuration.Width - actualWidth, requestedX - actualWidth / 2));
+            var y = Math.Max(0, Math.Min(configuration.Height - actualHeight, requestedY - actualHeight / 2));
+            var centerX = x + actualWidth / 2;
+            var centerY = y + actualHeight / 2;
+            selectedX.Text = centerX.ToString(CultureInfo.InvariantCulture);
+            selectedY.Text = centerY.ToString(CultureInfo.InvariantCulture);
+            roiWidth.Text = actualWidth.ToString(CultureInfo.InvariantCulture);
+            roiHeight.Text = actualHeight.ToString(CultureInfo.InvariantCulture);
+            return new RoiBounds(x, y, actualWidth, actualHeight, centerX, centerY);
+        }
+
+        private void ApplyFrame(FrameBuffer source, ImageSource bitmap, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY)
         {
             frame = source;
+            fullFrameWidth = sourceWidth;
+            fullFrameHeight = sourceHeight;
             image.Source = bitmap;
             emptyState.Visibility = Visibility.Collapsed;
-            currentX = Math.Min(currentX, frame.Configuration.Width - 1);
-            currentY = Math.Min(currentY, frame.Configuration.Height - 1);
+            currentX = selectedGlobalX;
+            currentY = selectedGlobalY;
             ApplyZoom(zoom);
             UpdateSelection(currentX, currentY, false);
         }
@@ -439,7 +589,7 @@ namespace ArrayImageViewer.UI
             }
 
             var point = e.GetPosition(canvas);
-            UpdateSelection((int)(point.X / zoom), (int)(point.Y / zoom), false);
+            UpdateSelection(frame.Configuration.OriginX + (int)(point.X / zoom), frame.Configuration.OriginY + (int)(point.Y / zoom), false);
         }
 
         private void CanvasMouseMove(object sender, MouseEventArgs e)
@@ -454,7 +604,7 @@ namespace ArrayImageViewer.UI
             var y = (int)(point.Y / zoom);
             if (x >= 0 && y >= 0 && x < frame.Configuration.Width && y < frame.Configuration.Height)
             {
-                SetStatus(Describe(x, y));
+                SetStatus(Describe(frame.Configuration.OriginX + x, frame.Configuration.OriginY + y));
             }
         }
 
@@ -470,20 +620,30 @@ namespace ArrayImageViewer.UI
 
         private void JumpToCoordinate(object sender, RoutedEventArgs e)
         {
-            int x;
-            int y;
-            if (!Int32.TryParse(selectedX.Text, out x) || !Int32.TryParse(selectedY.Text, out y))
+            try
             {
-                SetStatus("Jump coordinates must be integers.");
-                return;
+                var configuration = ReadConfiguration();
+                var roi = GetRoiBounds(configuration);
+                currentX = roi.CenterX;
+                currentY = roi.CenterY;
+                if (frame != null && IsLoadedCoordinate(currentX, currentY))
+                {
+                    UpdateSelection(currentX, currentY, true);
+                }
+                else
+                {
+                    SetStatus("ROI " + roi.Width + "x" + roi.Height + " is centered at (" + currentX + ", " + currentY + "). Select Load ROI to read its debugger values.");
+                }
             }
-
-            UpdateSelection(x, y, true);
+            catch (Exception exception)
+            {
+                SetStatus("Cannot resolve ROI: " + exception.Message);
+            }
         }
 
         private void InspectCells(object sender, RoutedEventArgs e)
         {
-            JumpToCoordinate(sender, e);
+            LoadExpression(sender, e);
             if (frame != null)
             {
                 ApplyZoom(48.0);
@@ -493,7 +653,7 @@ namespace ArrayImageViewer.UI
 
         private void UpdateSelection(int x, int y, bool centerViewport)
         {
-            if (frame == null || x < 0 || y < 0 || x >= frame.Configuration.Width || y >= frame.Configuration.Height)
+            if (fullFrameWidth <= 0 || fullFrameHeight <= 0 || x < 0 || y < 0 || x >= fullFrameWidth || y >= fullFrameHeight)
             {
                 SetStatus("The requested coordinate is outside the full frame.");
                 return;
@@ -503,11 +663,18 @@ namespace ArrayImageViewer.UI
             currentY = y;
             selectedX.Text = x.ToString(CultureInfo.InvariantCulture);
             selectedY.Text = y.ToString(CultureInfo.InvariantCulture);
-            UpdateViewportAndOverlay();
-            SetStatus(Describe(x, y));
-            if (centerViewport)
+            if (frame != null && IsLoadedCoordinate(x, y))
             {
-                Dispatcher.BeginInvoke(new Action(CenterOnSelection));
+                UpdateViewportAndOverlay();
+                SetStatus(Describe(x, y));
+                if (centerViewport)
+                {
+                    Dispatcher.BeginInvoke(new Action(CenterOnSelection));
+                }
+            }
+            else
+            {
+                SetStatus("Pixel (" + x + ", " + y + ") is outside the loaded ROI. Select Load ROI to inspect it.");
             }
         }
 
@@ -525,7 +692,10 @@ namespace ArrayImageViewer.UI
             image.Height = canvas.Height;
             RenderOptions.SetBitmapScalingMode(image, zoom >= 1 ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.Fant);
             UpdateViewportAndOverlay();
-            SetStatus(Describe(currentX, currentY));
+            if (IsLoadedCoordinate(currentX, currentY))
+            {
+                SetStatus(Describe(currentX, currentY));
+            }
         }
 
         private void UpdateViewportAndOverlay()
@@ -539,7 +709,9 @@ namespace ArrayImageViewer.UI
             var firstY = Math.Max(0, (int)Math.Floor(scrollViewer.VerticalOffset / zoom));
             var lastX = Math.Min(frame.Configuration.Width - 1, (int)Math.Ceiling((scrollViewer.HorizontalOffset + scrollViewer.ViewportWidth) / zoom));
             var lastY = Math.Min(frame.Configuration.Height - 1, (int)Math.Ceiling((scrollViewer.VerticalOffset + scrollViewer.ViewportHeight) / zoom));
-            viewport.Text = String.Format(CultureInfo.InvariantCulture, "Viewport  X {0}..{1}  Y {2}..{3}  |  {4:0.##}x", firstX, lastX, firstY, lastY, zoom);
+            viewport.Text = String.Format(CultureInfo.InvariantCulture, "X lim [{0}, {1}]  Y lim [{2}, {3}]  |  {4:0.##}x",
+                frame.Configuration.OriginX + firstX, frame.Configuration.OriginX + lastX,
+                frame.Configuration.OriginY + firstY, frame.Configuration.OriginY + lastY, zoom);
             ClearValueOverlay();
 
             if (zoom >= 18 && lastX >= firstX && lastY >= firstY && (lastX - firstX + 1) * (lastY - firstY + 1) <= 900)
@@ -553,7 +725,7 @@ namespace ArrayImageViewer.UI
                 }
             }
 
-            UpdateCrosshair();
+            UpdateRoiRectangle();
         }
 
         private void AddValueCell(int x, int y)
@@ -591,40 +763,43 @@ namespace ArrayImageViewer.UI
             valueOverlay.Clear();
         }
 
-        private void UpdateCrosshair()
+        private bool IsLoadedCoordinate(int x, int y)
+        {
+            return frame != null && x >= frame.Configuration.OriginX && y >= frame.Configuration.OriginY &&
+                   x < frame.Configuration.OriginX + frame.Configuration.Width && y < frame.Configuration.OriginY + frame.Configuration.Height;
+        }
+
+        private void UpdateRoiRectangle()
         {
             if (frame == null)
             {
                 return;
             }
 
-            canvas.Children.Remove(verticalCrosshair);
-            canvas.Children.Remove(horizontalCrosshair);
-            var thickness = Math.Max(1, Math.Min(3, zoom / 4));
-            verticalCrosshair.Width = thickness;
-            verticalCrosshair.Height = canvas.Height;
-            Canvas.SetLeft(verticalCrosshair, Math.Max(0, (currentX + 0.5) * zoom - thickness / 2));
-            Canvas.SetTop(verticalCrosshair, 0);
-            horizontalCrosshair.Width = canvas.Width;
-            horizontalCrosshair.Height = thickness;
-            Canvas.SetLeft(horizontalCrosshair, 0);
-            Canvas.SetTop(horizontalCrosshair, Math.Max(0, (currentY + 0.5) * zoom - thickness / 2));
-            verticalCrosshair.Visibility = Visibility.Visible;
-            horizontalCrosshair.Visibility = Visibility.Visible;
-            canvas.Children.Add(verticalCrosshair);
-            canvas.Children.Add(horizontalCrosshair);
+            roiRectangle.Width = Math.Max(0, canvas.Width - 2);
+            roiRectangle.Height = Math.Max(0, canvas.Height - 2);
+            Canvas.SetLeft(roiRectangle, 1);
+            Canvas.SetTop(roiRectangle, 1);
+            roiRectangle.Visibility = Visibility.Visible;
         }
 
         private void CenterOnSelection()
         {
-            scrollViewer.ScrollToHorizontalOffset(Math.Max(0, (currentX + 0.5) * zoom - scrollViewer.ViewportWidth / 2));
-            scrollViewer.ScrollToVerticalOffset(Math.Max(0, (currentY + 0.5) * zoom - scrollViewer.ViewportHeight / 2));
+            if (!IsLoadedCoordinate(currentX, currentY))
+            {
+                return;
+            }
+
+            scrollViewer.ScrollToHorizontalOffset(Math.Max(0, (currentX - frame.Configuration.OriginX + 0.5) * zoom - scrollViewer.ViewportWidth / 2));
+            scrollViewer.ScrollToVerticalOffset(Math.Max(0, (currentY - frame.Configuration.OriginY + 0.5) * zoom - scrollViewer.ViewportHeight / 2));
         }
 
         private string Describe(int x, int y)
         {
-            var raw = frame.GetRaw(x, y);
-            var site = BayerLayout.GetSite(frame.Configuration.BayerPattern, x, y);
+            var localX = x - frame.Configuration.OriginX;
+            var localY = y - frame.Configuration.OriginY;
+            var raw = frame.GetRaw(localX, localY);
+            var site = frame.Configuration.GetBayerSite(localX, localY);
             return String.Format(CultureInfo.InvariantCulture,
                 "Pixel ({0}, {1})   RAW {2}   Q {3} ({4}, range {5}..{6})   Bayer {7}",
                 x, y, raw, QFormat.Format(raw, frame.Configuration.FractionalBits),
@@ -638,16 +813,24 @@ namespace ArrayImageViewer.UI
             status.Text = text;
         }
 
-        private sealed class RenderedFrame
+        private struct RoiBounds
         {
-            public RenderedFrame(FrameBuffer frame, ImageSource bitmap)
+            public RoiBounds(int x, int y, int width, int height, int centerX, int centerY)
             {
-                Frame = frame;
-                Bitmap = bitmap;
+                X = x;
+                Y = y;
+                Width = width;
+                Height = height;
+                CenterX = centerX;
+                CenterY = centerY;
             }
 
-            public FrameBuffer Frame { get; private set; }
-            public ImageSource Bitmap { get; private set; }
+            public int X;
+            public int Y;
+            public int Width;
+            public int Height;
+            public int CenterX;
+            public int CenterY;
         }
     }
 }

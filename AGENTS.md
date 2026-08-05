@@ -14,8 +14,8 @@ The extension must help a developer inspect:
 - A user-defined interpretation of that buffer as a full frame.
 - Element values interpreted with a configurable Q-format (integer bits and
   fractional bits).
-- Sensor Bayer mosaics, especially GRBG, as both a raw mosaic and selectable
-  color channels.
+- Sensor Bayer mosaics with independently chosen Bayer order, physical pixel
+  type, and visualization channel.
 
 ## Compatibility baseline
 
@@ -90,26 +90,25 @@ The extension must help a developer inspect:
 
 ### Bayer rendering
 
-- Support a `Gray` mode with no Bayer interpretation for generic 2D values such as
-  loss/score maps, plus GRBG, Tetra GRBG (each site repeated in a 2x2 block),
-  TetraSquare GRBG (each site repeated in a 4x4 block), RGGB, GBRG, and BGGR
-  sensor layouts.
+- Keep the Bayer controls independent: Pixel order `GRFirst` (GRBG), `RFirst`
+  (RGGB), `BFirst` (BGGR), or `GBFirst` (GBRG); Pixel type `Bayer`, `Tetra`
+  (each site repeated in a 2x2 block), or `TetraSquare` (each site repeated in a
+  4x4 block); and visualization `Gray`, `BayerRaw`, or a selectable R/G/Gr/Gb/B
+  channel.
 - Apply Bayer parity to **full-frame coordinates**, not viewport-local coordinates:
   a viewport sample `(vx, vy)` maps to `(viewportX + vx, viewportY + vy)` before
   its Bayer channel is determined. Zooming, panning, and view boundaries must
   never reset or shift the Bayer phase.
-- Provide these display modes for Bayer input:
-  - Raw mosaic / grayscale values.
-  - Color-coded Bayer mosaic, preserving each original `R`/`Gr`/`Gb`/`B` sample.
-  - Composite Bayer preview (a simple documented demosaic is sufficient initially).
+- Provide these visualization channels:
+  - `Gray` for raw numeric grayscale values, including generic score/loss maps.
+  - `BayerRaw` for a color-coded original Bayer mosaic, preserving each sample.
   - Individual `R`, `G` (combined), `Gr`, `Gb`, and `B` planes.
 - Treat `Gr` and `Gb` as distinct pixel positions even when an aggregate green
   mode is offered.
 - Document the coordinate convention: `(0, 0)` is the top-left sample, x advances
   right, y advances down. Bayer parity is derived from those coordinates.
-- Clearly label whether a displayed color is an original mosaic sample or an
-  interpolated composite-preview value. Pixel inspection always reports the
-  original raw sample and its true Bayer site (`R`, `Gr`, `Gb`, or `B`).
+- Pixel inspection always reports the original raw sample and its true Bayer site
+  (`R`, `Gr`, `Gb`, or `B`).
 
 ## Architecture guidance
 

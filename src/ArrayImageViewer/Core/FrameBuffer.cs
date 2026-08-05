@@ -43,7 +43,7 @@ namespace ArrayImageViewer.Core
                 {
                     var ramp = ((long)x * 4095L / Math.Max(1, configuration.Width - 1)) +
                                ((long)y * 4095L / Math.Max(1, configuration.Height - 1));
-                    var site = BayerLayout.GetSite(configuration.BayerPattern, x, y);
+                    var site = configuration.GetBayerSite(x, y);
                     var channelOffset = site == BayerSite.R ? 1200 : site == BayerSite.B ? 300 : 700;
                     var synthetic13BitValue = Math.Min(8191, ramp / 2 + channelOffset);
                     data[configuration.GetSampleIndex(x, y)] = configuration.RawMinimum +

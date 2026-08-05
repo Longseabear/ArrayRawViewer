@@ -52,6 +52,46 @@ namespace ArrayImageViewer.Debugging
             return new FrameBuffer(configuration, data);
         }
 
+        public static FrameBuffer ReadRoi(string expression, FrameConfiguration sourceConfiguration, int originX, int originY, int roiWidth, int roiHeight)
+        {
+            if (originX < 0 || originY < 0 || roiWidth <= 0 || roiHeight <= 0 ||
+                originX + roiWidth > sourceConfiguration.Width || originY + roiHeight > sourceConfiguration.Height)
+            {
+                throw new ArgumentException("The requested ROI is outside the configured full frame.");
+            }
+
+            var roiSampleCount = checked((long)roiWidth * roiHeight);
+            if (roiSampleCount > DraftSampleLimit)
+            {
+                throw new InvalidOperationException("ROI expression evaluation is limited to 16,384 samples. Reduce ROI W/H.");
+            }
+
+            if (String.IsNullOrWhiteSpace(expression))
+            {
+                throw new ArgumentException("Enter a pointer or array expression.");
+            }
+
+            var debugger = GetDebugger();
+            var roiConfiguration = new FrameConfiguration(roiWidth, roiHeight, roiWidth,
+                sourceConfiguration.IntegerBits, sourceConfiguration.FractionalBits, sourceConfiguration.IsSigned,
+                sourceConfiguration.PixelOrder, sourceConfiguration.PixelType, sourceConfiguration.VisualizeChannel,
+                originX, originY);
+            var data = new long[checked((int)roiSampleCount)];
+            for (var y = 0; y < roiHeight; y++)
+            {
+                for (var x = 0; x < roiWidth; x++)
+                {
+                    var sourceIndex = checked((long)(originY + y) * sourceConfiguration.Stride + originX + x);
+                    var debuggerExpression = String.Format(CultureInfo.InvariantCulture, "({0})[{1}]", expression, sourceIndex);
+                    var evaluated = Invoke(debugger, "GetExpression", debuggerExpression, true, 2000);
+                    var value = Convert.ToString(GetMember(evaluated, "Value"), CultureInfo.InvariantCulture);
+                    data[y * roiWidth + x] = ParseValue(value, sourceConfiguration.IsSigned);
+                }
+            }
+
+            return new FrameBuffer(roiConfiguration, data);
+        }
+
         public static string GetActiveEditorSelection()
         {
             var dte = Package.GetGlobalService(typeof(SDTE));
@@ -63,7 +103,7 @@ namespace ArrayImageViewer.Debugging
                 throw new InvalidOperationException("Select a pointer expression in the active code editor first.");
             }
 
-            return selectedText.Trim();
+            return NormalizePointerExpression(selectedText);
         }
 
         public static IList<PointerExpression> GetCurrentFramePointers()
@@ -114,26 +154,48 @@ namespace ArrayImageViewer.Debugging
             var dte = Package.GetGlobalService(typeof(SDTE));
             var debugger = GetMember(dte, "Debugger");
             var frame = GetMember(debugger, "CurrentStackFrame");
-            var locals = GetMember(frame, "Locals");
-            if (locals == null)
+            if (frame == null)
             {
                 throw new InvalidOperationException("No current stack frame. Pause the native debuggee first.");
             }
 
-            var countObject = GetMember(locals, "Count");
+            AddExpressions(result, GetOptionalMember(frame, "Locals"));
+            AddExpressions(result, GetOptionalMember(frame, "Arguments"));
+            return result;
+        }
+
+        private static void AddExpressions(IList<LocalExpression> result, object expressions)
+        {
+            if (expressions == null)
+            {
+                return;
+            }
+
+            var countObject = GetMember(expressions, "Count");
             var count = countObject == null ? 0 : Convert.ToInt32(countObject, CultureInfo.InvariantCulture);
             for (var index = 1; index <= count; index++)
             {
-                var local = GetItem(locals, index);
+                var local = GetItem(expressions, index);
                 var name = Convert.ToString(GetMember(local, "Name"), CultureInfo.InvariantCulture);
                 var type = Convert.ToString(GetMember(local, "Type"), CultureInfo.InvariantCulture);
-                if (!String.IsNullOrWhiteSpace(name) && !String.IsNullOrWhiteSpace(type))
+                if (!String.IsNullOrWhiteSpace(name) && !String.IsNullOrWhiteSpace(type) && !ContainsName(result, name.Trim()))
                 {
                     result.Add(new LocalExpression(name.Trim(), type.Trim()));
                 }
             }
+        }
 
-            return result;
+        private static bool ContainsName(IList<LocalExpression> expressions, string name)
+        {
+            for (var index = 0; index < expressions.Count; index++)
+            {
+                if (String.Equals(expressions[index].Name, name, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static object GetDebugger()
@@ -203,6 +265,18 @@ namespace ArrayImageViewer.Debugging
             return target == null ? null : target.GetType().InvokeMember(name, BindingFlags.GetProperty, null, target, null);
         }
 
+        private static object GetOptionalMember(object target, string name)
+        {
+            try
+            {
+                return GetMember(target, name);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         private static object Invoke(object target, string name, params object[] parameters)
         {
             return target.GetType().InvokeMember(name, BindingFlags.InvokeMethod, null, target, parameters);
@@ -233,6 +307,24 @@ namespace ArrayImageViewer.Debugging
                 : (long)UInt32.Parse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture);
         }
 
+        private static string NormalizePointerExpression(string selectedText)
+        {
+            var expression = selectedText.Trim().TrimEnd(';', ',');
+            var separator = expression.LastIndexOfAny(new[] { ' ', '\t', '\r', '\n' });
+            if (separator >= 0 && expression.Substring(0, separator).IndexOf('*') >= 0)
+            {
+                expression = expression.Substring(separator + 1);
+            }
+
+            expression = expression.Trim().TrimStart('*', '&');
+            if (String.IsNullOrWhiteSpace(expression))
+            {
+                throw new InvalidOperationException("The editor selection does not contain a pointer expression.");
+            }
+
+            return expression;
+        }
+
         internal sealed class PointerExpression
         {
             public PointerExpression(string name, string type)
@@ -243,7 +335,15 @@ namespace ArrayImageViewer.Debugging
 
             public string Name { get; private set; }
             public string Type { get; private set; }
-            public bool IsSigned { get { return Type.IndexOf("unsigned", StringComparison.OrdinalIgnoreCase) < 0; } }
+            public bool IsSigned
+            {
+                get
+                {
+                    var normalized = Type.ToLowerInvariant();
+                    return normalized.IndexOf("unsigned") < 0 && normalized.IndexOf("uint") < 0 &&
+                           normalized.IndexOf("dword") < 0 && normalized.IndexOf("size_t") < 0;
+                }
+            }
 
             public override string ToString()
             {
