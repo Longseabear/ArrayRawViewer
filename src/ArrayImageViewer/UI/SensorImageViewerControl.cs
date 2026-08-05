@@ -60,6 +60,7 @@ namespace ArrayImageViewer.UI
         private readonly System.Windows.Controls.Image image = new System.Windows.Controls.Image { Stretch = Stretch.Fill, SnapsToDevicePixels = true };
         private readonly Border emptyState = CreateEmptyState();
         private readonly Rectangle roiRectangle = new Rectangle { Stroke = Brushes.OrangeRed, StrokeThickness = 2, Fill = Brushes.Transparent, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+        private readonly Rectangle mouseRoiRectangle = new Rectangle { Stroke = AccentBrush, StrokeThickness = 2, StrokeDashArray = new DoubleCollection(new double[] { 3, 2 }), Fill = new SolidColorBrush(Color.FromArgb(45, 67, 214, 177)), IsHitTestVisible = false, Visibility = Visibility.Collapsed };
         private readonly Rectangle selectedCellRectangle = new Rectangle { Stroke = new SolidColorBrush(Color.FromRgb(255, 211, 82)), StrokeThickness = 2, Fill = Brushes.Transparent, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
         private readonly Canvas navigatorCanvas = new Canvas { Width = 230, Height = 156, Background = ControlBrush, ClipToBounds = true, Cursor = Cursors.Cross };
         private readonly Rectangle navigatorFrame = new Rectangle { Fill = new SolidColorBrush(Color.FromRgb(19, 31, 47)), Stroke = PanelBorderBrush, StrokeThickness = 1, IsHitTestVisible = false };
@@ -79,6 +80,9 @@ namespace ArrayImageViewer.UI
         private Point roiPanStart;
         private int roiPanStartX;
         private int roiPanStartY;
+        private bool isMouseRoiSelecting;
+        private int mouseRoiStartX;
+        private int mouseRoiStartY;
         private readonly Dictionary<string, ViewerProfile> profiles = new Dictionary<string, ViewerProfile>(StringComparer.OrdinalIgnoreCase);
         private readonly List<DebugExpressionFrameReader.PointerExpression> pointerCandidates = new List<DebugExpressionFrameReader.PointerExpression>();
         private bool isApplyingProfile;
@@ -136,6 +140,7 @@ namespace ArrayImageViewer.UI
             canvas.Children.Add(image);
             canvas.Children.Add(emptyState);
             canvas.Children.Add(roiRectangle);
+            canvas.Children.Add(mouseRoiRectangle);
             canvas.Children.Add(selectedCellRectangle);
             canvas.MouseMove += CanvasMouseMove;
             canvas.MouseLeftButtonDown += CanvasMouseLeftButtonDown;
@@ -256,7 +261,7 @@ namespace ArrayImageViewer.UI
             inspectRow.Children.Add(CreateAction("", CreateButton("Right", PanRight, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Up", PanUp, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Down", PanDown, false)));
-            inspectRow.Children.Add(new TextBlock { Text = "Middle-drag or Shift+drag pans the ROI; release reloads it. Wheel or +/- zooms; arrows pan.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+            inspectRow.Children.Add(new TextBlock { Text = "Ctrl+drag selects ROI size. Middle-drag or Shift+drag pans it. Wheel or +/- zooms; arrows pan.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
             panel.Children.Add(CreateSection("ROI", "Move the inspection window without manually typing new coordinates", inspectRow));
             panel.Children.Add(CreateNavigatorSection());
             return panel;
@@ -1584,6 +1589,13 @@ namespace ArrayImageViewer.UI
             }
 
             canvas.Focus();
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                BeginMouseRoiSelect(e.GetPosition(canvas));
+                e.Handled = true;
+                return;
+            }
+
             if ((Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
             {
                 BeginRoiPan(e.GetPosition(canvas));
@@ -1597,6 +1609,13 @@ namespace ArrayImageViewer.UI
 
         private void CanvasMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
+            if (isMouseRoiSelecting)
+            {
+                FinishMouseRoiSelect(e.GetPosition(canvas));
+                e.Handled = true;
+                return;
+            }
+
             if (isRoiPanning)
             {
                 FinishRoiPan(e.GetPosition(canvas));
@@ -1630,6 +1649,12 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
+            if (isMouseRoiSelecting)
+            {
+                PreviewMouseRoiSelect(e.GetPosition(canvas));
+                return;
+            }
+
             if (isRoiPanning)
             {
                 PreviewRoiPan(e.GetPosition(canvas));
@@ -1659,6 +1684,92 @@ namespace ArrayImageViewer.UI
             canvas.CaptureMouse();
             canvas.Cursor = Cursors.SizeAll;
             SetStatus("Drag the ROI, then release to read the new debugger cells.");
+        }
+
+        private void BeginMouseRoiSelect(Point point)
+        {
+            int startX;
+            int startY;
+            if (!TryGetGlobalImageCoordinate(point, out startX, out startY))
+            {
+                SetStatus("Start Ctrl+drag inside the loaded image.");
+                return;
+            }
+
+            isMouseRoiSelecting = true;
+            mouseRoiStartX = startX;
+            mouseRoiStartY = startY;
+            canvas.CaptureMouse();
+            canvas.Cursor = Cursors.Cross;
+            PreviewMouseRoiSelect(point);
+        }
+
+        private void PreviewMouseRoiSelect(Point point)
+        {
+            int endX;
+            int endY;
+            if (!TryGetGlobalImageCoordinate(point, out endX, out endY))
+            {
+                return;
+            }
+
+            var roi = RoiGeometry.FromDrag(fullFrameWidth, fullFrameHeight, mouseRoiStartX, mouseRoiStartY, endX, endY);
+            var localX = roi.X - frame.Configuration.OriginX;
+            var localY = roi.Y - frame.Configuration.OriginY;
+            mouseRoiRectangle.Width = Math.Max(1, roi.Width * zoom - 2);
+            mouseRoiRectangle.Height = Math.Max(1, roi.Height * zoom - 2);
+            Canvas.SetLeft(mouseRoiRectangle, localX * zoom + 1);
+            Canvas.SetTop(mouseRoiRectangle, localY * zoom + 1);
+            mouseRoiRectangle.Visibility = Visibility.Visible;
+            SetStatus(String.Format(CultureInfo.InvariantCulture,
+                "Mouse ROI  x={0}..{1}, y={2}..{3}  ({4} x {5}). Release to read it.",
+                roi.X, roi.X + roi.Width - 1, roi.Y, roi.Y + roi.Height - 1, roi.Width, roi.Height));
+        }
+
+        private void FinishMouseRoiSelect(Point point)
+        {
+            int endX;
+            int endY;
+            if (!TryGetGlobalImageCoordinate(point, out endX, out endY))
+            {
+                endX = mouseRoiStartX;
+                endY = mouseRoiStartY;
+            }
+
+            var roi = RoiGeometry.FromDrag(fullFrameWidth, fullFrameHeight, mouseRoiStartX, mouseRoiStartY, endX, endY);
+            isMouseRoiSelecting = false;
+            canvas.ReleaseMouseCapture();
+            canvas.Cursor = null;
+            mouseRoiRectangle.Visibility = Visibility.Collapsed;
+            selectedX.Text = roi.CenterX.ToString(CultureInfo.InvariantCulture);
+            selectedY.Text = roi.CenterY.ToString(CultureInfo.InvariantCulture);
+            roiWidth.Text = roi.Width.ToString(CultureInfo.InvariantCulture);
+            roiHeight.Text = roi.Height.ToString(CultureInfo.InvariantCulture);
+            currentX = roi.CenterX;
+            currentY = roi.CenterY;
+            UpdateNavigator();
+            LoadExpression(null, null);
+        }
+
+        private bool TryGetGlobalImageCoordinate(Point point, out int globalX, out int globalY)
+        {
+            globalX = 0;
+            globalY = 0;
+            if (frame == null || zoom <= 0)
+            {
+                return false;
+            }
+
+            var localX = (int)Math.Floor(point.X / zoom);
+            var localY = (int)Math.Floor(point.Y / zoom);
+            if (localX < 0 || localY < 0 || localX >= frame.Configuration.Width || localY >= frame.Configuration.Height)
+            {
+                return false;
+            }
+
+            globalX = frame.Configuration.OriginX + localX;
+            globalY = frame.Configuration.OriginY + localY;
+            return true;
         }
 
         private void PreviewRoiPan(Point point)

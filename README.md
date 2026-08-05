@@ -109,6 +109,12 @@ the selected rectangle after mouse release, so it remains responsive for a
 4096x3072 (or larger) source. A simple click keeps the current ROI size and
 moves its center; a drag defines a new size and position.
 
+You can also hold **Ctrl** and left-drag directly on a loaded image to draw the
+next ROI. This works in both a full preview and a zoomed ROI: its bounds use the
+full-frame coordinates shown by the viewer, and mouse release updates X/Y and
+ROI W/H then reads only that selected rectangle. Shift+drag and middle-drag remain
+reserved for panning the current ROI.
+
 When the expression box receives focus while the debuggee is paused, it refreshes
 the current stack's pointer locals and offers matching names as you type. Selecting
 a suggestion applies its element type and signedness. Each pointer that is captured
