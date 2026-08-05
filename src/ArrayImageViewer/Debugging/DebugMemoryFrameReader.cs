@@ -12,7 +12,7 @@ namespace ArrayImageViewer.Debugging
     {
         private const int ElementSizeInBytes = 4;
         private const uint ParseExpression = 1;
-        private const uint EvaluateWithoutFunctionCalls = 0x00000004 | 0x00000080;
+        private const uint EvaluateWithoutFunctionCalls = 0x00000002 | 0x00000004 | 0x00000080;
 
         public static bool TryReadRoi(object currentStackFrame, string expression, FrameConfiguration sourceConfiguration,
             int originX, int originY, int roiWidth, int roiHeight, out FrameBuffer frame)
