@@ -76,7 +76,7 @@ namespace ArrayImageViewer.UI
             ScheduleAutoRefresh();
         }
 
-        private static void AutoFillScalar(IList<DebugExpressionFrameReader.ScalarExpression> values, ComboBox source, TextBox target, params string[] preferredNames)
+        private void AutoFillScalar(IList<DebugExpressionFrameReader.ScalarExpression> values, ComboBox source, TextBox target, params string[] preferredNames)
         {
             for (var preferredIndex = 0; preferredIndex < preferredNames.Length; preferredIndex++)
             {
@@ -84,6 +84,18 @@ namespace ArrayImageViewer.UI
                 {
                     if (String.Equals(values[valueIndex].Name, preferredNames[preferredIndex], StringComparison.OrdinalIgnoreCase))
                     {
+                        try
+                        {
+                            // Do not replace a working literal with a name
+                            // the debugger cannot evaluate (for example an
+                            // optimized-away constexpr).
+                            DebugExpressionFrameReader.EvaluateInt32(values[valueIndex].Name);
+                        }
+                        catch (Exception)
+                        {
+                            continue;
+                        }
+
                         source.SelectedItem = values[valueIndex];
                         target.Text = values[valueIndex].Name;
                         return;

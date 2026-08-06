@@ -190,7 +190,10 @@ namespace ArrayImageViewer.Debugging
             var result = new List<LocalExpression>();
             var dte = Package.GetGlobalService(typeof(SDTE));
             var debugger = GetMember(dte, "Debugger");
-            var frame = GetCurrentStackFrame(debugger);
+            // IDebugStackFrame2 is useful for direct memory access but does
+            // not expose DTE's Locals/Arguments collections. Prefer the DTE
+            // frame for discovery so the pointer dropdown works in native C++.
+            var frame = GetCurrentAutomationStackFrame(debugger) ?? GetCurrentStackFrame(debugger);
             if (frame == null)
             {
                 throw new InvalidOperationException("No current stack frame. Pause the native debuggee first.");
@@ -234,6 +237,31 @@ namespace ArrayImageViewer.Debugging
                 return nativeFrame;
             }
 
+            var frame = GetOptionalMember(debugger, "CurrentStackFrame");
+            if (frame != null)
+            {
+                return frame;
+            }
+
+            var thread = GetOptionalMember(debugger, "CurrentThread");
+            frame = GetOptionalMember(thread, "CurrentStackFrame");
+            if (frame != null)
+            {
+                return frame;
+            }
+
+            var frames = GetOptionalMember(thread, "StackFrames");
+            var count = GetOptionalMember(frames, "Count");
+            if (count != null && Convert.ToInt32(count, CultureInfo.InvariantCulture) > 0)
+            {
+                return GetItem(frames, 1);
+            }
+
+            return null;
+        }
+
+        private static object GetCurrentAutomationStackFrame(object debugger)
+        {
             var frame = GetOptionalMember(debugger, "CurrentStackFrame");
             if (frame != null)
             {

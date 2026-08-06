@@ -24,17 +24,26 @@ namespace
 
 int main()
 {
+    // These volatile locals deliberately remain materialized at __debugbreak.
+    // The viewer can discover them from LOCAL VALUES and reevaluate them on
+    // every update; namespace constexpr values are often optimized away.
+    volatile int imageWidth = ImageWidth;
+    volatile int imageHeight = ImageHeight;
+    volatile int rowStride = imageWidth;
+    volatile int centerX = imageWidth / 2;
+    volatile int centerY = imageHeight / 2;
+
     // Keep these pointers in scope at the breakpoint. In Visual Studio, use
     // sensorRaw for the 4096x3072 source and previewRaw for the immediately
     // readable 128x128 preview supported by the draft extension reader.
-    uint32_t* sensorRaw = new uint32_t[static_cast<size_t>(ImageWidth) * ImageHeight];
+    uint32_t* sensorRaw = new uint32_t[static_cast<size_t>(imageWidth) * imageHeight];
     uint32_t* previewRaw = new uint32_t[static_cast<size_t>(PreviewWidth) * PreviewHeight];
 
-    for (int y = 0; y < ImageHeight; ++y)
+    for (int y = 0; y < imageHeight; ++y)
     {
-        for (int x = 0; x < ImageWidth; ++x)
+        for (int x = 0; x < imageWidth; ++x)
         {
-            sensorRaw[static_cast<size_t>(y) * ImageWidth + x] = MakeSample(x, y);
+            sensorRaw[static_cast<size_t>(y) * rowStride + x] = MakeSample(x, y);
         }
     }
 
@@ -42,11 +51,12 @@ int main()
     {
         for (int x = 0; x < PreviewWidth; ++x)
         {
-            previewRaw[static_cast<size_t>(y) * PreviewWidth + x] = sensorRaw[static_cast<size_t>(y) * ImageWidth + x];
+            previewRaw[static_cast<size_t>(y) * PreviewWidth + x] = sensorRaw[static_cast<size_t>(y) * rowStride + x];
         }
     }
 
-    std::cout << "Break now. sensorRaw is 4096x3072 GRBG; previewRaw is 128x128." << std::endl;
+    std::cout << "Break now. sensorRaw is " << imageWidth << "x" << imageHeight
+              << " GRBG; previewRaw is 128x128." << std::endl;
     __debugbreak();
 
     // Prevent the compiler from considering the allocations unused after the
