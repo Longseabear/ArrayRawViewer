@@ -191,6 +191,7 @@ namespace ArrayImageViewer.UI
         {
             autoRefreshTimer.Stop();
             coordinateUpdateTimer.Stop();
+            viewportOverlayTimer.Stop();
             BeginNewReadRequest();
         }
 
@@ -468,11 +469,6 @@ namespace ArrayImageViewer.UI
             if (requestedWidth <= 0 || requestedHeight <= 0)
             {
                 throw new ArgumentException("View W and H must be positive.");
-            }
-
-            if (requestedWidth < kernel.Width || requestedHeight < kernel.Height)
-            {
-                throw new ArgumentException("View W/H must be at least as large as Kernel W/H.");
             }
 
             var samples = checked((long)requestedWidth * requestedHeight);

@@ -358,6 +358,15 @@ namespace ArrayImageViewer.UI
         {
             var changed = sender as TextBox;
             ClearInputError(changed);
+            if (isNavigatorSelecting && (changed == renderWidth || changed == renderHeight))
+            {
+                // Overview drag may change these hundreds of times per
+                // second. Do not persist or queue a debugger read until
+                // mouse-up commits the final View ROI.
+                UpdateNavigator();
+                return;
+            }
+
             SaveCurrentProfile();
             if (changed == selectedX || changed == selectedY)
             {

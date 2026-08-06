@@ -32,6 +32,19 @@ namespace ArrayImageViewer.UI
             }
 
             canvas.Focus();
+            if (e.ClickCount >= 2)
+            {
+                int doubleClickX;
+                int doubleClickY;
+                if (TryGetGlobalImageCoordinate(e.GetPosition(canvas), out doubleClickX, out doubleClickY))
+                {
+                    UpdateSelection(doubleClickX, doubleClickY, false);
+                    MoveViewTo(doubleClickX, doubleClickY, true);
+                }
+                e.Handled = true;
+                return;
+            }
+
             if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
             {
                 BeginMouseRoiSelect(e.GetPosition(canvas));
@@ -54,6 +67,9 @@ namespace ArrayImageViewer.UI
                 // inspection cursor but leaves the cached view and kernel ROI
                 // where they are. This also avoids a debugger-memory read.
                 UpdateSelection(selectedXValue, selectedYValue, false);
+                isLeftPanPending = true;
+                leftPanStartPoint = e.GetPosition(canvas);
+                canvas.CaptureMouse();
             }
             e.Handled = true;
         }
@@ -77,6 +93,14 @@ namespace ArrayImageViewer.UI
             if (isRoiPanning)
             {
                 FinishRoiPan(e.GetPosition(canvas));
+                e.Handled = true;
+                return;
+            }
+
+            if (isLeftPanPending)
+            {
+                isLeftPanPending = false;
+                canvas.ReleaseMouseCapture();
                 e.Handled = true;
             }
         }
@@ -143,6 +167,18 @@ namespace ArrayImageViewer.UI
             if (isRoiPanning)
             {
                 PreviewRoiPan(e.GetPosition(canvas));
+                return;
+            }
+
+            if (isLeftPanPending && e.LeftButton == MouseButtonState.Pressed)
+            {
+                var point = e.GetPosition(canvas);
+                if (Math.Abs(point.X - leftPanStartPoint.X) >= 4 || Math.Abs(point.Y - leftPanStartPoint.Y) >= 4)
+                {
+                    isLeftPanPending = false;
+                    BeginRoiPan(leftPanStartPoint);
+                    PreviewRoiPan(point);
+                }
                 return;
             }
 
@@ -317,27 +353,11 @@ namespace ArrayImageViewer.UI
             kernelCenterY = roi.CenterY;
             roiWidth.Text = roi.Width.ToString(CultureInfo.InvariantCulture);
             roiHeight.Text = roi.Height.ToString(CultureInfo.InvariantCulture);
-            EnsureViewContainsKernel(roi.Width, roi.Height);
             UpdateNavigator();
             UpdateRoiRectangle();
             SaveCurrentProfile();
             SetStatus("Kernel set to " + roi.Width.ToString(CultureInfo.InvariantCulture) + "x" + roi.Height.ToString(CultureInfo.InvariantCulture) +
                 " at (" + roi.CenterX.ToString(CultureInfo.InvariantCulture) + ", " + roi.CenterY.ToString(CultureInfo.InvariantCulture) + "). The visible view was not reread.");
-        }
-
-        private void EnsureViewContainsKernel(int kernelWidth, int kernelHeight)
-        {
-            int currentViewWidth;
-            if (Int32.TryParse(renderWidth.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out currentViewWidth) && currentViewWidth < kernelWidth)
-            {
-                renderWidth.Text = kernelWidth.ToString(CultureInfo.InvariantCulture);
-            }
-
-            int currentViewHeight;
-            if (Int32.TryParse(renderHeight.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out currentViewHeight) && currentViewHeight < kernelHeight)
-            {
-                renderHeight.Text = kernelHeight.ToString(CultureInfo.InvariantCulture);
-            }
         }
 
         private bool TryGetGlobalImageCoordinate(Point point, out int globalX, out int globalY)
@@ -392,11 +412,28 @@ namespace ArrayImageViewer.UI
 
         private void ScrollViewerChanged(object sender, ScrollChangedEventArgs e)
         {
-            UpdateViewportAndOverlay();
+            ScheduleViewportOverlayUpdate();
         }
 
         private void ScrollViewerSizeChanged(object sender, SizeChangedEventArgs e)
         {
+            ScheduleViewportOverlayUpdate();
+        }
+
+        private void ScheduleViewportOverlayUpdate()
+        {
+            if (frame == null)
+            {
+                return;
+            }
+
+            viewportOverlayTimer.Stop();
+            viewportOverlayTimer.Start();
+        }
+
+        private void ViewportOverlayTimerTick(object sender, EventArgs e)
+        {
+            viewportOverlayTimer.Stop();
             UpdateViewportAndOverlay();
         }
 

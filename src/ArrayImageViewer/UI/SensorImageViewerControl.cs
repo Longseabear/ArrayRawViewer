@@ -113,12 +113,15 @@ namespace ArrayImageViewer.UI
         private readonly DispatcherTimer memoryReadTimer;
         private readonly DispatcherTimer autoRefreshTimer;
         private readonly DispatcherTimer coordinateUpdateTimer;
+        private readonly DispatcherTimer viewportOverlayTimer;
         private PendingMemoryRead pendingMemoryRead;
         private TextBox invalidInput;
         private bool showsFullFrameContext;
         private bool strideFollowsWidth = true;
         private string lastWidthText = "4096";
         private bool isSynchronizingStride;
+        private bool isLeftPanPending;
+        private Point leftPanStartPoint;
 
         public SensorImageViewerControl()
         {
@@ -161,6 +164,9 @@ namespace ArrayImageViewer.UI
             coordinateUpdateTimer = new DispatcherTimer(DispatcherPriority.Background);
             coordinateUpdateTimer.Interval = TimeSpan.FromMilliseconds(220);
             coordinateUpdateTimer.Tick += CoordinateUpdateTimerTick;
+            viewportOverlayTimer = new DispatcherTimer(DispatcherPriority.Background);
+            viewportOverlayTimer.Interval = TimeSpan.FromMilliseconds(70);
+            viewportOverlayTimer.Tick += ViewportOverlayTimerTick;
             ConfigureAutoUpdate();
             Unloaded += ViewerUnloaded;
             Focusable = true;

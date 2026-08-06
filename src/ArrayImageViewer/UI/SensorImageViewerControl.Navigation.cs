@@ -29,7 +29,7 @@ namespace ArrayImageViewer.UI
             navigatorStartY = y;
             navigatorDragStartPoint = e.GetPosition(navigatorCanvas);
             navigatorCanvas.CaptureMouse();
-            SetStatus("Drag or click to move the visible View ROI. Kernel size and cursor remain unchanged.");
+            SetStatus("Click to move the View ROI. Drag a rectangle to set its position and View W/H; Kernel and cursor remain unchanged.");
             e.Handled = true;
         }
 
@@ -141,11 +141,17 @@ namespace ArrayImageViewer.UI
 
         private void PreviewNavigatorView(int endX, int endY)
         {
-            viewCenterX = endX;
-            viewCenterY = endY;
+            var view = RoiGeometry.FromDrag(fullFrameWidth, fullFrameHeight, navigatorStartX, navigatorStartY, endX, endY);
+            viewCenterX = view.CenterX;
+            viewCenterY = view.CenterY;
+            // Suppress the debounced debugger read while the mouse is still
+            // moving. Mouse-up below commits exactly one view read.
+            renderWidth.Text = view.Width.ToString(CultureInfo.InvariantCulture);
+            renderHeight.Text = view.Height.ToString(CultureInfo.InvariantCulture);
             UpdateNavigator();
-            SetStatus("View preview centered at (" + endX.ToString(CultureInfo.InvariantCulture) + ", " + endY.ToString(CultureInfo.InvariantCulture) +
-                "). Release to load this visible area once.");
+            SetStatus("View preview: x=" + view.X.ToString(CultureInfo.InvariantCulture) + ".." + (view.X + view.Width - 1).ToString(CultureInfo.InvariantCulture) +
+                ", y=" + view.Y.ToString(CultureInfo.InvariantCulture) + ".." + (view.Y + view.Height - 1).ToString(CultureInfo.InvariantCulture) +
+                " (" + view.Width.ToString(CultureInfo.InvariantCulture) + " x " + view.Height.ToString(CultureInfo.InvariantCulture) + "). Release to load once.");
         }
 
         private void MoveViewTo(int x, int y, bool centerCursor)
