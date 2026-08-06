@@ -64,7 +64,7 @@ namespace ArrayImageViewer.UI
 
             if ((Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
             {
-                BeginRoiPan(e.GetPosition(canvas));
+                BeginRoiPan(e.GetPosition(scrollViewer));
                 e.Handled = true;
                 return;
             }
@@ -78,7 +78,10 @@ namespace ArrayImageViewer.UI
                 // where they are. This also avoids a debugger-memory read.
                 UpdateSelection(selectedXValue, selectedYValue, false);
                 isLeftPanPending = true;
-                leftPanStartPoint = e.GetPosition(canvas);
+                // Keep pan deltas in viewport coordinates. Canvas coordinates
+                // move underneath the cursor as the ScrollViewer scrolls and
+                // cause a feedback loop / apparent left-right wobble.
+                leftPanStartPoint = e.GetPosition(scrollViewer);
                 canvas.CaptureMouse();
             }
             e.Handled = true;
@@ -102,7 +105,7 @@ namespace ArrayImageViewer.UI
 
             if (isRoiPanning)
             {
-                FinishRoiPan(e.GetPosition(canvas));
+                FinishRoiPan(e.GetPosition(scrollViewer));
                 e.Handled = true;
                 return;
             }
@@ -120,7 +123,7 @@ namespace ArrayImageViewer.UI
             if (e.ChangedButton == MouseButton.Middle)
             {
                 canvas.Focus();
-                BeginRoiPan(e.GetPosition(canvas));
+                BeginRoiPan(e.GetPosition(scrollViewer));
                 e.Handled = true;
             }
         }
@@ -150,7 +153,7 @@ namespace ArrayImageViewer.UI
         {
             if (isRoiPanning && e.ChangedButton == MouseButton.Middle)
             {
-                FinishRoiPan(e.GetPosition(canvas));
+                FinishRoiPan(e.GetPosition(scrollViewer));
                 e.Handled = true;
             }
         }
@@ -176,13 +179,13 @@ namespace ArrayImageViewer.UI
 
             if (isRoiPanning)
             {
-                PreviewRoiPan(e.GetPosition(canvas));
+                PreviewRoiPan(e.GetPosition(scrollViewer));
                 return;
             }
 
             if (isLeftPanPending && e.LeftButton == MouseButtonState.Pressed)
             {
-                var point = e.GetPosition(canvas);
+                var point = e.GetPosition(scrollViewer);
                 if (Math.Abs(point.X - leftPanStartPoint.X) >= 4 || Math.Abs(point.Y - leftPanStartPoint.Y) >= 4)
                 {
                     isLeftPanPending = false;
@@ -409,7 +412,6 @@ namespace ArrayImageViewer.UI
         {
             scrollViewer.ScrollToHorizontalOffset(Math.Max(0, roiPanStartHorizontalOffset - (point.X - roiPanStart.X)));
             scrollViewer.ScrollToVerticalOffset(Math.Max(0, roiPanStartVerticalOffset - (point.Y - roiPanStart.Y)));
-            SetStatus("Panning the view only. No debugger memory will be read.");
         }
 
         private void FinishRoiPan(Point point)
@@ -418,6 +420,7 @@ namespace ArrayImageViewer.UI
             isRoiPanning = false;
             canvas.ReleaseMouseCapture();
             canvas.Cursor = null;
+            SetStatus("Moved the cached view. No debugger memory was read.");
         }
 
         private void ScrollViewerChanged(object sender, ScrollChangedEventArgs e)

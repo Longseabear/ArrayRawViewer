@@ -165,7 +165,9 @@ namespace ArrayImageViewer.UI
             coordinateUpdateTimer.Interval = TimeSpan.FromMilliseconds(220);
             coordinateUpdateTimer.Tick += CoordinateUpdateTimerTick;
             viewportOverlayTimer = new DispatcherTimer(DispatcherPriority.Background);
-            viewportOverlayTimer.Interval = TimeSpan.FromMilliseconds(70);
+            // Wait for scroll/pan to settle before rebuilding hundreds of
+            // high-zoom value labels. The bitmap itself remains responsive.
+            viewportOverlayTimer.Interval = TimeSpan.FromMilliseconds(240);
             viewportOverlayTimer.Tick += ViewportOverlayTimerTick;
             ConfigureAutoUpdate();
             Unloaded += ViewerUnloaded;
