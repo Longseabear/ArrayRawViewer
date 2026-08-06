@@ -109,6 +109,10 @@ namespace ArrayImageViewer.Tests
             var oversizedContext = RoiGeometry.CreateContext(32, 16, 31, 15, 32, 16, 16);
             Assert(oversizedContext.Width == 32 && oversizedContext.Height == 16 && oversizedContext.X == 0 && oversizedContext.Y == 0,
                 "A requested ROI larger than the context budget is preserved rather than clipped.");
+            var kernel = RoiGeometry.ClampCentered(4096, 3072, 1978, 369, 5, 5);
+            var view = RoiGeometry.ClampCentered(4096, 3072, kernel.CenterX, kernel.CenterY, 128, 128);
+            Assert(view.X <= kernel.X && view.Y <= kernel.Y && view.X + view.Width >= kernel.X + kernel.Width && view.Y + view.Height >= kernel.Y + kernel.Height,
+                "A separately sized render view contains the fixed kernel ROI.");
         }
 
         private static void BayerLayoutsRepeatAtExpectedBlockSizes()

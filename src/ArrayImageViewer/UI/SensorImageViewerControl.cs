@@ -17,9 +17,6 @@ namespace ArrayImageViewer.UI
     internal sealed class SensorImageViewerControl : UserControl
     {
         private const long NormalFullPreviewSampleLimit = 4L * 1024L * 1024L;
-        // This is deliberately small enough for the expression-reader fallback too.
-        // Native debugger memory reads use the same shape, but finish much faster.
-        private const int ContextPreviewSampleLimit = 128 * 128;
         private static readonly Brush RootBrush = new SolidColorBrush(Color.FromRgb(13, 19, 30));
         private static readonly Brush PanelBrush = new SolidColorBrush(Color.FromRgb(24, 33, 48));
         private static readonly Brush ControlBrush = new SolidColorBrush(Color.FromRgb(15, 23, 38));
@@ -28,6 +25,7 @@ namespace ArrayImageViewer.UI
         private static readonly Brush AccentBrush = new SolidColorBrush(Color.FromRgb(67, 214, 177));
         private static readonly Brush AccentSoftBrush = new SolidColorBrush(Color.FromRgb(24, 65, 64));
         private static readonly Brush PanelBorderBrush = new SolidColorBrush(Color.FromRgb(58, 75, 98));
+        private static readonly Brush ErrorBrush = new SolidColorBrush(Color.FromRgb(255, 111, 111));
         private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(154, 171, 194));
         private static readonly Brush TextBrush = new SolidColorBrush(Color.FromRgb(237, 242, 249));
 
@@ -55,8 +53,11 @@ namespace ArrayImageViewer.UI
         private readonly TextBox normalizationMaximum = CreateTextBox("8191", 88);
         private readonly TextBox selectedX = CreateTextBox("0", 60);
         private readonly TextBox selectedY = CreateTextBox("0", 60);
+        private readonly TextBox renderWidth = CreateTextBox("128", 54);
+        private readonly TextBox renderHeight = CreateTextBox("128", 54);
         private readonly TextBox roiWidth = CreateTextBox("5", 54);
         private readonly TextBox roiHeight = CreateTextBox("5", 54);
+        private readonly CheckBox autoUpdate = new CheckBox { Content = "Auto update", Foreground = TextBrush, IsChecked = true, Height = 27, VerticalAlignment = VerticalAlignment.Center };
         private readonly TextBlock status = new TextBlock { Foreground = TextBrush, TextWrapping = TextWrapping.Wrap };
         private readonly TextBlock viewport = new TextBlock { Foreground = MutedBrush, Text = "No frame loaded", Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         private readonly ScrollViewer scrollViewer = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Background = CanvasBrush, Focusable = true };
@@ -83,8 +84,8 @@ namespace ArrayImageViewer.UI
         private int fullFrameHeight;
         private bool isRoiPanning;
         private Point roiPanStart;
-        private int roiPanStartX;
-        private int roiPanStartY;
+        private double roiPanStartHorizontalOffset;
+        private double roiPanStartVerticalOffset;
         private bool isMouseRoiSelecting;
         private bool isFixedMouseRoiSelecting;
         private int mouseRoiStartX;
@@ -104,7 +105,9 @@ namespace ArrayImageViewer.UI
         private NormalizationRange activeNormalization = new NormalizationRange(0, 8191);
         private int renderGeneration;
         private readonly DispatcherTimer memoryReadTimer;
+        private readonly DispatcherTimer autoRefreshTimer;
         private PendingMemoryRead pendingMemoryRead;
+        private TextBox invalidInput;
         private bool showsFullFrameContext;
 
         public SensorImageViewerControl()
@@ -142,6 +145,10 @@ namespace ArrayImageViewer.UI
             memoryReadTimer = new DispatcherTimer(DispatcherPriority.Background);
             memoryReadTimer.Interval = TimeSpan.FromMilliseconds(1);
             memoryReadTimer.Tick += MemoryReadTimerTick;
+            autoRefreshTimer = new DispatcherTimer(DispatcherPriority.Background);
+            autoRefreshTimer.Interval = TimeSpan.FromMilliseconds(450);
+            autoRefreshTimer.Tick += AutoRefreshTimerTick;
+            ConfigureAutoUpdate();
             Unloaded += ViewerUnloaded;
             Focusable = true;
             PreviewKeyDown += ViewerPreviewKeyDown;
@@ -239,6 +246,7 @@ namespace ArrayImageViewer.UI
             sourceRow.Children.Add(CreateAction("SHOW", CreateButton("ROI + context", LoadContextPreview, true)));
             sourceRow.Children.Add(CreateAction("PIXELS", CreateButton("Exact ROI", LoadExpression, false)));
             sourceRow.Children.Add(CreateAction("", CreateButton("Full preview", LoadFullPreview, false)));
+            sourceRow.Children.Add(CreateField("UPDATE", autoUpdate));
             var profileRow = CreateRow();
             profileRow.Margin = new Thickness(0, 8, 0, 0);
             profileRow.Children.Add(CreateField("SESSION PROFILE", profilePicker));
@@ -297,16 +305,18 @@ namespace ArrayImageViewer.UI
             var inspectRow = CreateRow();
             inspectRow.Children.Add(CreateField("GO TO X", selectedX));
             inspectRow.Children.Add(CreateField("GO TO Y", selectedY));
-            inspectRow.Children.Add(CreateField("ROI W", roiWidth));
-            inspectRow.Children.Add(CreateField("ROI H", roiHeight));
+            inspectRow.Children.Add(CreateField("VIEW W", renderWidth));
+            inspectRow.Children.Add(CreateField("VIEW H", renderHeight));
+            inspectRow.Children.Add(CreateField("KERNEL W", roiWidth));
+            inspectRow.Children.Add(CreateField("KERNEL H", roiHeight));
             inspectRow.Children.Add(CreateAction("", CreateButton("Center view", JumpToCoordinate, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Read exact cells", InspectCells, true)));
-            inspectRow.Children.Add(CreateAction("PAN", CreateButton("Left", PanLeft, false)));
+            inspectRow.Children.Add(CreateAction("VIEW", CreateButton("Left", PanLeft, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Right", PanRight, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Up", PanUp, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Down", PanDown, false)));
-            inspectRow.Children.Add(new TextBlock { Text = "Click-drag previews current ROI W/H; release loads it. Ctrl+drag sets ROI W/H. Esc cancels; middle/Shift-drag pans.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
-            panel.Children.Add(CreateSection("ROI", "The orange rectangle is always ROI W/H; the surrounding image is the loaded context", inspectRow));
+            inspectRow.Children.Add(new TextBlock { Text = "Orange = kernel ROI. View W/H = loaded surroundings. Click/drag changes kernel; middle/Shift-drag moves only the view.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+            panel.Children.Add(CreateSection("VIEW + KERNEL", "Separate visible data from the ROI rectangle used by your kernel", inspectRow));
             panel.Children.Add(CreateNavigatorSection());
             return panel;
         }
@@ -554,6 +564,7 @@ namespace ArrayImageViewer.UI
                 activeProfileExpression = expression.Text.Trim();
                 RebuildProfilePicker(expression.Text);
                 SetStatus("Expression set from the editor selection: " + expression.Text + ". Select ROI + context to inspect it.");
+                ScheduleAutoRefresh();
             }
             catch (Exception exception)
             {
@@ -755,6 +766,8 @@ namespace ArrayImageViewer.UI
             normalizationMaximum.TextChanged += ProfileInputChanged;
             selectedX.TextChanged += ProfileInputChanged;
             selectedY.TextChanged += ProfileInputChanged;
+            renderWidth.TextChanged += ProfileInputChanged;
+            renderHeight.TextChanged += ProfileInputChanged;
             roiWidth.TextChanged += ProfileInputChanged;
             roiHeight.TextChanged += ProfileInputChanged;
             signed.Checked += SignedInterpretationChanged;
@@ -768,17 +781,61 @@ namespace ArrayImageViewer.UI
 
         private void ProfileInputChanged(object sender, TextChangedEventArgs e)
         {
+            ClearInputError(sender as TextBox);
             SaveCurrentProfile();
+            ScheduleAutoRefresh();
+        }
+
+        private void ConfigureAutoUpdate()
+        {
+            var fields = new[] { expression, width, height, stride, qFormat, normalizationMinimum, normalizationMaximum,
+                selectedX, selectedY, renderWidth, renderHeight, roiWidth, roiHeight };
+            for (var index = 0; index < fields.Length; index++)
+            {
+                fields[index].LostKeyboardFocus += InputFieldLostKeyboardFocus;
+            }
+
+            autoUpdate.Checked += delegate { ScheduleAutoRefresh(); };
+            autoUpdate.Unchecked += delegate { autoRefreshTimer.Stop(); };
+        }
+
+        private void InputFieldLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            ScheduleAutoRefresh();
+        }
+
+        private void ScheduleAutoRefresh()
+        {
+            if (isApplyingProfile || autoUpdate.IsChecked != true || String.IsNullOrWhiteSpace(expression.Text))
+            {
+                return;
+            }
+
+            autoRefreshTimer.Stop();
+            autoRefreshTimer.Start();
+        }
+
+        private void AutoRefreshTimerTick(object sender, EventArgs e)
+        {
+            autoRefreshTimer.Stop();
+            if (autoUpdate.IsChecked != true)
+            {
+                return;
+            }
+
+            LoadContextPreview(null, null);
         }
 
         private void ProfileOptionChanged(object sender, RoutedEventArgs e)
         {
             SaveCurrentProfile();
+            ScheduleAutoRefresh();
         }
 
         private void ProfileOptionChanged(object sender, SelectionChangedEventArgs e)
         {
             SaveCurrentProfile();
+            ScheduleAutoRefresh();
         }
 
         private void NormalizationModeChanged(object sender, SelectionChangedEventArgs e)
@@ -803,6 +860,7 @@ namespace ArrayImageViewer.UI
             }
 
             SaveCurrentProfile();
+            ScheduleAutoRefresh();
         }
 
         private NormalizationMode GetSelectedNormalizationMode()
@@ -835,6 +893,7 @@ namespace ArrayImageViewer.UI
             var elementType = (SourceElementType)selected;
             signed.IsChecked = elementType == SourceElementType.Int8 || elementType == SourceElementType.Int16 || elementType == SourceElementType.Int32;
             SaveCurrentProfile();
+            ScheduleAutoRefresh();
         }
 
         private void SignedInterpretationChanged(object sender, RoutedEventArgs e)
@@ -854,6 +913,7 @@ namespace ArrayImageViewer.UI
             }
 
             SaveCurrentProfile();
+            ScheduleAutoRefresh();
         }
 
         private static SourceElementType ToSignedVariant(SourceElementType sourceElementTypeValue, bool signedValue)
@@ -881,7 +941,7 @@ namespace ArrayImageViewer.UI
             profiles.Add(sourceExpression.Trim(), ViewerProfile.Create(sourceExpression.Trim(), width.Text, height.Text, stride.Text, qFormat.Text,
                 signed.IsChecked == true, (SourceElementType)sourceElementType.SelectedItem, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
                 (VisualizeChannel)visualizeChannel.SelectedItem, GetSelectedNormalizationMode(), normalizationMinimum.Text, normalizationMaximum.Text,
-                selectedX.Text, selectedY.Text, roiWidth.Text, roiHeight.Text));
+                selectedX.Text, selectedY.Text, renderWidth.Text, renderHeight.Text, roiWidth.Text, roiHeight.Text));
         }
 
         private void SaveCurrentProfile()
@@ -900,7 +960,7 @@ namespace ArrayImageViewer.UI
             profiles[sourceExpression] = ViewerProfile.Create(sourceExpression, width.Text, height.Text, stride.Text, qFormat.Text,
                 signed.IsChecked == true, (SourceElementType)sourceElementType.SelectedItem, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
                 (VisualizeChannel)visualizeChannel.SelectedItem, GetSelectedNormalizationMode(), normalizationMinimum.Text, normalizationMaximum.Text,
-                selectedX.Text, selectedY.Text, roiWidth.Text, roiHeight.Text);
+                selectedX.Text, selectedY.Text, renderWidth.Text, renderHeight.Text, roiWidth.Text, roiHeight.Text);
         }
 
         private void RebuildProfilePicker(string selectedExpression)
@@ -944,6 +1004,8 @@ namespace ArrayImageViewer.UI
             normalizationMaximum.Text = profile.NormalizationMaximum;
             selectedX.Text = profile.SelectedX;
             selectedY.Text = profile.SelectedY;
+            renderWidth.Text = profile.RenderWidth;
+            renderHeight.Text = profile.RenderHeight;
             roiWidth.Text = profile.RoiWidth;
             roiHeight.Text = profile.RoiHeight;
             isApplyingProfile = false;
@@ -1013,6 +1075,7 @@ namespace ArrayImageViewer.UI
             {
                 target.Text = DebugExpressionFrameReader.EvaluateInt32(scalar.Name).ToString(CultureInfo.InvariantCulture);
                 SetStatus("Copied " + scalar.Name + " into " + targetName + ".");
+                ScheduleAutoRefresh();
             }
             catch (Exception exception)
             {
@@ -1047,6 +1110,7 @@ namespace ArrayImageViewer.UI
         {
             try
             {
+                ClearAllInputErrors();
                 var configuration = ReadConfiguration();
                 var roi = GetRoiBounds(configuration);
                 var sampleCount = checked((long)roi.Width * roi.Height);
@@ -1064,7 +1128,7 @@ namespace ArrayImageViewer.UI
             }
             catch (Exception exception)
             {
-                SetStatus("Cannot read pointer: " + exception.Message);
+                SetInputError("Cannot read exact ROI: " + exception.Message);
             }
         }
 
@@ -1072,11 +1136,11 @@ namespace ArrayImageViewer.UI
         {
             try
             {
+                ClearAllInputErrors();
                 CancelPendingMemoryRead();
                 var configuration = ReadConfiguration();
                 var requestedRoi = GetRoiBounds(configuration);
-                var context = RoiGeometry.CreateContext(configuration.Width, configuration.Height, requestedRoi.CenterX, requestedRoi.CenterY,
-                    requestedRoi.Width, requestedRoi.Height, ContextPreviewSampleLimit);
+                var context = GetRenderBounds(configuration, requestedRoi);
                 DebugMemoryFrameReader.RoiReadSession memoryRead;
                 if (DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration,
                     context.X, context.Y, context.Width, context.Height, out memoryRead))
@@ -1091,7 +1155,7 @@ namespace ArrayImageViewer.UI
             }
             catch (Exception exception)
             {
-                SetStatus("Cannot read ROI context: " + exception.Message);
+                SetInputError("Cannot show ROI + context: " + exception.Message);
             }
         }
 
@@ -1130,7 +1194,7 @@ namespace ArrayImageViewer.UI
             }
             catch (Exception exception)
             {
-                SetStatus("Cannot read full preview: " + exception.Message);
+                SetInputError("Cannot read full preview: " + exception.Message);
             }
         }
 
@@ -1202,7 +1266,7 @@ namespace ArrayImageViewer.UI
             }
             catch (Exception exception)
             {
-                SetStatus("Cannot apply display range: " + exception.Message);
+                SetInputError("Cannot apply display range: " + exception.Message);
                 return;
             }
 
@@ -1247,11 +1311,12 @@ namespace ArrayImageViewer.UI
         private void ApplyRenderedFrame(FrameBuffer source, ImageSource bitmap, NormalizationRange normalization, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY,
             bool isFullPreview, bool showFullFrameContext, string sourceExpression, string readPath)
         {
+            var preserveContextZoom = showFullFrameContext && showsFullFrameContext && frame != null;
             lastReadPath = readPath;
             activeNormalization = normalization;
             ApplyFrame(source, bitmap, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, showFullFrameContext);
             ApplyZoom(isFullPreview ? GetFullPreviewZoom(source.Configuration.Width, source.Configuration.Height) :
-                (showFullFrameContext ? GetContextPreviewZoom(source.Configuration.Width, source.Configuration.Height) : Math.Max(18.0, zoom)));
+                (showFullFrameContext ? (preserveContextZoom ? zoom : GetContextPreviewZoom(source.Configuration.Width, source.Configuration.Height)) : Math.Max(18.0, zoom)));
             if (showFullFrameContext)
             {
                 Dispatcher.BeginInvoke(new Action(CenterOnSelection));
@@ -1438,12 +1503,34 @@ namespace ArrayImageViewer.UI
             }
 
             var roi = RoiGeometry.ClampCentered(configuration.Width, configuration.Height, requestedX, requestedY, requestedWidth, requestedHeight);
-            selectedX.Text = roi.CenterX.ToString(CultureInfo.InvariantCulture);
-            selectedY.Text = roi.CenterY.ToString(CultureInfo.InvariantCulture);
-            roiWidth.Text = roi.Width.ToString(CultureInfo.InvariantCulture);
-            roiHeight.Text = roi.Height.ToString(CultureInfo.InvariantCulture);
+            currentX = roi.CenterX;
+            currentY = roi.CenterY;
             UpdateNavigator();
             return new RoiBounds(roi.X, roi.Y, roi.Width, roi.Height, roi.CenterX, roi.CenterY);
+        }
+
+        private RoiBounds GetRenderBounds(FrameConfiguration configuration, RoiBounds kernel)
+        {
+            var requestedWidth = ResolveInteger(renderWidth, "view width");
+            var requestedHeight = ResolveInteger(renderHeight, "view height");
+            if (requestedWidth <= 0 || requestedHeight <= 0)
+            {
+                throw new ArgumentException("View W and H must be positive.");
+            }
+
+            if (requestedWidth < kernel.Width || requestedHeight < kernel.Height)
+            {
+                throw new ArgumentException("View W/H must be at least as large as Kernel W/H.");
+            }
+
+            var samples = checked((long)requestedWidth * requestedHeight);
+            if (samples > 262144)
+            {
+                throw new ArgumentException("View W x H is limited to 262,144 samples. Use Full preview for the entire frame.");
+            }
+
+            var view = RoiGeometry.ClampCentered(configuration.Width, configuration.Height, kernel.CenterX, kernel.CenterY, requestedWidth, requestedHeight);
+            return new RoiBounds(view.X, view.Y, view.Width, view.Height, view.CenterX, view.CenterY);
         }
 
         private void NavigatorMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -1619,8 +1706,8 @@ namespace ArrayImageViewer.UI
             Canvas.SetLeft(navigatorFrame, navigatorFrameBounds.X);
             Canvas.SetTop(navigatorFrame, navigatorFrameBounds.Y);
 
-            var centerX = ParseNavigatorValue(selectedX.Text, frameWidth / 2);
-            var centerY = ParseNavigatorValue(selectedY.Text, frameHeight / 2);
+            var centerX = ParseNavigatorValue(selectedX.Text, Math.Max(0, Math.Min(frameWidth - 1, currentX)));
+            var centerY = ParseNavigatorValue(selectedY.Text, Math.Max(0, Math.Min(frameHeight - 1, currentY)));
             var requestedWidth = Math.Max(1, ParseNavigatorValue(roiWidth.Text, 1));
             var requestedHeight = Math.Max(1, ParseNavigatorValue(roiHeight.Text, 1));
             var actualWidth = Math.Min(frameWidth, requestedWidth);
@@ -1796,11 +1883,11 @@ namespace ArrayImageViewer.UI
 
             isRoiPanning = true;
             roiPanStart = point;
-            roiPanStartX = frame.Configuration.OriginX + frame.Configuration.Width / 2;
-            roiPanStartY = frame.Configuration.OriginY + frame.Configuration.Height / 2;
+            roiPanStartHorizontalOffset = scrollViewer.HorizontalOffset;
+            roiPanStartVerticalOffset = scrollViewer.VerticalOffset;
             canvas.CaptureMouse();
             canvas.Cursor = Cursors.SizeAll;
-            SetStatus("Drag the ROI, then release to read the new debugger cells.");
+            SetStatus("Panning the view only. No debugger memory will be read.");
         }
 
         private void BeginMouseRoiSelect(Point point)
@@ -1950,10 +2037,26 @@ namespace ArrayImageViewer.UI
             selectedY.Text = roi.CenterY.ToString(CultureInfo.InvariantCulture);
             roiWidth.Text = roi.Width.ToString(CultureInfo.InvariantCulture);
             roiHeight.Text = roi.Height.ToString(CultureInfo.InvariantCulture);
+            EnsureViewContainsKernel(roi.Width, roi.Height);
             currentX = roi.CenterX;
             currentY = roi.CenterY;
             UpdateNavigator();
             LoadContextPreview(null, null);
+        }
+
+        private void EnsureViewContainsKernel(int kernelWidth, int kernelHeight)
+        {
+            int currentViewWidth;
+            if (Int32.TryParse(renderWidth.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out currentViewWidth) && currentViewWidth < kernelWidth)
+            {
+                renderWidth.Text = kernelWidth.ToString(CultureInfo.InvariantCulture);
+            }
+
+            int currentViewHeight;
+            if (Int32.TryParse(renderHeight.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out currentViewHeight) && currentViewHeight < kernelHeight)
+            {
+                renderHeight.Text = kernelHeight.ToString(CultureInfo.InvariantCulture);
+            }
         }
 
         private bool TryGetGlobalImageCoordinate(Point point, out int globalX, out int globalY)
@@ -1993,14 +2096,9 @@ namespace ArrayImageViewer.UI
 
         private void PreviewRoiPan(Point point)
         {
-            var targetX = roiPanStartX + (int)Math.Round((point.X - roiPanStart.X) / zoom, MidpointRounding.AwayFromZero);
-            var targetY = roiPanStartY + (int)Math.Round((point.Y - roiPanStart.Y) / zoom, MidpointRounding.AwayFromZero);
-            targetX = Math.Max(0, Math.Min(fullFrameWidth - 1, targetX));
-            targetY = Math.Max(0, Math.Min(fullFrameHeight - 1, targetY));
-            selectedX.Text = targetX.ToString(CultureInfo.InvariantCulture);
-            selectedY.Text = targetY.ToString(CultureInfo.InvariantCulture);
-            UpdateNavigator();
-            SetStatus("New ROI center: (" + targetX + ", " + targetY + "). Release to read it.");
+            scrollViewer.ScrollToHorizontalOffset(Math.Max(0, roiPanStartHorizontalOffset - (point.X - roiPanStart.X)));
+            scrollViewer.ScrollToVerticalOffset(Math.Max(0, roiPanStartVerticalOffset - (point.Y - roiPanStart.Y)));
+            SetStatus("Panning the view only. No debugger memory will be read.");
         }
 
         private void FinishRoiPan(Point point)
@@ -2009,7 +2107,6 @@ namespace ArrayImageViewer.UI
             isRoiPanning = false;
             canvas.ReleaseMouseCapture();
             canvas.Cursor = null;
-            LoadContextPreview(null, null);
         }
 
         private void ScrollViewerChanged(object sender, ScrollChangedEventArgs e)
@@ -2127,22 +2224,11 @@ namespace ArrayImageViewer.UI
 
         private void PanRoi(int horizontalDirection, int verticalDirection)
         {
-            try
-            {
-                var configuration = ReadConfiguration();
-                var roi = GetRoiBounds(configuration);
-                var xStep = Math.Max(1, roi.Width / 2);
-                var yStep = Math.Max(1, roi.Height / 2);
-                var targetX = Math.Max(0, Math.Min(configuration.Width - 1, roi.CenterX + horizontalDirection * xStep));
-                var targetY = Math.Max(0, Math.Min(configuration.Height - 1, roi.CenterY + verticalDirection * yStep));
-                selectedX.Text = targetX.ToString(CultureInfo.InvariantCulture);
-                selectedY.Text = targetY.ToString(CultureInfo.InvariantCulture);
-                LoadContextPreview(null, null);
-            }
-            catch (Exception exception)
-            {
-                SetStatus("Cannot move ROI: " + exception.Message);
-            }
+            var horizontalStep = Math.Max(32.0, scrollViewer.ViewportWidth * 0.7);
+            var verticalStep = Math.Max(32.0, scrollViewer.ViewportHeight * 0.7);
+            scrollViewer.ScrollToHorizontalOffset(Math.Max(0, scrollViewer.HorizontalOffset + horizontalDirection * horizontalStep));
+            scrollViewer.ScrollToVerticalOffset(Math.Max(0, scrollViewer.VerticalOffset + verticalDirection * verticalStep));
+            SetStatus("Moved the view. No debugger memory was read.");
         }
 
         private void UpdateSelection(int x, int y, bool centerViewport)
@@ -2322,7 +2408,8 @@ namespace ArrayImageViewer.UI
                 var requestedWidth = Math.Max(1, ParseNavigatorValue(roiWidth.Text, 1));
                 var requestedHeight = Math.Max(1, ParseNavigatorValue(roiHeight.Text, 1));
                 var selectedRoi = RoiGeometry.ClampCentered(fullFrameWidth, fullFrameHeight,
-                    ParseNavigatorValue(selectedX.Text, fullFrameWidth / 2), ParseNavigatorValue(selectedY.Text, fullFrameHeight / 2),
+                    ParseNavigatorValue(selectedX.Text, Math.Max(0, Math.Min(fullFrameWidth - 1, currentX))),
+                    ParseNavigatorValue(selectedY.Text, Math.Max(0, Math.Min(fullFrameHeight - 1, currentY))),
                     requestedWidth, requestedHeight);
                 widthInSamples = selectedRoi.Width;
                 heightInSamples = selectedRoi.Height;
@@ -2383,7 +2470,60 @@ namespace ArrayImageViewer.UI
 
         private void SetStatus(string text)
         {
+            status.Foreground = TextBrush;
             status.Text = text;
+        }
+
+        private void SetInputError(string message)
+        {
+            TextBox target = null;
+            var lower = message == null ? String.Empty : message.ToLowerInvariant();
+            if (lower.Contains("view")) target = lower.Contains("height") || lower.Contains("h/") ? renderHeight : renderWidth;
+            else if (lower.Contains("roi center x") || lower.Contains(" x")) target = selectedX;
+            else if (lower.Contains("roi center y") || lower.Contains(" y")) target = selectedY;
+            else if (lower.Contains("roi w") || lower.Contains("kernel")) target = lower.Contains("height") ? roiHeight : roiWidth;
+            else if (lower.Contains("stride")) target = stride;
+            else if (lower.Contains("height")) target = height;
+            else if (lower.Contains("width")) target = width;
+            else if (lower.Contains("q format")) target = qFormat;
+            else if (lower.Contains("normalization") || lower.Contains("raw range")) target = normalizationMinimum;
+            else if (lower.Contains("pointer") || lower.Contains("expression")) target = expression;
+
+            if (target != null)
+            {
+                invalidInput = target;
+                target.BorderBrush = ErrorBrush;
+                target.BorderThickness = new Thickness(2);
+                target.ToolTip = message;
+                target.Focus();
+            }
+
+            status.Foreground = ErrorBrush;
+            status.Text = message;
+        }
+
+        private void ClearInputError(TextBox changedField)
+        {
+            if (changedField == null || invalidInput != changedField)
+            {
+                return;
+            }
+
+            invalidInput.BorderBrush = PanelBorderBrush;
+            invalidInput.BorderThickness = new Thickness(1);
+            invalidInput.ToolTip = null;
+            invalidInput = null;
+        }
+
+        private void ClearAllInputErrors()
+        {
+            if (invalidInput != null)
+            {
+                invalidInput.BorderBrush = PanelBorderBrush;
+                invalidInput.BorderThickness = new Thickness(1);
+                invalidInput.ToolTip = null;
+                invalidInput = null;
+            }
         }
 
         private sealed class NormalizationModeChoice
@@ -2424,13 +2564,15 @@ namespace ArrayImageViewer.UI
             public string NormalizationMaximum { get; private set; }
             public string SelectedX { get; private set; }
             public string SelectedY { get; private set; }
+            public string RenderWidth { get; private set; }
+            public string RenderHeight { get; private set; }
             public string RoiWidth { get; private set; }
             public string RoiHeight { get; private set; }
 
             public static ViewerProfile Create(string expressionValue, string widthValue, string heightValue, string strideValue, string qFormatValue,
                 bool signedValue, SourceElementType sourceElementTypeValue, PixelOrder pixelOrderValue, PixelType pixelTypeValue, VisualizeChannel visualizeChannelValue,
                 NormalizationMode normalizationModeValue, string normalizationMinimumValue, string normalizationMaximumValue,
-                string selectedXValue, string selectedYValue, string roiWidthValue, string roiHeightValue)
+                string selectedXValue, string selectedYValue, string renderWidthValue, string renderHeightValue, string roiWidthValue, string roiHeightValue)
             {
                 return new ViewerProfile
                 {
@@ -2449,6 +2591,8 @@ namespace ArrayImageViewer.UI
                     NormalizationMaximum = normalizationMaximumValue,
                     SelectedX = selectedXValue,
                     SelectedY = selectedYValue,
+                    RenderWidth = renderWidthValue,
+                    RenderHeight = renderHeightValue,
                     RoiWidth = roiWidthValue,
                     RoiHeight = roiHeightValue
                 };

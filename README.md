@@ -89,9 +89,9 @@ Enter **Go to X/Y** and **ROI W/H**, then select **ROI + context**. The ROI is c
 to the full frame: a 5x5 ROI requested at `(0, 0)` becomes centered at `(2, 2)`
 and covers `(0..4, 0..4)`. The reader evaluates a bounded context surrounding that
 ROI, so a 4096x3072 buffer can be inspected without reading 12 million expressions.
-The orange rectangle always marks exactly ROI W/H, while the surrounding rendered
-area is the contextual data read with it; the rest of the full-frame canvas uses a
-distinct unloaded color. **Read exact cells** is the deliberate close-up action:
+The orange rectangle always marks exactly **Kernel W/H**, while **View W/H** is the
+separate surrounding rectangle that is actually read and rendered; the rest of the
+full-frame canvas uses a distinct unloaded color. **Read exact cells** is the deliberate close-up action:
 it reads only the ROI, enters high zoom, and renders raw and
 Q-format values inside the cells. The footer reports the current `X lim` and
 `Y lim` in full-frame coordinates. Click and hold directly on the loaded image to
@@ -129,6 +129,13 @@ stride, source element type, Q-format, Bayer settings, visualization mode, and R
 are restored when that profile is selected. Settings update automatically and can
 also be saved explicitly with **Save settings**. Profiles contain configuration only
 (no samples are saved) and are discarded when the viewer window is closed.
+
+**Auto update** is on by default: after you finish editing a field or select a
+local value, the viewer rereads the bounded View ROI after a short debounce. Turn
+it off when manually staging several settings. Invalid input is highlighted with a
+red border, tooltip, and status message. View movement is not a data operation:
+middle/Shift-drag, the View arrows, and keyboard arrows pan only the viewport and
+never reread debugger memory.
 
 `Visualize` supports `Gray`, original color-coded `BayerRaw`, a lightweight
 `Composite` Bayer preview, and `R`/`G`/`Gr`/`Gb`/`B` planes. Composite uses the
