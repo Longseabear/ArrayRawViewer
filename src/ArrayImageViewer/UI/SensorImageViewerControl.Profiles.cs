@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -23,7 +25,10 @@ namespace ArrayImageViewer.UI
                 yValueSource.ItemsSource = values;
                 AutoFillScalar(values, widthValueSource, width, "width", "imagewidth", "framewidth", "w");
                 AutoFillScalar(values, heightValueSource, height, "height", "imageheight", "frameheight", "h");
-                AutoFillScalar(values, strideValueSource, stride, "stride", "pitch", "rowstride", "imagepitch");
+                if (!AutoFillScalar(values, strideValueSource, stride, "stride", "pitch", "rowstride", "imagepitch"))
+                {
+                    SetStrideFromWidth();
+                }
                 AutoFillScalar(values, xValueSource, selectedX, "centerx", "roi_x", "x");
                 AutoFillScalar(values, yValueSource, selectedY, "centery", "roi_y", "y");
                 SetStatus(values.Count == 0
@@ -76,7 +81,7 @@ namespace ArrayImageViewer.UI
             ScheduleAutoRefresh();
         }
 
-        private void AutoFillScalar(IList<DebugExpressionFrameReader.ScalarExpression> values, ComboBox source, TextBox target, params string[] preferredNames)
+        private bool AutoFillScalar(IList<DebugExpressionFrameReader.ScalarExpression> values, ComboBox source, TextBox target, params string[] preferredNames)
         {
             for (var preferredIndex = 0; preferredIndex < preferredNames.Length; preferredIndex++)
             {
@@ -98,10 +103,12 @@ namespace ArrayImageViewer.UI
 
                         source.SelectedItem = values[valueIndex];
                         target.Text = values[valueIndex].Name;
-                        return;
+                        return true;
                     }
                 }
             }
+
+            return false;
         }
 
         private void ConfigureExpressionSuggestions()
@@ -269,8 +276,9 @@ namespace ArrayImageViewer.UI
             SaveCurrentProfile();
             expressionSuggestions.IsOpen = false;
             ViewerProfile profile;
-            if (profiles.TryGetValue(pointer.Name, out profile))
+            if (profiles.TryGetValue(pointer.Name, out profile) || TryLoadPersistedProfile(pointer.Name, pointer.SourceElementType, out profile))
             {
+                profiles[pointer.Name] = profile;
                 ApplyProfile(profile);
             }
             else
@@ -286,6 +294,7 @@ namespace ArrayImageViewer.UI
             activeProfileExpression = pointer.Name;
             RebuildProfilePicker(pointer.Name);
             SetStatus("Selected " + pointer.Name + " as " + pointer.Type + ". Its profile is retained for this viewer window.");
+            ScheduleAutoRefresh();
         }
 
         private void ProfilePickerChanged(object sender, SelectionChangedEventArgs e)
@@ -347,8 +356,35 @@ namespace ArrayImageViewer.UI
 
         private void ProfileInputChanged(object sender, TextChangedEventArgs e)
         {
-            ClearInputError(sender as TextBox);
+            var changed = sender as TextBox;
+            ClearInputError(changed);
             SaveCurrentProfile();
+            if (changed == selectedX || changed == selectedY)
+            {
+                ScheduleCoordinateUpdate();
+                return;
+            }
+
+            if (changed == roiWidth || changed == roiHeight)
+            {
+                UpdateNavigator();
+                UpdateRoiRectangle();
+                return;
+            }
+
+            if (changed == width)
+            {
+                if (strideFollowsWidth)
+                {
+                    SetStrideFromWidth();
+                }
+                lastWidthText = width.Text;
+            }
+            else if (changed == stride && !isSynchronizingStride)
+            {
+                strideFollowsWidth = false;
+            }
+
             ScheduleAutoRefresh();
         }
 
@@ -367,7 +403,15 @@ namespace ArrayImageViewer.UI
 
         private void InputFieldLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         {
-            ScheduleAutoRefresh();
+            var field = sender as TextBox;
+            if (field == selectedX || field == selectedY)
+            {
+                ScheduleCoordinateUpdate();
+            }
+            else if (field != roiWidth && field != roiHeight)
+            {
+                ScheduleAutoRefresh();
+            }
         }
 
         private void ScheduleAutoRefresh()
@@ -390,6 +434,41 @@ namespace ArrayImageViewer.UI
             }
 
             LoadContextPreview(null, null);
+        }
+
+        private void ScheduleCoordinateUpdate()
+        {
+            if (isApplyingProfile)
+            {
+                return;
+            }
+
+            coordinateUpdateTimer.Stop();
+            coordinateUpdateTimer.Start();
+        }
+
+        private void CoordinateUpdateTimerTick(object sender, EventArgs e)
+        {
+            coordinateUpdateTimer.Stop();
+            try
+            {
+                var configuration = ReadConfiguration();
+                var selection = ResolveCurrentSelection(configuration);
+                UpdateSelection(selection.X, selection.Y, false);
+                SaveCurrentProfile();
+            }
+            catch (Exception exception)
+            {
+                SetInputError("Cannot resolve selected coordinate: " + exception.Message);
+            }
+        }
+
+        private void SetStrideFromWidth()
+        {
+            isSynchronizingStride = true;
+            strideFollowsWidth = true;
+            stride.Text = width.Text;
+            isSynchronizingStride = false;
         }
 
         private void ProfileOptionChanged(object sender, RoutedEventArgs e)
@@ -507,7 +586,9 @@ namespace ArrayImageViewer.UI
             profiles.Add(sourceExpression.Trim(), ViewerProfile.Create(sourceExpression.Trim(), width.Text, height.Text, stride.Text, qFormat.Text,
                 signed.IsChecked == true, (SourceElementType)sourceElementType.SelectedItem, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
                 (VisualizeChannel)visualizeChannel.SelectedItem, GetSelectedNormalizationMode(), normalizationMinimum.Text, normalizationMaximum.Text,
-                selectedX.Text, selectedY.Text, renderWidth.Text, renderHeight.Text, roiWidth.Text, roiHeight.Text));
+                selectedX.Text, selectedY.Text, renderWidth.Text, renderHeight.Text, roiWidth.Text, roiHeight.Text,
+                kernelCenterX, kernelCenterY, viewCenterX, viewCenterY));
+            PersistProfile(sourceExpression.Trim(), profiles[sourceExpression.Trim()]);
         }
 
         private void SaveCurrentProfile()
@@ -526,7 +607,9 @@ namespace ArrayImageViewer.UI
             profiles[sourceExpression] = ViewerProfile.Create(sourceExpression, width.Text, height.Text, stride.Text, qFormat.Text,
                 signed.IsChecked == true, (SourceElementType)sourceElementType.SelectedItem, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
                 (VisualizeChannel)visualizeChannel.SelectedItem, GetSelectedNormalizationMode(), normalizationMinimum.Text, normalizationMaximum.Text,
-                selectedX.Text, selectedY.Text, renderWidth.Text, renderHeight.Text, roiWidth.Text, roiHeight.Text);
+                selectedX.Text, selectedY.Text, renderWidth.Text, renderHeight.Text, roiWidth.Text, roiHeight.Text,
+                kernelCenterX, kernelCenterY, viewCenterX, viewCenterY);
+            PersistProfile(sourceExpression, profiles[sourceExpression]);
         }
 
         private void RebuildProfilePicker(string selectedExpression)
@@ -574,9 +657,163 @@ namespace ArrayImageViewer.UI
             renderHeight.Text = profile.RenderHeight;
             roiWidth.Text = profile.RoiWidth;
             roiHeight.Text = profile.RoiHeight;
+            kernelCenterX = profile.KernelCenterX;
+            kernelCenterY = profile.KernelCenterY;
+            viewCenterX = profile.ViewCenterX;
+            viewCenterY = profile.ViewCenterY;
+            strideFollowsWidth = String.Equals(stride.Text, width.Text, StringComparison.Ordinal);
+            lastWidthText = width.Text;
             isApplyingProfile = false;
             activeProfileExpression = profile.Expression;
             RebuildProfilePicker(profile.Expression);
+        }
+
+        // Profiles are kept below LocalAppData rather than in the solution
+        // directory, so opening the same solution restores its interpretation
+        // without creating untracked project files. The key includes the
+        // absolute solution path, expression, and decoded element type; an A
+        // pointer in another solution (or with a different underlying type)
+        // therefore cannot silently inherit this profile.
+        private static string PersistedProfilesPath
+        {
+            get
+            {
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ArrayImageViewer", "profiles-v1.txt");
+            }
+        }
+
+        private string GetPersistedProfileKey(string sourceExpression, SourceElementType elementType)
+        {
+            return DebugExpressionFrameReader.GetActiveSolutionIdentity() + "\n" + sourceExpression.Trim() + "\n" + elementType.ToString();
+        }
+
+        private void PersistProfile(string sourceExpression, ViewerProfile profile)
+        {
+            try
+            {
+                var key = GetPersistedProfileKey(sourceExpression, profile.SourceElementType);
+                var records = new Dictionary<string, string>(StringComparer.Ordinal);
+                if (File.Exists(PersistedProfilesPath))
+                {
+                    var lines = File.ReadAllLines(PersistedProfilesPath);
+                    for (var index = 0; index < lines.Length; index++)
+                    {
+                        var split = lines[index].IndexOf('\t');
+                        if (split > 0)
+                        {
+                            records[DecodeStoredValue(lines[index].Substring(0, split))] = lines[index].Substring(split + 1);
+                        }
+                    }
+                }
+
+                records[key] = SerializeProfile(profile);
+                Directory.CreateDirectory(Path.GetDirectoryName(PersistedProfilesPath));
+                var output = new List<string>();
+                foreach (var pair in records)
+                {
+                    output.Add(EncodeStoredValue(pair.Key) + "\t" + pair.Value);
+                }
+                File.WriteAllLines(PersistedProfilesPath, output.ToArray());
+            }
+            catch (Exception)
+            {
+                // Persistence is a convenience only; a readonly or damaged
+                // user profile must never stop debugger inspection.
+            }
+        }
+
+        private bool TryLoadPersistedProfile(string sourceExpression, SourceElementType elementType, out ViewerProfile profile)
+        {
+            profile = null;
+            try
+            {
+                if (!File.Exists(PersistedProfilesPath))
+                {
+                    return false;
+                }
+
+                var key = GetPersistedProfileKey(sourceExpression, elementType);
+                var lines = File.ReadAllLines(PersistedProfilesPath);
+                for (var index = 0; index < lines.Length; index++)
+                {
+                    var split = lines[index].IndexOf('\t');
+                    if (split > 0 && String.Equals(DecodeStoredValue(lines[index].Substring(0, split)), key, StringComparison.Ordinal))
+                    {
+                        profile = DeserializeProfile(lines[index].Substring(split + 1));
+                        return profile != null;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                profile = null;
+            }
+
+            return false;
+        }
+
+        private static string SerializeProfile(ViewerProfile profile)
+        {
+            var values = new[]
+            {
+                profile.Expression, profile.Width, profile.Height, profile.Stride, profile.QFormat,
+                profile.IsSigned ? "1" : "0", profile.SourceElementType.ToString(), profile.PixelOrder.ToString(), profile.PixelType.ToString(), profile.VisualizeChannel.ToString(),
+                profile.NormalizationMode.ToString(), profile.NormalizationMinimum, profile.NormalizationMaximum, profile.SelectedX, profile.SelectedY,
+                profile.RenderWidth, profile.RenderHeight, profile.RoiWidth, profile.RoiHeight,
+                profile.KernelCenterX.ToString(CultureInfo.InvariantCulture), profile.KernelCenterY.ToString(CultureInfo.InvariantCulture),
+                profile.ViewCenterX.ToString(CultureInfo.InvariantCulture), profile.ViewCenterY.ToString(CultureInfo.InvariantCulture)
+            };
+            for (var index = 0; index < values.Length; index++)
+            {
+                values[index] = EncodeStoredValue(values[index]);
+            }
+            return String.Join("|", values);
+        }
+
+        private static ViewerProfile DeserializeProfile(string value)
+        {
+            var fields = value.Split('|');
+            if (fields.Length != 23)
+            {
+                return null;
+            }
+
+            for (var index = 0; index < fields.Length; index++)
+            {
+                fields[index] = DecodeStoredValue(fields[index]);
+            }
+
+            SourceElementType elementType;
+            PixelOrder order;
+            PixelType type;
+            VisualizeChannel channel;
+            NormalizationMode mode;
+            int kernelX;
+            int kernelY;
+            int viewX;
+            int viewY;
+            if (!Enum.TryParse(fields[6], out elementType) || !Enum.TryParse(fields[7], out order) || !Enum.TryParse(fields[8], out type) ||
+                !Enum.TryParse(fields[9], out channel) || !Enum.TryParse(fields[10], out mode) ||
+                !Int32.TryParse(fields[19], NumberStyles.Integer, CultureInfo.InvariantCulture, out kernelX) ||
+                !Int32.TryParse(fields[20], NumberStyles.Integer, CultureInfo.InvariantCulture, out kernelY) ||
+                !Int32.TryParse(fields[21], NumberStyles.Integer, CultureInfo.InvariantCulture, out viewX) ||
+                !Int32.TryParse(fields[22], NumberStyles.Integer, CultureInfo.InvariantCulture, out viewY))
+            {
+                return null;
+            }
+
+            return ViewerProfile.Create(fields[0], fields[1], fields[2], fields[3], fields[4], fields[5] == "1", elementType, order, type, channel, mode,
+                fields[11], fields[12], fields[13], fields[14], fields[15], fields[16], fields[17], fields[18], kernelX, kernelY, viewX, viewY);
+        }
+
+        private static string EncodeStoredValue(string value)
+        {
+            return Convert.ToBase64String(Encoding.UTF8.GetBytes(value ?? String.Empty));
+        }
+
+        private static string DecodeStoredValue(string value)
+        {
+            return Encoding.UTF8.GetString(Convert.FromBase64String(value));
         }
     }
 }

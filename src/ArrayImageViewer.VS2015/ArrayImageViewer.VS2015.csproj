@@ -48,6 +48,7 @@
     <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Navigation.cs"><Link>UI\SensorImageViewerControl.Navigation.cs</Link></Compile>
     <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Interaction.cs"><Link>UI\SensorImageViewerControl.Interaction.cs</Link></Compile>
     <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Viewport.cs"><Link>UI\SensorImageViewerControl.Viewport.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Export.cs"><Link>UI\SensorImageViewerControl.Export.cs</Link></Compile>
     <Compile Include="..\ArrayImageViewer\Properties\AssemblyInfo.cs"><Link>Properties\AssemblyInfo.cs</Link></Compile>
   </ItemGroup>
   <ItemGroup>

@@ -22,8 +22,17 @@ namespace ArrayImageViewer.UI
             currentX = x;
             currentY = y;
             UpdateSelectedCellRectangle();
-            selectedX.Text = x.ToString(CultureInfo.InvariantCulture);
-            selectedY.Text = y.ToString(CultureInfo.InvariantCulture);
+            // Keep local expressions such as centerX/centerY intact. A click
+            // changes the in-view cursor, not the user's coordinate source.
+            int literal;
+            if (Int32.TryParse(selectedX.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out literal))
+            {
+                selectedX.Text = x.ToString(CultureInfo.InvariantCulture);
+            }
+            if (Int32.TryParse(selectedY.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out literal))
+            {
+                selectedY.Text = y.ToString(CultureInfo.InvariantCulture);
+            }
             UpdateNavigator();
             if (frame != null && IsLoadedCoordinate(x, y))
             {
@@ -178,23 +187,24 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            var localX = 0;
-            var localY = 0;
-            var widthInSamples = frame.Configuration.Width;
-            var heightInSamples = frame.Configuration.Height;
-            if (showsFullFrameContext || (frame.Configuration.OriginX == 0 && frame.Configuration.OriginY == 0 &&
-                frame.Configuration.Width == fullFrameWidth && frame.Configuration.Height == fullFrameHeight))
+            var requestedWidth = Math.Max(1, ParseNavigatorValue(roiWidth.Text, 1));
+            var requestedHeight = Math.Max(1, ParseNavigatorValue(roiHeight.Text, 1));
+            var selectedRoi = RoiGeometry.ClampCentered(fullFrameWidth, fullFrameHeight,
+                kernelCenterX >= 0 ? kernelCenterX : currentX, kernelCenterY >= 0 ? kernelCenterY : currentY,
+                requestedWidth, requestedHeight);
+            var widthInSamples = selectedRoi.Width;
+            var heightInSamples = selectedRoi.Height;
+            var localX = (showsFullFrameContext ? selectedRoi.X : selectedRoi.X - frame.Configuration.OriginX);
+            var localY = (showsFullFrameContext ? selectedRoi.Y : selectedRoi.Y - frame.Configuration.OriginY);
+
+            // The kernel can deliberately sit outside the loaded view. In that
+            // case keep it visible in the frame overview but do not draw a
+            // misleading clipped rectangle over unrelated pixels.
+            if (!showsFullFrameContext && (localX + widthInSamples <= 0 || localY + heightInSamples <= 0 ||
+                localX >= frame.Configuration.Width || localY >= frame.Configuration.Height))
             {
-                var requestedWidth = Math.Max(1, ParseNavigatorValue(roiWidth.Text, 1));
-                var requestedHeight = Math.Max(1, ParseNavigatorValue(roiHeight.Text, 1));
-                var selectedRoi = RoiGeometry.ClampCentered(fullFrameWidth, fullFrameHeight,
-                    ParseNavigatorValue(selectedX.Text, Math.Max(0, Math.Min(fullFrameWidth - 1, currentX))),
-                    ParseNavigatorValue(selectedY.Text, Math.Max(0, Math.Min(fullFrameHeight - 1, currentY))),
-                    requestedWidth, requestedHeight);
-                widthInSamples = selectedRoi.Width;
-                heightInSamples = selectedRoi.Height;
-                localX = showsFullFrameContext ? selectedRoi.X : selectedRoi.X - frame.Configuration.OriginX;
-                localY = showsFullFrameContext ? selectedRoi.Y : selectedRoi.Y - frame.Configuration.OriginY;
+                roiRectangle.Visibility = Visibility.Collapsed;
+                return;
             }
 
             roiRectangle.Width = Math.Max(1, widthInSamples * zoom - 2);
@@ -230,6 +240,19 @@ namespace ArrayImageViewer.UI
 
             var canvasX = showsFullFrameContext ? currentX : currentX - frame.Configuration.OriginX;
             var canvasY = showsFullFrameContext ? currentY : currentY - frame.Configuration.OriginY;
+            scrollViewer.ScrollToHorizontalOffset(Math.Max(0, (canvasX + 0.5) * zoom - scrollViewer.ViewportWidth / 2));
+            scrollViewer.ScrollToVerticalOffset(Math.Max(0, (canvasY + 0.5) * zoom - scrollViewer.ViewportHeight / 2));
+        }
+
+        private void CenterOnView()
+        {
+            if (frame == null || !IsLoadedCoordinate(viewCenterX, viewCenterY))
+            {
+                return;
+            }
+
+            var canvasX = showsFullFrameContext ? viewCenterX : viewCenterX - frame.Configuration.OriginX;
+            var canvasY = showsFullFrameContext ? viewCenterY : viewCenterY - frame.Configuration.OriginY;
             scrollViewer.ScrollToHorizontalOffset(Math.Max(0, (canvasX + 0.5) * zoom - scrollViewer.ViewportWidth / 2));
             scrollViewer.ScrollToVerticalOffset(Math.Max(0, (canvasY + 0.5) * zoom - scrollViewer.ViewportHeight / 2));
         }

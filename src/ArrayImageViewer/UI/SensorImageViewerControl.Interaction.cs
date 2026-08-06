@@ -46,7 +46,15 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            BeginFixedMouseRoiSelect(e.GetPosition(canvas));
+            int selectedXValue;
+            int selectedYValue;
+            if (TryGetGlobalImageCoordinate(e.GetPosition(canvas), out selectedXValue, out selectedYValue))
+            {
+                // A normal click is deliberately non-destructive: it moves the
+                // inspection cursor but leaves the cached view and kernel ROI
+                // where they are. This also avoids a debugger-memory read.
+                UpdateSelection(selectedXValue, selectedYValue, false);
+            }
             e.Handled = true;
         }
 
@@ -79,6 +87,27 @@ namespace ArrayImageViewer.UI
             {
                 canvas.Focus();
                 BeginRoiPan(e.GetPosition(canvas));
+                e.Handled = true;
+            }
+        }
+
+        private void CanvasMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (frame == null)
+            {
+                return;
+            }
+
+            canvas.Focus();
+            BeginMouseRoiSelect(e.GetPosition(canvas));
+            e.Handled = true;
+        }
+
+        private void CanvasMouseRightButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (isMouseRoiSelecting)
+            {
+                FinishMouseRoiSelect(e.GetPosition(canvas));
                 e.Handled = true;
             }
         }
@@ -271,7 +300,7 @@ namespace ArrayImageViewer.UI
             Canvas.SetTop(mouseRoiRectangle, localY * zoom + 1);
             mouseRoiRectangle.Visibility = Visibility.Visible;
             SetStatus(String.Format(CultureInfo.InvariantCulture,
-                "{0}  x={1}..{2}, y={3}..{4}  ({5} x {6}). Release to read; Esc cancels.",
+                "{0}  x={1}..{2}, y={3}..{4}  ({5} x {6}). Release to set Kernel; Esc cancels.",
                 prefix, roi.X, roi.X + roi.Width - 1, roi.Y, roi.Y + roi.Height - 1, roi.Width, roi.Height));
         }
 
@@ -284,15 +313,16 @@ namespace ArrayImageViewer.UI
 
         private void CommitMouseRoi(RoiRectangle roi)
         {
-            selectedX.Text = roi.CenterX.ToString(CultureInfo.InvariantCulture);
-            selectedY.Text = roi.CenterY.ToString(CultureInfo.InvariantCulture);
+            kernelCenterX = roi.CenterX;
+            kernelCenterY = roi.CenterY;
             roiWidth.Text = roi.Width.ToString(CultureInfo.InvariantCulture);
             roiHeight.Text = roi.Height.ToString(CultureInfo.InvariantCulture);
             EnsureViewContainsKernel(roi.Width, roi.Height);
-            currentX = roi.CenterX;
-            currentY = roi.CenterY;
             UpdateNavigator();
-            LoadContextPreview(null, null);
+            UpdateRoiRectangle();
+            SaveCurrentProfile();
+            SetStatus("Kernel set to " + roi.Width.ToString(CultureInfo.InvariantCulture) + "x" + roi.Height.ToString(CultureInfo.InvariantCulture) +
+                " at (" + roi.CenterX.ToString(CultureInfo.InvariantCulture) + ", " + roi.CenterY.ToString(CultureInfo.InvariantCulture) + "). The visible view was not reread.");
         }
 
         private void EnsureViewContainsKernel(int kernelWidth, int kernelHeight)
@@ -375,21 +405,12 @@ namespace ArrayImageViewer.UI
             try
             {
                 var configuration = ReadConfiguration();
-                var roi = GetRoiBounds(configuration);
-                currentX = roi.CenterX;
-                currentY = roi.CenterY;
-                if (frame != null && IsLoadedCoordinate(currentX, currentY))
-                {
-                    UpdateSelection(currentX, currentY, true);
-                }
-                else
-                {
-                    SetStatus("ROI " + roi.Width + "x" + roi.Height + " is centered at (" + currentX + ", " + currentY + "). Select ROI + context to read it with surroundings.");
-                }
+                var selection = ResolveCurrentSelection(configuration);
+                MoveViewTo(selection.X, selection.Y, true);
             }
             catch (Exception exception)
             {
-                SetInputError("Cannot resolve ROI: " + exception.Message);
+                SetInputError("Cannot center view: " + exception.Message);
             }
         }
 

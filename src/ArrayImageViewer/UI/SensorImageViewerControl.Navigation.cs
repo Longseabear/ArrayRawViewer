@@ -29,7 +29,7 @@ namespace ArrayImageViewer.UI
             navigatorStartY = y;
             navigatorDragStartPoint = e.GetPosition(navigatorCanvas);
             navigatorCanvas.CaptureMouse();
-            SetStatus("Click to move the current ROI, or drag to set a new ROI size.");
+            SetStatus("Drag or click to move the visible View ROI. Kernel size and cursor remain unchanged.");
             e.Handled = true;
         }
 
@@ -45,7 +45,7 @@ namespace ArrayImageViewer.UI
             var point = e.GetPosition(navigatorCanvas);
             if (HasNavigatorDragDistance(point) && TryGetNavigatorCoordinate(point, out x, out y))
             {
-                PreviewNavigatorRoi(x, y);
+                PreviewNavigatorView(x, y);
             }
         }
 
@@ -59,24 +59,25 @@ namespace ArrayImageViewer.UI
             int x;
             int y;
             var point = e.GetPosition(navigatorCanvas);
-            if (TryGetNavigatorCoordinate(point, out x, out y))
+            var hasCoordinate = TryGetNavigatorCoordinate(point, out x, out y);
+            if (hasCoordinate)
             {
                 if (HasNavigatorDragDistance(point))
                 {
-                    PreviewNavigatorRoi(x, y);
+                    PreviewNavigatorView(x, y);
                 }
                 else
                 {
-                    selectedX.Text = x.ToString(CultureInfo.InvariantCulture);
-                    selectedY.Text = y.ToString(CultureInfo.InvariantCulture);
-                    UpdateNavigator();
-                    SetStatus("ROI moved to (" + x + ", " + y + "). Reading its current size.");
+                    MoveViewTo(x, y, false);
                 }
             }
 
             isNavigatorSelecting = false;
             navigatorCanvas.ReleaseMouseCapture();
-            LoadContextPreview(null, null);
+            if (hasCoordinate && HasNavigatorDragDistance(point))
+            {
+                MoveViewTo(x, y, false);
+            }
             e.Handled = true;
         }
 
@@ -138,19 +139,28 @@ namespace ArrayImageViewer.UI
             return true;
         }
 
-        private void PreviewNavigatorRoi(int endX, int endY)
+        private void PreviewNavigatorView(int endX, int endY)
         {
-            var roi = RoiGeometry.FromDrag(fullFrameWidth, fullFrameHeight, navigatorStartX, navigatorStartY, endX, endY);
-            var left = roi.X;
-            var top = roi.Y;
-            var right = roi.X + roi.Width - 1;
-            var bottom = roi.Y + roi.Height - 1;
-            selectedX.Text = roi.CenterX.ToString(CultureInfo.InvariantCulture);
-            selectedY.Text = roi.CenterY.ToString(CultureInfo.InvariantCulture);
-            roiWidth.Text = roi.Width.ToString(CultureInfo.InvariantCulture);
-            roiHeight.Text = roi.Height.ToString(CultureInfo.InvariantCulture);
+            viewCenterX = endX;
+            viewCenterY = endY;
             UpdateNavigator();
-            SetStatus("ROI preview: x=" + left + ".." + right + ", y=" + top + ".." + bottom + ". Release to read it.");
+            SetStatus("View preview centered at (" + endX.ToString(CultureInfo.InvariantCulture) + ", " + endY.ToString(CultureInfo.InvariantCulture) +
+                "). Release to load this visible area once.");
+        }
+
+        private void MoveViewTo(int x, int y, bool centerCursor)
+        {
+            viewCenterX = x;
+            viewCenterY = y;
+            if (centerCursor)
+            {
+                currentX = x;
+                currentY = y;
+            }
+
+            UpdateNavigator();
+            SaveCurrentProfile();
+            LoadContextPreview(null, null);
         }
 
         private void UpdateNavigator()
@@ -161,6 +171,7 @@ namespace ArrayImageViewer.UI
             {
                 navigatorFrame.Visibility = Visibility.Collapsed;
                 navigatorRoi.Visibility = Visibility.Collapsed;
+                navigatorKernel.Visibility = Visibility.Collapsed;
                 navigatorHorizontal.Visibility = Visibility.Collapsed;
                 navigatorVertical.Visibility = Visibility.Collapsed;
                 navigatorInfo.Text = "Enter W/H (or load a profile) to enable the frame navigator.";
@@ -176,6 +187,7 @@ namespace ArrayImageViewer.UI
             navigatorFrameBounds = new Rect((navigatorCanvas.Width - displayWidth) / 2, (navigatorCanvas.Height - displayHeight) / 2, displayWidth, displayHeight);
             navigatorFrame.Visibility = Visibility.Visible;
             navigatorRoi.Visibility = Visibility.Visible;
+            navigatorKernel.Visibility = Visibility.Visible;
             navigatorHorizontal.Visibility = Visibility.Visible;
             navigatorVertical.Visibility = Visibility.Visible;
             navigatorFrame.Width = displayWidth;
@@ -183,21 +195,26 @@ namespace ArrayImageViewer.UI
             Canvas.SetLeft(navigatorFrame, navigatorFrameBounds.X);
             Canvas.SetTop(navigatorFrame, navigatorFrameBounds.Y);
 
-            var centerX = ParseNavigatorValue(selectedX.Text, Math.Max(0, Math.Min(frameWidth - 1, currentX)));
-            var centerY = ParseNavigatorValue(selectedY.Text, Math.Max(0, Math.Min(frameHeight - 1, currentY)));
-            var requestedWidth = Math.Max(1, ParseNavigatorValue(roiWidth.Text, 1));
-            var requestedHeight = Math.Max(1, ParseNavigatorValue(roiHeight.Text, 1));
-            var actualWidth = Math.Min(frameWidth, requestedWidth);
-            var actualHeight = Math.Min(frameHeight, requestedHeight);
-            var roiX = Math.Max(0, Math.Min(frameWidth - actualWidth, centerX - actualWidth / 2));
-            var roiY = Math.Max(0, Math.Min(frameHeight - actualHeight, centerY - actualHeight / 2));
-            navigatorRoi.Width = Math.Max(2, actualWidth * scale);
-            navigatorRoi.Height = Math.Max(2, actualHeight * scale);
-            Canvas.SetLeft(navigatorRoi, navigatorFrameBounds.X + roiX * scale);
-            Canvas.SetTop(navigatorRoi, navigatorFrameBounds.Y + roiY * scale);
+            var viewWidth = Math.Max(1, ParseNavigatorValue(renderWidth.Text, 1));
+            var viewHeight = Math.Max(1, ParseNavigatorValue(renderHeight.Text, 1));
+            var view = RoiGeometry.ClampCentered(frameWidth, frameHeight,
+                viewCenterX >= 0 ? viewCenterX : currentX, viewCenterY >= 0 ? viewCenterY : currentY, viewWidth, viewHeight);
+            navigatorRoi.Width = Math.Max(2, view.Width * scale);
+            navigatorRoi.Height = Math.Max(2, view.Height * scale);
+            Canvas.SetLeft(navigatorRoi, navigatorFrameBounds.X + view.X * scale);
+            Canvas.SetTop(navigatorRoi, navigatorFrameBounds.Y + view.Y * scale);
 
-            var markerX = navigatorFrameBounds.X + (roiX + actualWidth / 2.0) * scale;
-            var markerY = navigatorFrameBounds.Y + (roiY + actualHeight / 2.0) * scale;
+            var kernelWidth = Math.Max(1, ParseNavigatorValue(roiWidth.Text, 1));
+            var kernelHeight = Math.Max(1, ParseNavigatorValue(roiHeight.Text, 1));
+            var kernel = RoiGeometry.ClampCentered(frameWidth, frameHeight,
+                kernelCenterX >= 0 ? kernelCenterX : currentX, kernelCenterY >= 0 ? kernelCenterY : currentY, kernelWidth, kernelHeight);
+            navigatorKernel.Width = Math.Max(2, kernel.Width * scale);
+            navigatorKernel.Height = Math.Max(2, kernel.Height * scale);
+            Canvas.SetLeft(navigatorKernel, navigatorFrameBounds.X + kernel.X * scale);
+            Canvas.SetTop(navigatorKernel, navigatorFrameBounds.Y + kernel.Y * scale);
+
+            var markerX = navigatorFrameBounds.X + (Math.Max(0, Math.Min(frameWidth - 1, currentX)) + 0.5) * scale;
+            var markerY = navigatorFrameBounds.Y + (Math.Max(0, Math.Min(frameHeight - 1, currentY)) + 0.5) * scale;
             navigatorHorizontal.X1 = navigatorFrameBounds.X;
             navigatorHorizontal.X2 = navigatorFrameBounds.Right;
             navigatorHorizontal.Y1 = markerY;
@@ -207,8 +224,9 @@ namespace ArrayImageViewer.UI
             navigatorVertical.Y1 = navigatorFrameBounds.Y;
             navigatorVertical.Y2 = navigatorFrameBounds.Bottom;
             navigatorInfo.Text = String.Format(CultureInfo.InvariantCulture,
-                "Frame  {0} x {1}\nKernel  x={2}..{3}, y={4}..{5}  ({6} x {7})",
-                frameWidth, frameHeight, roiX, roiX + actualWidth - 1, roiY, roiY + actualHeight - 1, actualWidth, actualHeight);
+                "Frame  {0} x {1}\nView  x={2}..{3}, y={4}..{5}  ({6} x {7})\nKernel  x={8}..{9}, y={10}..{11}  ({12} x {13})",
+                frameWidth, frameHeight, view.X, view.X + view.Width - 1, view.Y, view.Y + view.Height - 1, view.Width, view.Height,
+                kernel.X, kernel.X + kernel.Width - 1, kernel.Y, kernel.Y + kernel.Height - 1, kernel.Width, kernel.Height);
             if (frame != null)
             {
                 UpdateRoiRectangle();
@@ -232,6 +250,16 @@ namespace ArrayImageViewer.UI
             emptyState.Visibility = Visibility.Collapsed;
             currentX = selectedGlobalX;
             currentY = selectedGlobalY;
+            if (viewCenterX < 0 || viewCenterY < 0)
+            {
+                viewCenterX = selectedGlobalX;
+                viewCenterY = selectedGlobalY;
+            }
+            if (kernelCenterX < 0 || kernelCenterY < 0)
+            {
+                kernelCenterX = selectedGlobalX;
+                kernelCenterY = selectedGlobalY;
+            }
             UpdateNavigator();
             ApplyZoom(zoom);
             UpdateSelection(currentX, currentY, false);

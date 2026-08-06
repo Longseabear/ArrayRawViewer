@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -71,6 +72,7 @@ namespace ArrayImageViewer.UI
         private readonly Canvas navigatorCanvas = new Canvas { Width = 230, Height = 156, Background = ControlBrush, ClipToBounds = true, Cursor = Cursors.Cross };
         private readonly Rectangle navigatorFrame = new Rectangle { Fill = new SolidColorBrush(Color.FromRgb(19, 31, 47)), Stroke = PanelBorderBrush, StrokeThickness = 1, IsHitTestVisible = false };
         private readonly Rectangle navigatorRoi = new Rectangle { Fill = new SolidColorBrush(Color.FromArgb(70, 67, 214, 177)), Stroke = AccentBrush, StrokeThickness = 2, IsHitTestVisible = false };
+        private readonly Rectangle navigatorKernel = new Rectangle { Fill = Brushes.Transparent, Stroke = Brushes.OrangeRed, StrokeThickness = 2, IsHitTestVisible = false };
         private readonly Line navigatorHorizontal = new Line { Stroke = new SolidColorBrush(Color.FromArgb(130, 255, 126, 69)), StrokeThickness = 1, IsHitTestVisible = false };
         private readonly Line navigatorVertical = new Line { Stroke = new SolidColorBrush(Color.FromArgb(130, 255, 126, 69)), StrokeThickness = 1, IsHitTestVisible = false };
         private readonly TextBlock navigatorInfo = new TextBlock { Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, FontSize = 11, LineHeight = 17 };
@@ -80,6 +82,10 @@ namespace ArrayImageViewer.UI
         private double zoom = 0.15;
         private int currentX;
         private int currentY;
+        private int kernelCenterX = -1;
+        private int kernelCenterY = -1;
+        private int viewCenterX = -1;
+        private int viewCenterY = -1;
         private int fullFrameWidth;
         private int fullFrameHeight;
         private bool isRoiPanning;
@@ -106,9 +112,13 @@ namespace ArrayImageViewer.UI
         private int renderGeneration;
         private readonly DispatcherTimer memoryReadTimer;
         private readonly DispatcherTimer autoRefreshTimer;
+        private readonly DispatcherTimer coordinateUpdateTimer;
         private PendingMemoryRead pendingMemoryRead;
         private TextBox invalidInput;
         private bool showsFullFrameContext;
+        private bool strideFollowsWidth = true;
+        private string lastWidthText = "4096";
+        private bool isSynchronizingStride;
 
         public SensorImageViewerControl()
         {
@@ -148,6 +158,9 @@ namespace ArrayImageViewer.UI
             autoRefreshTimer = new DispatcherTimer(DispatcherPriority.Background);
             autoRefreshTimer.Interval = TimeSpan.FromMilliseconds(450);
             autoRefreshTimer.Tick += AutoRefreshTimerTick;
+            coordinateUpdateTimer = new DispatcherTimer(DispatcherPriority.Background);
+            coordinateUpdateTimer.Interval = TimeSpan.FromMilliseconds(220);
+            coordinateUpdateTimer.Tick += CoordinateUpdateTimerTick;
             ConfigureAutoUpdate();
             Unloaded += ViewerUnloaded;
             Focusable = true;
@@ -162,6 +175,8 @@ namespace ArrayImageViewer.UI
             canvas.MouseMove += CanvasMouseMove;
             canvas.MouseLeftButtonDown += CanvasMouseLeftButtonDown;
             canvas.MouseLeftButtonUp += CanvasMouseLeftButtonUp;
+            canvas.MouseRightButtonDown += CanvasMouseRightButtonDown;
+            canvas.MouseRightButtonUp += CanvasMouseRightButtonUp;
             canvas.MouseDown += CanvasMouseDown;
             canvas.MouseUp += CanvasMouseUp;
             canvas.PreviewMouseWheel += CanvasMouseWheel;
@@ -173,6 +188,7 @@ namespace ArrayImageViewer.UI
             navigatorCanvas.Children.Add(navigatorHorizontal);
             navigatorCanvas.Children.Add(navigatorVertical);
             navigatorCanvas.Children.Add(navigatorRoi);
+            navigatorCanvas.Children.Add(navigatorKernel);
             navigatorCanvas.MouseLeftButtonDown += NavigatorMouseLeftButtonDown;
             navigatorCanvas.MouseMove += NavigatorMouseMove;
             navigatorCanvas.MouseLeftButtonUp += NavigatorMouseLeftButtonUp;
@@ -246,6 +262,7 @@ namespace ArrayImageViewer.UI
             sourceRow.Children.Add(CreateAction("SHOW", CreateButton("ROI + context", LoadContextPreview, true)));
             sourceRow.Children.Add(CreateAction("PIXELS", CreateButton("Exact ROI", LoadExpression, false)));
             sourceRow.Children.Add(CreateAction("", CreateButton("Full preview", LoadFullPreview, false)));
+            sourceRow.Children.Add(CreateAction("", CreateButton("Save full RAW", SaveFullRaw, false)));
             sourceRow.Children.Add(CreateAction("", CreateButton("Cancel read", CancelRead, false)));
             sourceRow.Children.Add(CreateField("UPDATE", autoUpdate));
             var profileRow = CreateRow();
@@ -312,11 +329,12 @@ namespace ArrayImageViewer.UI
             inspectRow.Children.Add(CreateField("KERNEL H", roiHeight));
             inspectRow.Children.Add(CreateAction("", CreateButton("Center view", JumpToCoordinate, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Read exact cells", InspectCells, true)));
+            inspectRow.Children.Add(CreateAction("", CreateButton("Copy kernel", CopyKernelToClipboard, false)));
             inspectRow.Children.Add(CreateAction("VIEW", CreateButton("Left", PanLeft, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Right", PanRight, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Up", PanUp, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Down", PanDown, false)));
-            inspectRow.Children.Add(new TextBlock { Text = "Orange = kernel ROI. View W/H = loaded surroundings. Click/drag changes kernel; middle/Shift-drag moves only the view.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+            inspectRow.Children.Add(new TextBlock { Text = "A click moves only the selected cursor. Center view loads the selected point. Frame overview moves View; right-drag on the image sets Kernel. Middle/Shift-drag pans cached pixels only.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
             panel.Children.Add(CreateSection("VIEW + KERNEL", "Separate visible data from the ROI rectangle used by your kernel", inspectRow));
             panel.Children.Add(CreateNavigatorSection());
             return panel;
@@ -581,11 +599,16 @@ namespace ArrayImageViewer.UI
             public string RenderHeight { get; private set; }
             public string RoiWidth { get; private set; }
             public string RoiHeight { get; private set; }
+            public int KernelCenterX { get; private set; }
+            public int KernelCenterY { get; private set; }
+            public int ViewCenterX { get; private set; }
+            public int ViewCenterY { get; private set; }
 
             public static ViewerProfile Create(string expressionValue, string widthValue, string heightValue, string strideValue, string qFormatValue,
                 bool signedValue, SourceElementType sourceElementTypeValue, PixelOrder pixelOrderValue, PixelType pixelTypeValue, VisualizeChannel visualizeChannelValue,
                 NormalizationMode normalizationModeValue, string normalizationMinimumValue, string normalizationMaximumValue,
-                string selectedXValue, string selectedYValue, string renderWidthValue, string renderHeightValue, string roiWidthValue, string roiHeightValue)
+                string selectedXValue, string selectedYValue, string renderWidthValue, string renderHeightValue, string roiWidthValue, string roiHeightValue,
+                int kernelCenterXValue, int kernelCenterYValue, int viewCenterXValue, int viewCenterYValue)
             {
                 return new ViewerProfile
                 {
@@ -607,7 +630,11 @@ namespace ArrayImageViewer.UI
                     RenderWidth = renderWidthValue,
                     RenderHeight = renderHeightValue,
                     RoiWidth = roiWidthValue,
-                    RoiHeight = roiHeightValue
+                    RoiHeight = roiHeightValue,
+                    KernelCenterX = kernelCenterXValue,
+                    KernelCenterY = kernelCenterYValue,
+                    ViewCenterX = viewCenterXValue,
+                    ViewCenterY = viewCenterYValue
                 };
             }
 
@@ -620,7 +647,8 @@ namespace ArrayImageViewer.UI
         private sealed class PendingMemoryRead
         {
             public PendingMemoryRead(DebugMemoryFrameReader.RoiReadSession session, int sourceWidth, int sourceHeight,
-                int selectedGlobalX, int selectedGlobalY, bool isFullPreview, bool showFullFrameContext, string sourceExpression)
+                int selectedGlobalX, int selectedGlobalY, bool isFullPreview, bool showFullFrameContext, string sourceExpression,
+                string rawExportPath, int rawExportBits)
             {
                 Session = session;
                 SourceWidth = sourceWidth;
@@ -630,6 +658,8 @@ namespace ArrayImageViewer.UI
                 IsFullPreview = isFullPreview;
                 ShowFullFrameContext = showFullFrameContext;
                 SourceExpression = sourceExpression;
+                RawExportPath = rawExportPath;
+                RawExportBits = rawExportBits;
             }
 
             public DebugMemoryFrameReader.RoiReadSession Session { get; private set; }
@@ -640,6 +670,8 @@ namespace ArrayImageViewer.UI
             public bool IsFullPreview { get; private set; }
             public bool ShowFullFrameContext { get; private set; }
             public string SourceExpression { get; private set; }
+            public string RawExportPath { get; private set; }
+            public int RawExportBits { get; private set; }
         }
 
         private struct RoiBounds

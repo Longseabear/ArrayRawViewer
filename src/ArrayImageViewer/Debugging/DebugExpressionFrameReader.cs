@@ -157,6 +157,27 @@ namespace ArrayImageViewer.Debugging
             return result;
         }
 
+        internal static string GetActiveSolutionIdentity()
+        {
+            try
+            {
+                var dte = Package.GetGlobalService(typeof(SDTE));
+                var solution = GetOptionalMember(dte, "Solution");
+                var fullName = GetOptionalMember(solution, "FullName") as string;
+                if (!String.IsNullOrWhiteSpace(fullName))
+                {
+                    return fullName;
+                }
+            }
+            catch (Exception)
+            {
+                // A solution is optional for a miscellaneous-files debug
+                // session; use a deterministic fallback in that case.
+            }
+
+            return "<no-solution>";
+        }
+
         public static IList<ScalarExpression> GetCurrentFrameScalars()
         {
             var result = new List<ScalarExpression>();

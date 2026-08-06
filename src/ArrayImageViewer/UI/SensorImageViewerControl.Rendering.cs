@@ -20,18 +20,19 @@ namespace ArrayImageViewer.UI
                 BeginNewReadRequest();
                 var configuration = ReadConfiguration();
                 var roi = GetRoiBounds(configuration);
+                var selection = ResolveCurrentSelection(configuration);
                 var sampleCount = checked((long)roi.Width * roi.Height);
                 DebugMemoryFrameReader.RoiReadSession memoryRead;
                 if (sampleCount > 32768 && DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration,
                     roi.X, roi.Y, roi.Width, roi.Height, out memoryRead))
                 {
-                    BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, roi.CenterX, roi.CenterY, false, false, expression.Text.Trim());
+                    BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, selection.X, selection.Y, false, false, expression.Text.Trim());
                     return;
                 }
 
                 SetStatus("Reading exact ROI " + roi.Width + "x" + roi.Height + " from the debugger.");
                 var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, roi.X, roi.Y, roi.Width, roi.Height);
-                ApplyLoadedFrame(source, configuration.Width, configuration.Height, roi.CenterX, roi.CenterY, false, false, expression.Text.Trim());
+                ApplyLoadedFrame(source, configuration.Width, configuration.Height, selection.X, selection.Y, false, false, expression.Text.Trim());
             }
             catch (Exception exception)
             {
@@ -48,17 +49,18 @@ namespace ArrayImageViewer.UI
                 var configuration = ReadConfiguration();
                 var requestedRoi = GetRoiBounds(configuration);
                 var context = GetRenderBounds(configuration, requestedRoi);
+                var selection = ResolveCurrentSelection(configuration);
                 DebugMemoryFrameReader.RoiReadSession memoryRead;
                 if (DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration,
                     context.X, context.Y, context.Width, context.Height, out memoryRead))
                 {
-                    BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, requestedRoi.CenterX, requestedRoi.CenterY, false, true, expression.Text.Trim());
+                    BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, selection.X, selection.Y, false, true, expression.Text.Trim());
                     return;
                 }
 
                 SetStatus("Reading " + context.Width + "x" + context.Height + " context around the ROI from the debugger.");
                 var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, context.X, context.Y, context.Width, context.Height);
-                ApplyLoadedFrame(source, configuration.Width, configuration.Height, requestedRoi.CenterX, requestedRoi.CenterY, false, true, expression.Text.Trim());
+                ApplyLoadedFrame(source, configuration.Width, configuration.Height, selection.X, selection.Y, false, true, expression.Text.Trim());
             }
             catch (Exception exception)
             {
@@ -94,8 +96,9 @@ namespace ArrayImageViewer.UI
                     throw new InvalidOperationException("Full preview requires the native debugger-memory reader. Use ROI + context on this debug engine.");
                 }
 
-                var centerX = Math.Max(0, Math.Min(configuration.Width - 1, ResolveInteger(selectedX, "ROI center X")));
-                var centerY = Math.Max(0, Math.Min(configuration.Height - 1, ResolveInteger(selectedY, "ROI center Y")));
+                var selection = ResolveCurrentSelection(configuration);
+                var centerX = selection.X;
+                var centerY = selection.Y;
                 BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, centerX, centerY, true, false, expression.Text.Trim());
             }
             catch (Exception exception)
@@ -105,9 +108,11 @@ namespace ArrayImageViewer.UI
         }
 
         private void BeginMemoryRead(DebugMemoryFrameReader.RoiReadSession memoryRead, int sourceWidth, int sourceHeight,
-            int selectedGlobalX, int selectedGlobalY, bool isFullPreview, bool showFullFrameContext, string sourceExpression)
+            int selectedGlobalX, int selectedGlobalY, bool isFullPreview, bool showFullFrameContext, string sourceExpression,
+            string rawExportPath = null, int rawExportBits = 0)
         {
-            pendingMemoryRead = new PendingMemoryRead(memoryRead, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, showFullFrameContext, sourceExpression);
+            pendingMemoryRead = new PendingMemoryRead(memoryRead, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, showFullFrameContext, sourceExpression,
+                rawExportPath, rawExportBits);
             SetStatus("Reading " + memoryRead.TotalRows.ToString(CultureInfo.InvariantCulture) + " debugger-memory rows in responsive batches (0%).");
             memoryReadTimer.Start();
         }
@@ -143,7 +148,14 @@ namespace ArrayImageViewer.UI
             memoryReadTimer.Stop();
             pendingMemoryRead = null;
             DebugExpressionFrameReader.MarkMemoryReadComplete();
-            ApplyLoadedFrame(pending.Session.CreateFrame(), pending.SourceWidth, pending.SourceHeight,
+            var completedFrame = pending.Session.CreateFrame();
+            if (!String.IsNullOrWhiteSpace(pending.RawExportPath))
+            {
+                WriteRawFrameAsync(completedFrame, pending.RawExportPath, pending.RawExportBits);
+                return;
+            }
+
+            ApplyLoadedFrame(completedFrame, pending.SourceWidth, pending.SourceHeight,
                 pending.SelectedGlobalX, pending.SelectedGlobalY, pending.IsFullPreview, pending.ShowFullFrameContext, pending.SourceExpression);
         }
 
@@ -178,6 +190,7 @@ namespace ArrayImageViewer.UI
         private void ViewerUnloaded(object sender, RoutedEventArgs e)
         {
             autoRefreshTimer.Stop();
+            coordinateUpdateTimer.Stop();
             BeginNewReadRequest();
         }
 
@@ -245,7 +258,7 @@ namespace ArrayImageViewer.UI
                 (showFullFrameContext ? (preserveContextZoom ? zoom : GetContextPreviewZoom(source.Configuration.Width, source.Configuration.Height)) : Math.Max(18.0, zoom)));
             if (showFullFrameContext)
             {
-                Dispatcher.BeginInvoke(new Action(CenterOnSelection));
+                Dispatcher.BeginInvoke(new Action(CenterOnView));
             }
             EnsureProfile(sourceExpression);
             activeProfileExpression = sourceExpression;
@@ -417,10 +430,17 @@ namespace ArrayImageViewer.UI
             return DebugExpressionFrameReader.EvaluateInt32(field.Text.Trim());
         }
 
+        private RoiBounds ResolveCurrentSelection(FrameConfiguration configuration)
+        {
+            var x = Math.Max(0, Math.Min(configuration.Width - 1, ResolveInteger(selectedX, "selected X")));
+            var y = Math.Max(0, Math.Min(configuration.Height - 1, ResolveInteger(selectedY, "selected Y")));
+            currentX = x;
+            currentY = y;
+            return new RoiBounds(x, y, 1, 1, x, y);
+        }
+
         private RoiBounds GetRoiBounds(FrameConfiguration configuration)
         {
-            var requestedX = ResolveInteger(selectedX, "ROI center X");
-            var requestedY = ResolveInteger(selectedY, "ROI center Y");
             var requestedWidth = ResolveInteger(roiWidth, "ROI width");
             var requestedHeight = ResolveInteger(roiHeight, "ROI height");
             if (requestedWidth <= 0 || requestedHeight <= 0)
@@ -428,9 +448,15 @@ namespace ArrayImageViewer.UI
                 throw new ArgumentException("ROI W and H must be positive.");
             }
 
-            var roi = RoiGeometry.ClampCentered(configuration.Width, configuration.Height, requestedX, requestedY, requestedWidth, requestedHeight);
-            currentX = roi.CenterX;
-            currentY = roi.CenterY;
+            if (kernelCenterX < 0 || kernelCenterY < 0)
+            {
+                kernelCenterX = ResolveInteger(selectedX, "selected X");
+                kernelCenterY = ResolveInteger(selectedY, "selected Y");
+            }
+
+            var roi = RoiGeometry.ClampCentered(configuration.Width, configuration.Height, kernelCenterX, kernelCenterY, requestedWidth, requestedHeight);
+            kernelCenterX = roi.CenterX;
+            kernelCenterY = roi.CenterY;
             UpdateNavigator();
             return new RoiBounds(roi.X, roi.Y, roi.Width, roi.Height, roi.CenterX, roi.CenterY);
         }
@@ -455,7 +481,15 @@ namespace ArrayImageViewer.UI
                 throw new ArgumentException("View W x H is limited to 262,144 samples. Use Full preview for the entire frame.");
             }
 
-            var view = RoiGeometry.ClampCentered(configuration.Width, configuration.Height, kernel.CenterX, kernel.CenterY, requestedWidth, requestedHeight);
+            if (viewCenterX < 0 || viewCenterY < 0)
+            {
+                viewCenterX = currentX >= 0 ? currentX : kernel.CenterX;
+                viewCenterY = currentY >= 0 ? currentY : kernel.CenterY;
+            }
+
+            var view = RoiGeometry.ClampCentered(configuration.Width, configuration.Height, viewCenterX, viewCenterY, requestedWidth, requestedHeight);
+            viewCenterX = view.CenterX;
+            viewCenterY = view.CenterY;
             return new RoiBounds(view.X, view.Y, view.Width, view.Height, view.CenterX, view.CenterY);
         }
     }

@@ -67,6 +67,7 @@
     <Compile Include="UI\SensorImageViewerControl.Navigation.cs" />
     <Compile Include="UI\SensorImageViewerControl.Interaction.cs" />
     <Compile Include="UI\SensorImageViewerControl.Viewport.cs" />
+    <Compile Include="UI\SensorImageViewerControl.Export.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
