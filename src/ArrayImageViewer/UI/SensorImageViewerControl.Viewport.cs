@@ -233,13 +233,18 @@ namespace ArrayImageViewer.UI
 
         private void CenterOnSelection()
         {
-            if (!IsLoadedCoordinate(currentX, currentY))
+            CenterOnCoordinate(currentX, currentY);
+        }
+
+        private void CenterOnCoordinate(int x, int y)
+        {
+            if (!IsLoadedCoordinate(x, y))
             {
                 return;
             }
 
-            var canvasX = showsFullFrameContext ? currentX : currentX - frame.Configuration.OriginX;
-            var canvasY = showsFullFrameContext ? currentY : currentY - frame.Configuration.OriginY;
+            var canvasX = showsFullFrameContext ? x : x - frame.Configuration.OriginX;
+            var canvasY = showsFullFrameContext ? y : y - frame.Configuration.OriginY;
             scrollViewer.ScrollToHorizontalOffset(Math.Max(0, (canvasX + 0.5) * zoom - scrollViewer.ViewportWidth / 2));
             scrollViewer.ScrollToVerticalOffset(Math.Max(0, (canvasY + 0.5) * zoom - scrollViewer.ViewportHeight / 2));
         }

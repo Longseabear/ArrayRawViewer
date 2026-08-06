@@ -39,7 +39,17 @@ namespace ArrayImageViewer.UI
                 if (TryGetGlobalImageCoordinate(e.GetPosition(canvas), out doubleClickX, out doubleClickY))
                 {
                     UpdateSelection(doubleClickX, doubleClickY, false);
-                    MoveViewTo(doubleClickX, doubleClickY, true);
+                    // The pixel is already in the decoded frame. Re-reading
+                    // debugger memory here made double-click feel delayed and
+                    // could race an auto-update. Center the existing canvas
+                    // exactly on the clicked sample instead.
+                    viewCenterX = doubleClickX;
+                    viewCenterY = doubleClickY;
+                    UpdateNavigator();
+                    CenterOnCoordinate(doubleClickX, doubleClickY);
+                    SaveCurrentProfile();
+                    SetStatus("Centered the current view on pixel (" + doubleClickX.ToString(CultureInfo.InvariantCulture) + ", " +
+                        doubleClickY.ToString(CultureInfo.InvariantCulture) + "). No debugger memory was read.");
                 }
                 e.Handled = true;
                 return;
