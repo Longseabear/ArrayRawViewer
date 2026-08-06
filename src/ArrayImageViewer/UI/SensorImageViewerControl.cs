@@ -342,7 +342,7 @@ namespace ArrayImageViewer.UI
             detail.Children.Add(navigatorInfo);
             Grid.SetColumn(detail, 1);
             content.Children.Add(detail);
-            return CreateSection("FRAME OVERVIEW", "Optional full-frame position map; image selection is the primary workflow", content);
+            return CreateSection("FRAME OVERVIEW", "Optional full-frame kernel-position map; image selection is the primary workflow", content);
         }
 
         private UIElement CreateFooter()
@@ -1730,7 +1730,7 @@ namespace ArrayImageViewer.UI
             navigatorVertical.Y1 = navigatorFrameBounds.Y;
             navigatorVertical.Y2 = navigatorFrameBounds.Bottom;
             navigatorInfo.Text = String.Format(CultureInfo.InvariantCulture,
-                "Frame  {0} x {1}\nROI  x={2}..{3}, y={4}..{5}  ({6} x {7})",
+                "Frame  {0} x {1}\nKernel  x={2}..{3}, y={4}..{5}  ({6} x {7})",
                 frameWidth, frameHeight, roiX, roiX + actualWidth - 1, roiY, roiY + actualHeight - 1, actualWidth, actualHeight);
             if (frame != null)
             {
@@ -2478,7 +2478,8 @@ namespace ArrayImageViewer.UI
         {
             TextBox target = null;
             var lower = message == null ? String.Empty : message.ToLowerInvariant();
-            if (lower.Contains("view")) target = lower.Contains("height") || lower.Contains("h/") ? renderHeight : renderWidth;
+            if (lower.Contains("view height")) target = renderHeight;
+            else if (lower.Contains("view width") || lower.Contains("view")) target = renderWidth;
             else if (lower.Contains("roi center x") || lower.Contains(" x")) target = selectedX;
             else if (lower.Contains("roi center y") || lower.Contains(" y")) target = selectedY;
             else if (lower.Contains("roi w") || lower.Contains("kernel")) target = lower.Contains("height") ? roiHeight : roiWidth;
