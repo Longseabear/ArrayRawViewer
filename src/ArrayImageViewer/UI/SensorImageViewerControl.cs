@@ -337,7 +337,7 @@ namespace ArrayImageViewer.UI
             inspectRow.Children.Add(CreateField("KERNEL H", roiHeight));
             inspectRow.Children.Add(CreateAction("", CreateButton("Center view", JumpToCoordinate, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Read exact cells", InspectCells, true)));
-            inspectRow.Children.Add(CreateAction("", CreateButton("Copy kernel", CopyKernelToClipboard, false)));
+            inspectRow.Children.Add(CreateAction("", CreateButton("Copy kernel (Ctrl+C)", CopyKernelToClipboard, false)));
             inspectRow.Children.Add(CreateAction("VIEW", CreateButton("Left", PanLeft, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Right", PanRight, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Up", PanUp, false)));

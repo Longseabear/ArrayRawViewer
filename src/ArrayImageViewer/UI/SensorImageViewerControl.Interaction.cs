@@ -501,6 +501,13 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && e.Key == Key.C)
+            {
+                CopyKernelToClipboard(null, null);
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.Escape && (isFixedMouseRoiSelecting || isMouseRoiSelecting))
             {
                 isFixedMouseRoiSelecting = false;
