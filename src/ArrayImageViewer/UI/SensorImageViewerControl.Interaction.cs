@@ -389,7 +389,7 @@ namespace ArrayImageViewer.UI
             }
             catch (Exception exception)
             {
-                SetStatus("Cannot resolve ROI: " + exception.Message);
+                SetInputError("Cannot resolve ROI: " + exception.Message);
             }
         }
 

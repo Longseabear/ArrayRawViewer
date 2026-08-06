@@ -28,7 +28,7 @@ namespace ArrayImageViewer.UI
                 AutoFillScalar(values, yValueSource, selectedY, "centery", "roi_y", "y");
                 SetStatus(values.Count == 0
                     ? "No integer locals found. Pause in the function that owns width, height, X, and Y."
-                    : "Loaded " + values.Count.ToString(CultureInfo.InvariantCulture) + " numeric locals and filled matching W/H/stride/X/Y names.");
+                    : "Loaded " + values.Count.ToString(CultureInfo.InvariantCulture) + " numeric locals. Matching W/H/stride/X/Y fields now retain the variable expressions.");
             }
             catch (Exception exception)
             {
@@ -69,16 +69,11 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            try
-            {
-                target.Text = DebugExpressionFrameReader.EvaluateInt32(scalar.Name).ToString(CultureInfo.InvariantCulture);
-                SetStatus("Copied " + scalar.Name + " into " + targetName + ".");
-                ScheduleAutoRefresh();
-            }
-            catch (Exception exception)
-            {
-                SetStatus("Cannot read " + scalar.Name + ": " + exception.Message);
-            }
+            // Keep the expression rather than a one-time integer snapshot.
+            // ResolveInteger evaluates it afresh on each viewer update.
+            target.Text = scalar.Name;
+            SetStatus("Using current-stack variable " + scalar.Name + " for " + targetName + ".");
+            ScheduleAutoRefresh();
         }
 
         private static void AutoFillScalar(IList<DebugExpressionFrameReader.ScalarExpression> values, ComboBox source, TextBox target, params string[] preferredNames)
@@ -90,14 +85,7 @@ namespace ArrayImageViewer.UI
                     if (String.Equals(values[valueIndex].Name, preferredNames[preferredIndex], StringComparison.OrdinalIgnoreCase))
                     {
                         source.SelectedItem = values[valueIndex];
-                        try
-                        {
-                            target.Text = DebugExpressionFrameReader.EvaluateInt32(values[valueIndex].Name).ToString(CultureInfo.InvariantCulture);
-                        }
-                        catch (Exception)
-                        {
-                            // Keep the current value if this local became unavailable while the stack was refreshing.
-                        }
+                        target.Text = values[valueIndex].Name;
                         return;
                     }
                 }

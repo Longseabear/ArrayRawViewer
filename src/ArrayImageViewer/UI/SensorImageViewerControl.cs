@@ -246,6 +246,7 @@ namespace ArrayImageViewer.UI
             sourceRow.Children.Add(CreateAction("SHOW", CreateButton("ROI + context", LoadContextPreview, true)));
             sourceRow.Children.Add(CreateAction("PIXELS", CreateButton("Exact ROI", LoadExpression, false)));
             sourceRow.Children.Add(CreateAction("", CreateButton("Full preview", LoadFullPreview, false)));
+            sourceRow.Children.Add(CreateAction("", CreateButton("Cancel read", CancelRead, false)));
             sourceRow.Children.Add(CreateField("UPDATE", autoUpdate));
             var profileRow = CreateRow();
             profileRow.Margin = new Thickness(0, 8, 0, 0);

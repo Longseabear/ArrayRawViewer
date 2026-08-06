@@ -239,13 +239,15 @@ namespace ArrayImageViewer.UI
             var localX = x - frame.Configuration.OriginX;
             var localY = y - frame.Configuration.OriginY;
             var raw = frame.GetRaw(localX, localY);
-            var site = frame.Configuration.GetBayerSite(localX, localY);
+            var channel = frame.Configuration.VisualizeChannel == VisualizeChannel.Gray
+                ? "Gray"
+                : frame.Configuration.GetBayerSite(localX, localY).ToString();
             return String.Format(CultureInfo.InvariantCulture,
-                "Pixel ({0}, {1})   RAW {2}   Q {3} ({4}, display raw {5}..{6})   Bayer {7}   Read {8}",
+                "Pixel ({0}, {1})   RAW {2}   Q {3} ({4}, display raw {5}..{6})   Channel {7}   Read {8}",
                 x, y, raw, QFormat.Format(raw, frame.Configuration.FractionalBits),
                 QFormat.FormatSpecification(frame.Configuration.IntegerBits, frame.Configuration.FractionalBits),
                 QFormat.Format(activeNormalization.Minimum, frame.Configuration.FractionalBits),
-                QFormat.Format(activeNormalization.Maximum, frame.Configuration.FractionalBits), site, lastReadPath);
+                QFormat.Format(activeNormalization.Maximum, frame.Configuration.FractionalBits), channel, lastReadPath);
         }
 
         private void SetStatus(string text)
@@ -267,7 +269,8 @@ namespace ArrayImageViewer.UI
             else if (lower.Contains("height")) target = height;
             else if (lower.Contains("width")) target = width;
             else if (lower.Contains("q format")) target = qFormat;
-            else if (lower.Contains("normalization") || lower.Contains("raw range")) target = normalizationMinimum;
+            else if (lower.Contains("raw maximum")) target = normalizationMaximum;
+            else if (lower.Contains("raw minimum") || lower.Contains("normalization") || lower.Contains("raw range")) target = normalizationMinimum;
             else if (lower.Contains("pointer") || lower.Contains("expression")) target = expression;
 
             if (target != null)

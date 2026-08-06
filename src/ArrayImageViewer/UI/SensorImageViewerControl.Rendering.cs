@@ -17,6 +17,7 @@ namespace ArrayImageViewer.UI
             try
             {
                 ClearAllInputErrors();
+                BeginNewReadRequest();
                 var configuration = ReadConfiguration();
                 var roi = GetRoiBounds(configuration);
                 var sampleCount = checked((long)roi.Width * roi.Height);
@@ -43,7 +44,7 @@ namespace ArrayImageViewer.UI
             try
             {
                 ClearAllInputErrors();
-                CancelPendingMemoryRead();
+                BeginNewReadRequest();
                 var configuration = ReadConfiguration();
                 var requestedRoi = GetRoiBounds(configuration);
                 var context = GetRenderBounds(configuration, requestedRoi);
@@ -69,7 +70,7 @@ namespace ArrayImageViewer.UI
         {
             try
             {
-                CancelPendingMemoryRead();
+                BeginNewReadRequest();
                 var configuration = ReadConfiguration();
                 var fullPreviewSamples = checked((long)configuration.Width * configuration.Height);
                 if (fullPreviewSamples > NormalFullPreviewSampleLimit)
@@ -87,7 +88,6 @@ namespace ArrayImageViewer.UI
                     }
                 }
 
-                CancelPendingMemoryRead();
                 DebugMemoryFrameReader.RoiReadSession memoryRead;
                 if (!DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration, 0, 0, configuration.Width, configuration.Height, out memoryRead))
                 {
@@ -156,9 +156,29 @@ namespace ArrayImageViewer.UI
             }
         }
 
-        private void ViewerUnloaded(object sender, RoutedEventArgs e)
+        // A memory read and a background bitmap conversion are both cancellable
+        // only at their next UI handoff. Incrementing the generation makes an
+        // older renderer harmless if it finishes after a newer request starts.
+        private void BeginNewReadRequest()
         {
             CancelPendingMemoryRead();
+            renderGeneration++;
+        }
+
+        private void CancelRead(object sender, RoutedEventArgs e)
+        {
+            var hadPendingRead = pendingMemoryRead != null || autoRefreshTimer.IsEnabled;
+            autoRefreshTimer.Stop();
+            BeginNewReadRequest();
+            SetStatus(hadPendingRead
+                ? "Canceled the pending debugger read. The current rendered frame remains available."
+                : "No debugger read is pending.");
+        }
+
+        private void ViewerUnloaded(object sender, RoutedEventArgs e)
+        {
+            autoRefreshTimer.Stop();
+            BeginNewReadRequest();
         }
 
         private void ApplyLoadedFrame(FrameBuffer source, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY,
@@ -292,7 +312,7 @@ namespace ArrayImageViewer.UI
             }
             catch (Exception exception)
             {
-                SetStatus("Cannot apply display range: " + exception.Message);
+                SetInputError("Cannot apply display range: " + exception.Message);
             }
         }
 
@@ -440,4 +460,3 @@ namespace ArrayImageViewer.UI
         }
     }
 }
-
