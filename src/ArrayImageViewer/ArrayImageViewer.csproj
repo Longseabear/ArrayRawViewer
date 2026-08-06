@@ -62,6 +62,11 @@
     <Compile Include="Debugging\DebugExpressionFrameReader.cs" />
     <Compile Include="Debugging\DebugMemoryFrameReader.cs" />
     <Compile Include="UI\SensorImageViewerControl.cs" />
+    <Compile Include="UI\SensorImageViewerControl.Profiles.cs" />
+    <Compile Include="UI\SensorImageViewerControl.Rendering.cs" />
+    <Compile Include="UI\SensorImageViewerControl.Navigation.cs" />
+    <Compile Include="UI\SensorImageViewerControl.Interaction.cs" />
+    <Compile Include="UI\SensorImageViewerControl.Viewport.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

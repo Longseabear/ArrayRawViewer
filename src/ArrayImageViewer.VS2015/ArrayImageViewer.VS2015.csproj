@@ -43,6 +43,11 @@
     <Compile Include="..\ArrayImageViewer\Debugging\DebugExpressionFrameReader.cs"><Link>Debugging\DebugExpressionFrameReader.cs</Link></Compile>
     <Compile Include="..\ArrayImageViewer\Debugging\DebugMemoryFrameReader.cs"><Link>Debugging\DebugMemoryFrameReader.cs</Link></Compile>
     <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.cs"><Link>UI\SensorImageViewerControl.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Profiles.cs"><Link>UI\SensorImageViewerControl.Profiles.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Rendering.cs"><Link>UI\SensorImageViewerControl.Rendering.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Navigation.cs"><Link>UI\SensorImageViewerControl.Navigation.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Interaction.cs"><Link>UI\SensorImageViewerControl.Interaction.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Viewport.cs"><Link>UI\SensorImageViewerControl.Viewport.cs</Link></Compile>
     <Compile Include="..\ArrayImageViewer\Properties\AssemblyInfo.cs"><Link>Properties\AssemblyInfo.cs</Link></Compile>
   </ItemGroup>
   <ItemGroup>
