@@ -71,6 +71,7 @@ namespace ArrayImageViewer.UI
         private readonly Rectangle selectedCellRectangle = new Rectangle { Stroke = new SolidColorBrush(Color.FromRgb(255, 211, 82)), StrokeThickness = 2, Fill = Brushes.Transparent, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
         private readonly Canvas navigatorCanvas = new Canvas { Width = 230, Height = 156, Background = ControlBrush, ClipToBounds = true, Cursor = Cursors.Cross };
         private readonly Rectangle navigatorFrame = new Rectangle { Fill = new SolidColorBrush(Color.FromRgb(19, 31, 47)), Stroke = PanelBorderBrush, StrokeThickness = 1, IsHitTestVisible = false };
+        private readonly System.Windows.Controls.Image navigatorPreview = new System.Windows.Controls.Image { Stretch = Stretch.Fill, SnapsToDevicePixels = true, IsHitTestVisible = false };
         private readonly Rectangle navigatorRoi = new Rectangle { Fill = new SolidColorBrush(Color.FromArgb(70, 67, 214, 177)), Stroke = AccentBrush, StrokeThickness = 2, IsHitTestVisible = false };
         private readonly Rectangle navigatorKernel = new Rectangle { Fill = Brushes.Transparent, Stroke = Brushes.OrangeRed, StrokeThickness = 2, IsHitTestVisible = false };
         private readonly Line navigatorHorizontal = new Line { Stroke = new SolidColorBrush(Color.FromArgb(130, 255, 126, 69)), StrokeThickness = 1, IsHitTestVisible = false };
@@ -108,6 +109,8 @@ namespace ArrayImageViewer.UI
         private Point navigatorDragStartPoint;
         private Rect navigatorFrameBounds;
         private string lastReadPath = "expression fallback";
+        private FrameConfiguration navigatorSourceConfiguration;
+        private string navigatorPreviewKey;
         private NormalizationRange activeNormalization = new NormalizationRange(0, 8191);
         private int renderGeneration;
         private readonly DispatcherTimer memoryReadTimer;
@@ -193,6 +196,7 @@ namespace ArrayImageViewer.UI
             scrollViewer.Content = canvas;
 
             navigatorCanvas.Children.Add(navigatorFrame);
+            navigatorCanvas.Children.Add(navigatorPreview);
             navigatorCanvas.Children.Add(navigatorHorizontal);
             navigatorCanvas.Children.Add(navigatorVertical);
             navigatorCanvas.Children.Add(navigatorRoi);
@@ -656,9 +660,9 @@ namespace ArrayImageViewer.UI
 
         private sealed class PendingMemoryRead
         {
-            public PendingMemoryRead(DebugMemoryFrameReader.RoiReadSession session, int sourceWidth, int sourceHeight,
+            public PendingMemoryRead(DebugMemoryFrameReader.IFrameReadSession session, int sourceWidth, int sourceHeight,
                 int selectedGlobalX, int selectedGlobalY, bool isFullPreview, bool showFullFrameContext, string sourceExpression,
-                string rawExportPath, int rawExportBits)
+                string rawExportPath, int rawExportBits, bool isNavigatorPreview)
             {
                 Session = session;
                 SourceWidth = sourceWidth;
@@ -670,9 +674,10 @@ namespace ArrayImageViewer.UI
                 SourceExpression = sourceExpression;
                 RawExportPath = rawExportPath;
                 RawExportBits = rawExportBits;
+                IsNavigatorPreview = isNavigatorPreview;
             }
 
-            public DebugMemoryFrameReader.RoiReadSession Session { get; private set; }
+            public DebugMemoryFrameReader.IFrameReadSession Session { get; private set; }
             public int SourceWidth { get; private set; }
             public int SourceHeight { get; private set; }
             public int SelectedGlobalX { get; private set; }
@@ -682,6 +687,7 @@ namespace ArrayImageViewer.UI
             public string SourceExpression { get; private set; }
             public string RawExportPath { get; private set; }
             public int RawExportBits { get; private set; }
+            public bool IsNavigatorPreview { get; private set; }
         }
 
         private struct RoiBounds

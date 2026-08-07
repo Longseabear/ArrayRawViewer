@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using ArrayImageViewer.Core;
+using ArrayImageViewer.Debugging;
 
 namespace ArrayImageViewer.UI
 {
@@ -200,6 +201,10 @@ namespace ArrayImageViewer.UI
             navigatorFrame.Height = displayHeight;
             Canvas.SetLeft(navigatorFrame, navigatorFrameBounds.X);
             Canvas.SetTop(navigatorFrame, navigatorFrameBounds.Y);
+            navigatorPreview.Width = displayWidth;
+            navigatorPreview.Height = displayHeight;
+            Canvas.SetLeft(navigatorPreview, navigatorFrameBounds.X);
+            Canvas.SetTop(navigatorPreview, navigatorFrameBounds.Y);
 
             var viewWidth = Math.Max(1, ParseNavigatorValue(renderWidth.Text, 1));
             var viewHeight = Math.Max(1, ParseNavigatorValue(renderHeight.Text, 1));
@@ -239,6 +244,50 @@ namespace ArrayImageViewer.UI
             }
         }
 
+        private void EnsureNavigatorPreview()
+        {
+            if (navigatorSourceConfiguration == null || pendingMemoryRead != null || String.IsNullOrWhiteSpace(expression.Text))
+            {
+                return;
+            }
+
+            var key = expression.Text.Trim() + "|" + navigatorSourceConfiguration.Width.ToString(CultureInfo.InvariantCulture) + "|" +
+                navigatorSourceConfiguration.Height.ToString(CultureInfo.InvariantCulture) + "|" + navigatorSourceConfiguration.Stride.ToString(CultureInfo.InvariantCulture) + "|" +
+                navigatorSourceConfiguration.SourceElementType.ToString() + "|" + navigatorSourceConfiguration.TotalBits.ToString(CultureInfo.InvariantCulture);
+            if (String.Equals(navigatorPreviewKey, key, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            DebugMemoryFrameReader.IFrameReadSession session;
+            if (!DebugExpressionFrameReader.TryStartMemoryOverviewRead(expression.Text, navigatorSourceConfiguration,
+                (int)navigatorCanvas.Width, (int)navigatorCanvas.Height, out session))
+            {
+                navigatorPreviewKey = key;
+                SetStatus("Frame-map image preview is unavailable on this debug engine; map navigation remains available.");
+                return;
+            }
+
+            navigatorPreviewKey = key;
+            BeginNavigatorMemoryRead(session, navigatorSourceConfiguration.Width, navigatorSourceConfiguration.Height, expression.Text.Trim());
+        }
+
+        private void ApplyNavigatorPreview(FrameBuffer overview)
+        {
+            if (overview == null)
+            {
+                return;
+            }
+
+            var range = activeNormalization;
+            if (range.Maximum <= range.Minimum)
+            {
+                range = new NormalizationRange(overview.Configuration.RawMinimum, overview.Configuration.RawMaximum);
+            }
+            navigatorPreview.Source = FrameRenderer.Render(overview, range);
+            UpdateNavigator();
+        }
+
         private static int ParseNavigatorValue(string value, int fallback)
         {
             int parsed;
@@ -269,6 +318,7 @@ namespace ArrayImageViewer.UI
             UpdateNavigator();
             ApplyZoom(zoom);
             UpdateSelection(currentX, currentY, false);
+            EnsureNavigatorPreview();
         }
     }
 }

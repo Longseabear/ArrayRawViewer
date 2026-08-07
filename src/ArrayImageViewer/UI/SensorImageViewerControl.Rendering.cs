@@ -19,6 +19,7 @@ namespace ArrayImageViewer.UI
                 ClearAllInputErrors();
                 BeginNewReadRequest();
                 var configuration = ReadConfiguration();
+                navigatorSourceConfiguration = configuration;
                 var roi = GetRoiBounds(configuration);
                 var selection = ResolveCurrentSelection(configuration);
                 var sampleCount = checked((long)roi.Width * roi.Height);
@@ -47,6 +48,7 @@ namespace ArrayImageViewer.UI
                 ClearAllInputErrors();
                 BeginNewReadRequest();
                 var configuration = ReadConfiguration();
+                navigatorSourceConfiguration = configuration;
                 var requestedRoi = GetRoiBounds(configuration);
                 var context = GetRenderBounds(configuration, requestedRoi);
                 var selection = ResolveCurrentSelection(configuration);
@@ -74,6 +76,7 @@ namespace ArrayImageViewer.UI
             {
                 BeginNewReadRequest();
                 var configuration = ReadConfiguration();
+                navigatorSourceConfiguration = configuration;
                 var fullPreviewSamples = checked((long)configuration.Width * configuration.Height);
                 if (fullPreviewSamples > NormalFullPreviewSampleLimit)
                 {
@@ -107,14 +110,21 @@ namespace ArrayImageViewer.UI
             }
         }
 
-        private void BeginMemoryRead(DebugMemoryFrameReader.RoiReadSession memoryRead, int sourceWidth, int sourceHeight,
+        private void BeginMemoryRead(DebugMemoryFrameReader.IFrameReadSession memoryRead, int sourceWidth, int sourceHeight,
             int selectedGlobalX, int selectedGlobalY, bool isFullPreview, bool showFullFrameContext, string sourceExpression,
-            string rawExportPath = null, int rawExportBits = 0)
+            string rawExportPath = null, int rawExportBits = 0, bool isNavigatorPreview = false)
         {
             pendingMemoryRead = new PendingMemoryRead(memoryRead, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, isFullPreview, showFullFrameContext, sourceExpression,
-                rawExportPath, rawExportBits);
-            SetStatus("Reading " + memoryRead.TotalRows.ToString(CultureInfo.InvariantCulture) + " debugger-memory rows in responsive batches (0%).");
+                rawExportPath, rawExportBits, isNavigatorPreview);
+            SetStatus(isNavigatorPreview
+                ? "Reading a downsampled Gray frame-map preview (0%)."
+                : "Reading " + memoryRead.TotalRows.ToString(CultureInfo.InvariantCulture) + " debugger-memory rows in responsive batches (0%).");
             memoryReadTimer.Start();
+        }
+
+        private void BeginNavigatorMemoryRead(DebugMemoryFrameReader.IFrameReadSession memoryRead, int sourceWidth, int sourceHeight, string sourceExpression)
+        {
+            BeginMemoryRead(memoryRead, sourceWidth, sourceHeight, currentX, currentY, false, false, sourceExpression, null, 0, true);
         }
 
         private void MemoryReadTimerTick(object sender, EventArgs e)
@@ -128,20 +138,24 @@ namespace ArrayImageViewer.UI
 
             // Limit a single UI turn to roughly 512 KiB of debuggee memory.
             // This keeps mouse/paint operations responsive for a 4096-wide frame.
-            var rowsPerBatch = Math.Max(1, Math.Min(64, 131072 / Math.Max(1, pending.Session.Width * 4)));
+            var rowsPerBatch = Math.Max(1, Math.Min(64, 131072 / Math.Max(1, pending.Session.BytesPerRow)));
             if (!pending.Session.TryReadRows(rowsPerBatch))
             {
                 memoryReadTimer.Stop();
                 pendingMemoryRead = null;
-                SetStatus("Cannot read debugger memory: " + (pending.Session.ErrorMessage ?? "unknown native debugger read error"));
+                SetStatus(pending.IsNavigatorPreview
+                    ? "Frame-map image preview is unavailable: " + (pending.Session.ErrorMessage ?? "unknown debugger read error")
+                    : "Cannot read debugger memory: " + (pending.Session.ErrorMessage ?? "unknown native debugger read error"));
                 return;
             }
 
             if (!pending.Session.IsComplete)
             {
                 var percent = pending.Session.RowsRead * 100 / Math.Max(1, pending.Session.TotalRows);
-                SetStatus("Reading " + pending.Session.RowsRead.ToString(CultureInfo.InvariantCulture) + "/" + pending.Session.TotalRows.ToString(CultureInfo.InvariantCulture) +
-                    " debugger-memory rows in responsive batches (" + percent.ToString(CultureInfo.InvariantCulture) + "%).");
+                SetStatus(pending.IsNavigatorPreview
+                    ? "Reading downsampled Gray frame-map preview (" + percent.ToString(CultureInfo.InvariantCulture) + "%)."
+                    : "Reading " + pending.Session.RowsRead.ToString(CultureInfo.InvariantCulture) + "/" + pending.Session.TotalRows.ToString(CultureInfo.InvariantCulture) +
+                        " debugger-memory rows in responsive batches (" + percent.ToString(CultureInfo.InvariantCulture) + "%).");
                 return;
             }
 
@@ -149,6 +163,12 @@ namespace ArrayImageViewer.UI
             pendingMemoryRead = null;
             DebugExpressionFrameReader.MarkMemoryReadComplete();
             var completedFrame = pending.Session.CreateFrame();
+            if (pending.IsNavigatorPreview)
+            {
+                ApplyNavigatorPreview(completedFrame);
+                SetStatus("Updated downsampled Gray frame-map preview. View and Kernel overlays remain full-frame accurate.");
+                return;
+            }
             if (!String.IsNullOrWhiteSpace(pending.RawExportPath))
             {
                 WriteRawFrameAsync(completedFrame, pending.RawExportPath, pending.RawExportBits);
