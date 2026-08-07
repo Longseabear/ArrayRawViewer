@@ -63,35 +63,71 @@ namespace ArrayImageViewer.UI
             {
                 ClearAllInputErrors();
                 var configuration = ReadConfiguration();
-                var outputBits = configuration.TotalBits <= 16 ? 16 : 32;
-                var dialog = new SaveFileDialog
-                {
-                    Title = "Save full sensor RAW",
-                    Filter = outputBits == 16 ? "16-bit RAW (*.raw)|*.raw|All files (*.*)|*.*" : "32-bit RAW (*.raw)|*.raw|All files (*.*)|*.*",
-                    DefaultExt = ".raw",
-                    FileName = (expression.Text ?? "sensorRaw").Trim() + "_" + configuration.Width.ToString(CultureInfo.InvariantCulture) + "x" +
-                        configuration.Height.ToString(CultureInfo.InvariantCulture) + "_" + outputBits.ToString(CultureInfo.InvariantCulture) + "b.raw"
-                };
-                if (dialog.ShowDialog() != true)
-                {
-                    return;
-                }
-
-                DebugMemoryFrameReader.RoiReadSession memoryRead;
-                if (!DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration, 0, 0, configuration.Width, configuration.Height, out memoryRead))
-                {
-                    throw new InvalidOperationException("Saving a full RAW requires the native debugger-memory reader for the paused debuggee.");
-                }
-
-                BeginNewReadRequest();
-                var selection = ResolveCurrentSelection(configuration);
-                BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, selection.X, selection.Y, false, false, expression.Text.Trim(), dialog.FileName, outputBits);
-                SetStatus("Reading the complete frame once for " + outputBits.ToString(CultureInfo.InvariantCulture) + "-bit RAW export.");
+                SaveRawRegion(configuration, new RoiBounds(0, 0, configuration.Width, configuration.Height, configuration.Width / 2, configuration.Height / 2), "full");
             }
             catch (Exception exception)
             {
                 SetInputError("Cannot save full RAW: " + exception.Message);
             }
+        }
+
+        private void SaveViewRaw(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                ClearAllInputErrors();
+                var configuration = ReadConfiguration();
+                var kernel = GetRoiBounds(configuration);
+                SaveRawRegion(configuration, GetRenderBounds(configuration, kernel), "view");
+            }
+            catch (Exception exception)
+            {
+                SetInputError("Cannot save View RAW: " + exception.Message);
+            }
+        }
+
+        private void SaveKernelRaw(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                ClearAllInputErrors();
+                var configuration = ReadConfiguration();
+                SaveRawRegion(configuration, GetRoiBounds(configuration), "kernel");
+            }
+            catch (Exception exception)
+            {
+                SetInputError("Cannot save Kernel RAW: " + exception.Message);
+            }
+        }
+
+        private void SaveRawRegion(FrameConfiguration configuration, RoiBounds region, string kind)
+        {
+            var outputBits = configuration.TotalBits <= 16 ? 16 : 32;
+            var dialog = new SaveFileDialog
+            {
+                Title = "Save " + kind + " sensor RAW",
+                Filter = outputBits == 16 ? "16-bit RAW (*.raw)|*.raw|All files (*.*)|*.*" : "32-bit RAW (*.raw)|*.raw|All files (*.*)|*.*",
+                DefaultExt = ".raw",
+                FileName = (expression.Text ?? "sensorRaw").Trim() + "_" + kind + "_x" + region.X.ToString(CultureInfo.InvariantCulture) +
+                    "_y" + region.Y.ToString(CultureInfo.InvariantCulture) + "_" + region.Width.ToString(CultureInfo.InvariantCulture) + "x" +
+                    region.Height.ToString(CultureInfo.InvariantCulture) + "_" + outputBits.ToString(CultureInfo.InvariantCulture) + "b.raw"
+            };
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            BeginNewReadRequest();
+            DebugMemoryFrameReader.RoiReadSession memoryRead;
+            if (!DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration, region.X, region.Y, region.Width, region.Height, out memoryRead))
+            {
+                throw new InvalidOperationException("RAW export requires the native debugger-memory reader for the paused debuggee.");
+            }
+
+            var selection = ResolveCurrentSelection(configuration);
+            BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, selection.X, selection.Y, false, false, expression.Text.Trim(), dialog.FileName, outputBits);
+            SetStatus("Reading " + kind + " RAW " + region.Width.ToString(CultureInfo.InvariantCulture) + "x" + region.Height.ToString(CultureInfo.InvariantCulture) +
+                " once for " + outputBits.ToString(CultureInfo.InvariantCulture) + "-bit export.");
         }
 
         private void WriteRawFrameAsync(FrameBuffer source, string path, int outputBits)

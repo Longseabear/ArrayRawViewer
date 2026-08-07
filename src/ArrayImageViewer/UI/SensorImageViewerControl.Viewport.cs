@@ -290,12 +290,13 @@ namespace ArrayImageViewer.UI
             var lower = message == null ? String.Empty : message.ToLowerInvariant();
             if (lower.Contains("view height")) target = renderHeight;
             else if (lower.Contains("view width") || lower.Contains("view")) target = renderWidth;
-            else if (lower.Contains("roi center x") || lower.Contains(" x")) target = selectedX;
-            else if (lower.Contains("roi center y") || lower.Contains(" y")) target = selectedY;
-            else if (lower.Contains("roi w") || lower.Contains("kernel")) target = lower.Contains("height") ? roiHeight : roiWidth;
+            else if (lower.Contains("kernel height") || lower.Contains("roi h")) target = roiHeight;
+            else if (lower.Contains("kernel width") || lower.Contains("roi w") || lower.Contains("kernel")) target = roiWidth;
+            else if (lower.Contains("selected x") || lower.Contains("roi center x")) target = selectedX;
+            else if (lower.Contains("selected y") || lower.Contains("roi center y")) target = selectedY;
             else if (lower.Contains("stride")) target = stride;
-            else if (lower.Contains("height")) target = height;
             else if (lower.Contains("width")) target = width;
+            else if (lower.Contains("height")) target = height;
             else if (lower.Contains("q format")) target = qFormat;
             else if (lower.Contains("raw maximum")) target = normalizationMaximum;
             else if (lower.Contains("raw minimum") || lower.Contains("normalization") || lower.Contains("raw range")) target = normalizationMinimum;
@@ -303,6 +304,7 @@ namespace ArrayImageViewer.UI
 
             if (target != null)
             {
+                ClearAllInputErrors();
                 invalidInput = target;
                 target.BorderBrush = ErrorBrush;
                 target.BorderThickness = new Thickness(2);

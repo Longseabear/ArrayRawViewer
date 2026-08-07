@@ -403,6 +403,18 @@ namespace ArrayImageViewer.UI
             var parsedWidth = ResolveInteger(width, "width");
             var parsedHeight = ResolveInteger(height, "height");
             var parsedStride = ResolveInteger(stride, "stride");
+            if (parsedWidth <= 0)
+            {
+                throw new ArgumentException("Width must be positive.");
+            }
+            if (parsedHeight <= 0)
+            {
+                throw new ArgumentException("Height must be positive.");
+            }
+            if (parsedStride < parsedWidth)
+            {
+                throw new ArgumentException("Stride must be at least Width.");
+            }
             int parsedIntegerBits;
             int parsedFractionalBits;
             if (!QFormat.TryParse(qFormat.Text, out parsedIntegerBits, out parsedFractionalBits))
@@ -428,7 +440,14 @@ namespace ArrayImageViewer.UI
                 throw new ArgumentException("Enter a " + fieldName + " integer or a current-stack integer variable.");
             }
 
-            return DebugExpressionFrameReader.EvaluateInt32(field.Text.Trim());
+            try
+            {
+                return DebugExpressionFrameReader.EvaluateInt32(field.Text.Trim());
+            }
+            catch (Exception exception)
+            {
+                throw new ArgumentException("Cannot evaluate " + fieldName + ": " + exception.Message);
+            }
         }
 
         private RoiBounds ResolveCurrentSelection(FrameConfiguration configuration)
@@ -444,9 +463,13 @@ namespace ArrayImageViewer.UI
         {
             var requestedWidth = ResolveInteger(roiWidth, "ROI width");
             var requestedHeight = ResolveInteger(roiHeight, "ROI height");
-            if (requestedWidth <= 0 || requestedHeight <= 0)
+            if (requestedWidth <= 0)
             {
-                throw new ArgumentException("ROI W and H must be positive.");
+                throw new ArgumentException("Kernel width must be positive.");
+            }
+            if (requestedHeight <= 0)
+            {
+                throw new ArgumentException("Kernel height must be positive.");
             }
 
             if (kernelCenterX < 0 || kernelCenterY < 0)
@@ -466,9 +489,13 @@ namespace ArrayImageViewer.UI
         {
             var requestedWidth = ResolveInteger(renderWidth, "view width");
             var requestedHeight = ResolveInteger(renderHeight, "view height");
-            if (requestedWidth <= 0 || requestedHeight <= 0)
+            if (requestedWidth <= 0)
             {
-                throw new ArgumentException("View W and H must be positive.");
+                throw new ArgumentException("View width must be positive.");
+            }
+            if (requestedHeight <= 0)
+            {
+                throw new ArgumentException("View height must be positive.");
             }
 
             var samples = checked((long)requestedWidth * requestedHeight);

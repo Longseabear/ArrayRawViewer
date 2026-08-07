@@ -270,7 +270,7 @@ namespace ArrayImageViewer.UI
             sourceRow.Children.Add(CreateAction("SHOW", CreateButton("ROI + context", LoadContextPreview, true)));
             sourceRow.Children.Add(CreateAction("PIXELS", CreateButton("Exact ROI", LoadExpression, false)));
             sourceRow.Children.Add(CreateAction("", CreateButton("Full preview", LoadFullPreview, false)));
-            sourceRow.Children.Add(CreateAction("", CreateButton("Save full RAW", SaveFullRaw, false)));
+            sourceRow.Children.Add(CreateAction("RAW", CreateButton("Save full", SaveFullRaw, false)));
             sourceRow.Children.Add(CreateAction("", CreateButton("Cancel read", CancelRead, false)));
             sourceRow.Children.Add(CreateField("UPDATE", autoUpdate));
             var profileRow = CreateRow();
@@ -338,6 +338,8 @@ namespace ArrayImageViewer.UI
             inspectRow.Children.Add(CreateAction("", CreateButton("Center view", JumpToCoordinate, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Read exact cells", InspectCells, true)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Copy kernel (Ctrl+C)", CopyKernelToClipboard, false)));
+            inspectRow.Children.Add(CreateAction("RAW", CreateButton("Save View", SaveViewRaw, false)));
+            inspectRow.Children.Add(CreateAction("", CreateButton("Save Kernel", SaveKernelRaw, false)));
             inspectRow.Children.Add(CreateAction("VIEW", CreateButton("Left", PanLeft, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Right", PanRight, false)));
             inspectRow.Children.Add(CreateAction("", CreateButton("Up", PanUp, false)));
