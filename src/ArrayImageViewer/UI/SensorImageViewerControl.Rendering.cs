@@ -20,8 +20,8 @@ namespace ArrayImageViewer.UI
                 BeginNewReadRequest();
                 var configuration = ReadConfiguration();
                 navigatorSourceConfiguration = configuration;
-                var roi = GetRoiBounds(configuration);
                 var selection = ResolveCurrentSelection(configuration);
+                var roi = GetRoiBounds(configuration);
                 var sampleCount = checked((long)roi.Width * roi.Height);
                 DebugMemoryFrameReader.RoiReadSession memoryRead;
                 if (sampleCount > 32768 && DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration,
@@ -48,26 +48,31 @@ namespace ArrayImageViewer.UI
                 ClearAllInputErrors();
                 BeginNewReadRequest();
                 var configuration = ReadConfiguration();
-                navigatorSourceConfiguration = configuration;
-                var requestedRoi = GetRoiBounds(configuration);
-                var context = GetRenderBounds(configuration, requestedRoi);
                 var selection = ResolveCurrentSelection(configuration);
-                DebugMemoryFrameReader.RoiReadSession memoryRead;
-                if (DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration,
-                    context.X, context.Y, context.Width, context.Height, out memoryRead))
-                {
-                    BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, selection.X, selection.Y, false, true, expression.Text.Trim());
-                    return;
-                }
-
-                SetStatus("Reading " + context.Width + "x" + context.Height + " context around the ROI from the debugger.");
-                var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, context.X, context.Y, context.Width, context.Height);
-                ApplyLoadedFrame(source, configuration.Width, configuration.Height, selection.X, selection.Y, false, true, expression.Text.Trim());
+                LoadContextPreviewAt(configuration, selection.X, selection.Y);
             }
             catch (Exception exception)
             {
                 SetInputError("Cannot show ROI + context: " + exception.Message);
             }
+        }
+
+        private void LoadContextPreviewAt(FrameConfiguration configuration, int selectedGlobalX, int selectedGlobalY)
+        {
+            navigatorSourceConfiguration = configuration;
+            var requestedRoi = GetRoiBounds(configuration);
+            var context = GetRenderBounds(configuration, requestedRoi);
+            DebugMemoryFrameReader.RoiReadSession memoryRead;
+            if (DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration,
+                context.X, context.Y, context.Width, context.Height, out memoryRead))
+            {
+                BeginMemoryRead(memoryRead, configuration.Width, configuration.Height, selectedGlobalX, selectedGlobalY, false, true, expression.Text.Trim());
+                return;
+            }
+
+            SetStatus("Reading " + context.Width + "x" + context.Height + " context around the ROI from the debugger.");
+            var source = DebugExpressionFrameReader.ReadRoi(expression.Text, configuration, context.X, context.Y, context.Width, context.Height);
+            ApplyLoadedFrame(source, configuration.Width, configuration.Height, selectedGlobalX, selectedGlobalY, false, true, expression.Text.Trim());
         }
 
         private void LoadFullPreview(object sender, RoutedEventArgs e)
@@ -209,7 +214,11 @@ namespace ArrayImageViewer.UI
 
         private void ViewerUnloaded(object sender, RoutedEventArgs e)
         {
+            CancelStatisticsRequest();
+            PersistCurrentSessionIfRequested();
+            ClearHardwareWatch(false);
             autoRefreshTimer.Stop();
+            debuggerBreakRefreshTimer.Stop();
             coordinateUpdateTimer.Stop();
             viewportOverlayTimer.Stop();
             BeginNewReadRequest();
@@ -271,13 +280,15 @@ namespace ArrayImageViewer.UI
         private void ApplyRenderedFrame(FrameBuffer source, ImageSource bitmap, NormalizationRange normalization, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY,
             bool isFullPreview, bool showFullFrameContext, string sourceExpression, string readPath)
         {
+            var preserveViewport = preserveViewportOnNextRender;
+            preserveViewportOnNextRender = false;
             var preserveContextZoom = showFullFrameContext && showsFullFrameContext && frame != null;
             lastReadPath = readPath;
             activeNormalization = normalization;
             ApplyFrame(source, bitmap, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, showFullFrameContext);
             ApplyZoom(isFullPreview ? GetFullPreviewZoom(source.Configuration.Width, source.Configuration.Height) :
                 (showFullFrameContext ? (preserveContextZoom ? zoom : GetContextPreviewZoom(source.Configuration.Width, source.Configuration.Height)) : Math.Max(18.0, zoom)));
-            if (showFullFrameContext)
+            if (showFullFrameContext && !preserveViewport)
             {
                 Dispatcher.BeginInvoke(new Action(CenterOnView));
             }
@@ -285,6 +296,8 @@ namespace ArrayImageViewer.UI
             activeProfileExpression = sourceExpression;
             SaveCurrentProfile();
             RebuildProfilePicker(sourceExpression);
+            CaptureActiveViewerTab();
+            RefreshViewerTabs();
         }
 
         private NormalizationRange ResolveNormalizationRange(FrameBuffer source)
@@ -476,6 +489,8 @@ namespace ArrayImageViewer.UI
             var y = Math.Max(0, Math.Min(configuration.Height - 1, ResolveInteger(selectedY, "selected Y")));
             currentX = x;
             currentY = y;
+            kernelCenterX = x;
+            kernelCenterY = y;
             return new RoiBounds(x, y, 1, 1, x, y);
         }
 
@@ -499,8 +514,6 @@ namespace ArrayImageViewer.UI
             }
 
             var roi = RoiGeometry.ClampCentered(configuration.Width, configuration.Height, kernelCenterX, kernelCenterY, requestedWidth, requestedHeight);
-            kernelCenterX = roi.CenterX;
-            kernelCenterY = roi.CenterY;
             UpdateNavigator();
             return new RoiBounds(roi.X, roi.Y, roi.Width, roi.Height, roi.CenterX, roi.CenterY);
         }
@@ -531,8 +544,6 @@ namespace ArrayImageViewer.UI
             }
 
             var view = RoiGeometry.ClampCentered(configuration.Width, configuration.Height, viewCenterX, viewCenterY, requestedWidth, requestedHeight);
-            viewCenterX = view.CenterX;
-            viewCenterY = view.CenterY;
             return new RoiBounds(view.X, view.Y, view.Width, view.Height, view.CenterX, view.CenterY);
         }
     }

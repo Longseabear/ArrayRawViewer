@@ -37,6 +37,7 @@
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Design" />
     <Reference Include="System.Xaml" />
     <Reference Include="WindowsBase" />
@@ -55,9 +56,12 @@
     <Compile Include="SensorImageViewerPackage.cs" />
     <Compile Include="SensorImageToolWindow.cs" />
     <Compile Include="Core\BayerLayout.cs" />
+    <Compile Include="Core\DataWatchExpression.cs" />
     <Compile Include="Core\FrameConfiguration.cs" />
     <Compile Include="Core\FrameBuffer.cs" />
     <Compile Include="Core\FrameRenderer.cs" />
+    <Compile Include="Core\FrameStatistics.cs" />
+    <Compile Include="GlobalSuppressions.cs" />
     <Compile Include="Core\QFormat.cs" />
     <Compile Include="Debugging\DebugExpressionFrameReader.cs" />
     <Compile Include="Debugging\DebugMemoryFrameReader.cs" />
@@ -68,6 +72,9 @@
     <Compile Include="UI\SensorImageViewerControl.Interaction.cs" />
     <Compile Include="UI\SensorImageViewerControl.Viewport.cs" />
     <Compile Include="UI\SensorImageViewerControl.Export.cs" />
+    <Compile Include="UI\SensorImageViewerControl.DebugWatch.cs" />
+    <Compile Include="UI\SensorImageViewerControl.Statistics.cs" />
+    <Compile Include="UI\SensorImageViewerControl.Tabs.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -33,6 +33,9 @@ namespace ArrayImageViewer.UI
         private readonly TextBox expression = CreateTextBox("sensorRaw", 240);
         private readonly ComboBox availablePointers = CreateComboBox(190);
         private readonly ComboBox profilePicker = CreateComboBox(185);
+        private readonly TextBox profileSetName = CreateTextBox("", 120);
+        private readonly ComboBox profileSetPicker = CreateComboBox(200);
+        private readonly CheckBox rememberForSolution = new CheckBox { Content = "Remember for this solution", Foreground = TextBrush, IsChecked = true, Height = 27, VerticalAlignment = VerticalAlignment.Center };
         private readonly Popup expressionSuggestions = new Popup { AllowsTransparency = true, Placement = PlacementMode.Bottom, StaysOpen = false };
         private readonly ListBox expressionSuggestionList = new ListBox { Background = ControlBrush, Foreground = TextBrush, BorderThickness = new Thickness(0), MaxHeight = 220, MinWidth = 240 };
         private readonly ComboBox widthValueSource = CreateComboBox(145);
@@ -59,7 +62,24 @@ namespace ArrayImageViewer.UI
         private readonly TextBox roiWidth = CreateTextBox("5", 54);
         private readonly TextBox roiHeight = CreateTextBox("5", 54);
         private readonly CheckBox autoUpdate = new CheckBox { Content = "Auto update", Foreground = TextBrush, IsChecked = true, Height = 27, VerticalAlignment = VerticalAlignment.Center };
-        private readonly TextBlock status = new TextBlock { Foreground = TextBrush, TextWrapping = TextWrapping.Wrap };
+        private readonly CheckBox keepHardwareWatchArmed = new CheckBox { Content = "Keep armed", Foreground = TextBrush, IsChecked = false, Height = 27, VerticalAlignment = VerticalAlignment.Center };
+        private readonly ComboBox statisticsScope = CreateComboBox(118);
+        private readonly Button statisticsToggle;
+        private readonly StackPanel statisticsPanel = new StackPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 8, 0, 0) };
+        private readonly TextBlock statisticsSummary = new TextBlock { Foreground = TextBrush, FontFamily = new FontFamily("Consolas"), FontSize = 11, TextWrapping = TextWrapping.Wrap };
+        private readonly TextBlock statisticsChannels = new TextBlock { Foreground = MutedBrush, FontFamily = new FontFamily("Consolas"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
+        private readonly TextBlock hardwareWatchInfo = new TextBlock { Foreground = MutedBrush, Text = "No hardware watch armed.", Margin = new Thickness(0, 8, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+        private readonly TextBox status = new TextBox
+        {
+            Foreground = TextBrush,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0),
+            IsReadOnly = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            ToolTip = "Select text and press Ctrl+C to copy."
+        };
         private readonly TextBlock viewport = new TextBlock { Foreground = MutedBrush, Text = "No frame loaded", Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         private readonly ScrollViewer scrollViewer = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Background = CanvasBrush, Focusable = true };
         private readonly Canvas canvas = new Canvas { Background = CanvasBrush, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, MinWidth = 520, MinHeight = 260, Focusable = true };
@@ -78,6 +98,8 @@ namespace ArrayImageViewer.UI
         private readonly Line navigatorVertical = new Line { Stroke = new SolidColorBrush(Color.FromArgb(130, 255, 126, 69)), StrokeThickness = 1, IsHitTestVisible = false };
         private readonly TextBlock navigatorInfo = new TextBlock { Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, FontSize = 11, LineHeight = 17 };
         private readonly List<UIElement> valueOverlay = new List<UIElement>();
+        private readonly WrapPanel viewerTabPanel = new WrapPanel();
+        private readonly List<ViewerTab> viewerTabs = new List<ViewerTab>();
 
         private FrameBuffer frame;
         private double zoom = 0.15;
@@ -87,8 +109,14 @@ namespace ArrayImageViewer.UI
         private int kernelCenterY = -1;
         private int viewCenterX = -1;
         private int viewCenterY = -1;
+        private bool preserveViewportOnNextRender;
         private int fullFrameWidth;
         private int fullFrameHeight;
+        // Sample-space margins around the physical frame. They let a border
+        // pixel sit at the screen center while the area outside the sensor is
+        // rendered as the unloaded-frame color.
+        private int virtualCanvasPaddingX;
+        private int virtualCanvasPaddingY;
         private bool isRoiPanning;
         private Point roiPanStart;
         private double roiPanStartHorizontalOffset;
@@ -100,6 +128,7 @@ namespace ArrayImageViewer.UI
         private int mouseRoiEndX;
         private int mouseRoiEndY;
         private readonly Dictionary<string, ViewerProfile> profiles = new Dictionary<string, ViewerProfile>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, NamedProfileSet> profileSets = new Dictionary<string, NamedProfileSet>(StringComparer.OrdinalIgnoreCase);
         private readonly List<DebugExpressionFrameReader.PointerExpression> pointerCandidates = new List<DebugExpressionFrameReader.PointerExpression>();
         private bool isApplyingProfile;
         private string activeProfileExpression;
@@ -113,8 +142,10 @@ namespace ArrayImageViewer.UI
         private string navigatorPreviewKey;
         private NormalizationRange activeNormalization = new NormalizationRange(0, 8191);
         private int renderGeneration;
+        private int statisticsGeneration;
         private readonly DispatcherTimer memoryReadTimer;
         private readonly DispatcherTimer autoRefreshTimer;
+        private readonly DispatcherTimer debuggerBreakRefreshTimer;
         private readonly DispatcherTimer coordinateUpdateTimer;
         private readonly DispatcherTimer viewportOverlayTimer;
         private PendingMemoryRead pendingMemoryRead;
@@ -128,6 +159,7 @@ namespace ArrayImageViewer.UI
 
         public SensorImageViewerControl()
         {
+            statisticsToggle = CreateButton("Stats", ToggleStatistics, false);
             pixelOrder.ItemsSource = Enum.GetValues(typeof(PixelOrder));
             pixelOrder.SelectedItem = PixelOrder.GRFirst;
             pixelType.ItemsSource = Enum.GetValues(typeof(PixelType));
@@ -143,8 +175,13 @@ namespace ArrayImageViewer.UI
             normalizationMode.SelectedIndex = 0;
             sourceElementType.ItemsSource = Enum.GetValues(typeof(SourceElementType));
             sourceElementType.SelectedItem = SourceElementType.UInt32;
+            statisticsScope.ItemsSource = new[] { "View", "Kernel", "Loaded ROI", "Filter match" };
+            statisticsScope.SelectedIndex = 0;
+            statisticsScope.SelectionChanged += StatisticsScopeChanged;
+            visualizeChannel.SelectionChanged += StatisticsFilterChanged;
             availablePointers.SelectionChanged += AvailablePointerChanged;
             profilePicker.SelectionChanged += ProfilePickerChanged;
+            profileSetPicker.SelectionChanged += ProfileSetPickerChanged;
             expression.TextChanged += ExpressionTextChanged;
             expression.GotKeyboardFocus += ExpressionGotKeyboardFocus;
             expression.PreviewKeyDown += ExpressionPreviewKeyDown;
@@ -164,6 +201,9 @@ namespace ArrayImageViewer.UI
             autoRefreshTimer = new DispatcherTimer(DispatcherPriority.Background);
             autoRefreshTimer.Interval = TimeSpan.FromMilliseconds(450);
             autoRefreshTimer.Tick += AutoRefreshTimerTick;
+            debuggerBreakRefreshTimer = new DispatcherTimer(DispatcherPriority.Background);
+            debuggerBreakRefreshTimer.Interval = TimeSpan.FromMilliseconds(180);
+            debuggerBreakRefreshTimer.Tick += DebuggerBreakRefreshTimerTick;
             coordinateUpdateTimer = new DispatcherTimer(DispatcherPriority.Background);
             coordinateUpdateTimer.Interval = TimeSpan.FromMilliseconds(220);
             coordinateUpdateTimer.Tick += CoordinateUpdateTimerTick;
@@ -208,6 +248,7 @@ namespace ArrayImageViewer.UI
             var root = new Grid { Background = RootBrush };
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(260), MinHeight = 118 });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(7) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 180 });
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var header = CreateHeader();
@@ -234,14 +275,22 @@ namespace ArrayImageViewer.UI
             };
             Grid.SetRow(splitter, 1);
             root.Children.Add(splitter);
+            var tabStrip = CreateViewerTabStrip();
+            Grid.SetRow(tabStrip, 2);
+            root.Children.Add(tabStrip);
             var footer = CreateFooter();
-            Grid.SetRow(footer, 3);
+            Grid.SetRow(footer, 4);
             root.Children.Add(footer);
-            Grid.SetRow(scrollViewer, 2);
+            Grid.SetRow(scrollViewer, 3);
             root.Children.Add(scrollViewer);
             Content = root;
+            RestorePersistentWorkspaceState();
+            InitializeViewerTabs();
             UpdateNavigator();
-            SetStatus("Pause the debuggee, choose a pointer or editor selection, then show ROI + context around X/Y.");
+            if (String.IsNullOrWhiteSpace(expression.Text) || activeProfileExpression == null)
+            {
+                SetStatus("Pause the debuggee, choose a pointer or editor selection, then show ROI + context around X/Y.");
+            }
         }
 
         private UIElement CreateHeader()
@@ -281,9 +330,14 @@ namespace ArrayImageViewer.UI
             profileRow.Margin = new Thickness(0, 8, 0, 0);
             profileRow.Children.Add(CreateField("SESSION PROFILE", profilePicker));
             profileRow.Children.Add(CreateAction("", CreateButton("Save settings", SaveProfileSettings, false)));
+            profileRow.Children.Add(CreateField("PROFILE SET", profileSetPicker));
+            profileRow.Children.Add(CreateField("SET NAME", profileSetName));
+            profileRow.Children.Add(CreateAction("", CreateButton("Save set", SaveProfileSet, false)));
+            profileRow.Children.Add(CreateAction("", CreateButton("Delete set", DeleteProfileSet, false)));
+            profileRow.Children.Add(CreateField("PERSIST", rememberForSolution));
             profileRow.Children.Add(new TextBlock
             {
-                Text = "Profiles retain interpretation only; RAW samples stay in the paused debuggee.",
+                Text = "Profile sets and the last state are local to this solution; RAW samples are never saved.",
                 Foreground = MutedBrush,
                 FontSize = 10,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -332,26 +386,103 @@ namespace ArrayImageViewer.UI
                 Content = new Border { Background = PanelBrush, BorderBrush = PanelBorderBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Padding = new Thickness(9, 8, 9, 8), Margin = new Thickness(0, 5, 0, 0), Child = localValuesRow }
             });
 
-            var inspectRow = CreateRow();
-            inspectRow.Children.Add(CreateField("GO TO X", selectedX));
-            inspectRow.Children.Add(CreateField("GO TO Y", selectedY));
-            inspectRow.Children.Add(CreateField("VIEW W", renderWidth));
-            inspectRow.Children.Add(CreateField("VIEW H", renderHeight));
-            inspectRow.Children.Add(CreateField("KERNEL W", roiWidth));
-            inspectRow.Children.Add(CreateField("KERNEL H", roiHeight));
-            inspectRow.Children.Add(CreateAction("", CreateButton("Center view", JumpToCoordinate, false)));
-            inspectRow.Children.Add(CreateAction("", CreateButton("Read exact cells", InspectCells, true)));
-            inspectRow.Children.Add(CreateAction("", CreateButton("Copy kernel (Ctrl+C)", CopyKernelToClipboard, false)));
-            inspectRow.Children.Add(CreateAction("RAW", CreateButton("Save View", SaveViewRaw, false)));
-            inspectRow.Children.Add(CreateAction("", CreateButton("Save Kernel", SaveKernelRaw, false)));
-            inspectRow.Children.Add(CreateAction("VIEW", CreateButton("Left", PanLeft, false)));
-            inspectRow.Children.Add(CreateAction("", CreateButton("Right", PanRight, false)));
-            inspectRow.Children.Add(CreateAction("", CreateButton("Up", PanUp, false)));
-            inspectRow.Children.Add(CreateAction("", CreateButton("Down", PanDown, false)));
-            inspectRow.Children.Add(new TextBlock { Text = "A click moves only the selected cursor. Center view loads the selected point. Frame overview moves View; right-drag on the image sets Kernel. Middle/Shift-drag pans cached pixels only.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
-            panel.Children.Add(CreateSection("VIEW + KERNEL", "Separate visible data from the ROI rectangle used by your kernel", inspectRow));
+            panel.Children.Add(CreateInspectionSection());
             panel.Children.Add(CreateNavigatorSection());
             return panel;
+        }
+
+        // This surface intentionally uses independently wrapping command
+        // groups. A single WrapPanel for every inspection control caused
+        // labels such as RAW/STATS/WATCH to become separated from their
+        // buttons when a tool window was narrowed.
+        private UIElement CreateInspectionSection()
+        {
+            var content = new StackPanel();
+
+            var positionRow = CreateRow();
+            positionRow.Children.Add(CreateField("GO TO X", selectedX));
+            positionRow.Children.Add(CreateField("GO TO Y", selectedY));
+            positionRow.Children.Add(CreateField("VIEW W", renderWidth));
+            positionRow.Children.Add(CreateField("VIEW H", renderHeight));
+            positionRow.Children.Add(CreateField("KERNEL W", roiWidth));
+            positionRow.Children.Add(CreateField("KERNEL H", roiHeight));
+            positionRow.Children.Add(CreateAction("FOCUS", CreateButton("Center cursor", JumpToCoordinate, false)));
+            content.Children.Add(CreateCommandGroup("POSITION", positionRow));
+
+            var pixelActions = CreateRow();
+            pixelActions.Children.Add(CreateCompactAction(CreateButton("Read exact cells", InspectCells, true)));
+            pixelActions.Children.Add(CreateCompactAction(CreateButton("Copy kernel (Ctrl+C)", CopyKernelToClipboard, false)));
+            pixelActions.Children.Add(CreateCompactAction(CreateButton("Save View", SaveViewRaw, false)));
+            pixelActions.Children.Add(CreateCompactAction(CreateButton("Save Kernel", SaveKernelRaw, false)));
+            pixelActions.Children.Add(CreateCompactAction(statisticsToggle));
+            content.Children.Add(CreateCommandGroup("PIXEL · RAW · STATS", pixelActions));
+
+            var statisticsRow = CreateRow();
+            statisticsRow.Children.Add(CreateField("SCOPE", statisticsScope));
+            statisticsRow.Children.Add(statisticsSummary);
+            statisticsRow.Children.Add(statisticsChannels);
+            statisticsPanel.Children.Clear();
+            statisticsPanel.Children.Add(statisticsRow);
+            content.Children.Add(statisticsPanel);
+
+            var watchContent = new StackPanel();
+            var watchActions = CreateRow();
+            watchActions.Children.Add(CreateCompactAction(CreateButton("Next line", NextDebuggerLine, false)));
+            watchActions.Children.Add(CreateCompactAction(CreateButton("Watch + Run", WatchSelectedPixelAndContinue, true)));
+            watchActions.Children.Add(CreateCompactAction(CreateButton("Watch next", WatchNextPixelAndContinue, false)));
+            watchActions.Children.Add(new Border { Child = keepHardwareWatchArmed, Margin = new Thickness(2, 0, 12, 0), Padding = new Thickness(2, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+            watchActions.Children.Add(CreateCompactAction(CreateButton("Clear watch", ClearHardwareWatch, false)));
+            watchContent.Children.Add(watchActions);
+            watchContent.Children.Add(hardwareWatchInfo);
+            watchContent.Children.Add(new TextBlock
+            {
+                Text = "Next line is a normal F10 step. Watch + Run stops at the selected sample's next write and removes the one-shot watch. Watch next moves to the next sample first. Enable Keep armed only for repeated changes at the same sample.",
+                Foreground = MutedBrush,
+                FontSize = 10,
+                LineHeight = 15,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 5, 0, 0)
+            });
+            content.Children.Add(CreateCommandGroup("HARDWARE WATCH", watchContent));
+
+            var viewActions = new UniformGrid { Columns = 4, Rows = 1, HorizontalAlignment = HorizontalAlignment.Left };
+            viewActions.Children.Add(CreateButton("Left", PanLeft, false));
+            viewActions.Children.Add(CreateButton("Right", PanRight, false));
+            viewActions.Children.Add(CreateButton("Up", PanUp, false));
+            viewActions.Children.Add(CreateButton("Down", PanDown, false));
+            content.Children.Add(CreateCommandGroup("MOVE VIEW", viewActions));
+
+            return CreateSection("VIEW + KERNEL", "View is the loaded display range; Kernel is the orange analysis rectangle. Frame overview moves View, and right-drag on the image changes Kernel.", content);
+        }
+
+        private static Border CreateCommandGroup(string label, UIElement contents)
+        {
+            var group = new Border
+            {
+                Background = ControlBrush,
+                BorderBrush = PanelBorderBrush,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(8, 6, 8, 7),
+                Margin = new Thickness(0, 0, 0, 6)
+            };
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = label,
+                Foreground = AccentBrush,
+                FontSize = 9,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 5)
+            });
+            stack.Children.Add(contents);
+            group.Child = stack;
+            return group;
+        }
+
+        private static Border CreateCompactAction(Button button)
+        {
+            return new Border { Child = button, Margin = new Thickness(0, 0, 8, 0) };
         }
 
         private UIElement CreateNavigatorSection()
@@ -655,6 +786,23 @@ namespace ArrayImageViewer.UI
             public override string ToString()
             {
                 return Expression + "  |  " + Width + "x" + Height + "  |  " + SourceElementType + "  |  " + QFormat + "  |  " + PixelType + "/" + PixelOrder;
+            }
+        }
+
+        private sealed class NamedProfileSet
+        {
+            public NamedProfileSet(string nameValue, ViewerProfile profileValue)
+            {
+                Name = nameValue;
+                Profile = profileValue;
+            }
+
+            public string Name { get; private set; }
+            public ViewerProfile Profile { get; private set; }
+
+            public override string ToString()
+            {
+                return Name + "  |  " + Profile.Width + "x" + Profile.Height + "  |  " + Profile.Expression;
             }
         }
 

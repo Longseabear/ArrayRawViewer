@@ -167,7 +167,16 @@ namespace ArrayImageViewer.UI
 
             UpdateNavigator();
             SaveCurrentProfile();
-            LoadContextPreview(null, null);
+            try
+            {
+                ClearAllInputErrors();
+                BeginNewReadRequest();
+                LoadContextPreviewAt(ReadConfiguration(), x, y);
+            }
+            catch (Exception exception)
+            {
+                SetInputError("Cannot move view to the selected cursor: " + exception.Message);
+            }
         }
 
         private void UpdateNavigator()
@@ -318,6 +327,7 @@ namespace ArrayImageViewer.UI
             UpdateNavigator();
             ApplyZoom(zoom);
             UpdateSelection(currentX, currentY, false);
+            UpdateStatistics();
             EnsureNavigatorPreview();
         }
     }

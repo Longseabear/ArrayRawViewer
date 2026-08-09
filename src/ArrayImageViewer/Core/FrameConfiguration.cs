@@ -161,6 +161,19 @@ namespace ArrayImageViewer.Core
             return new RoiRectangle(x, y, actualWidth, actualHeight, x + actualWidth / 2, y + actualHeight / 2);
         }
 
+        // Display-only geometry. Memory reads must use ClampCentered so no
+        // address outside the debuggee buffer is ever requested.
+        public static RoiRectangle CenteredUnclipped(int centerX, int centerY, int width, int height)
+        {
+            if (width <= 0 || height <= 0)
+            {
+                throw new ArgumentException("ROI dimensions must be positive.");
+            }
+
+            return new RoiRectangle(centerX - width / 2, centerY - height / 2,
+                width, height, centerX, centerY);
+        }
+
         public static RoiRectangle FromDrag(int frameWidth, int frameHeight, int startX, int startY, int endX, int endY)
         {
             if (frameWidth <= 0 || frameHeight <= 0)

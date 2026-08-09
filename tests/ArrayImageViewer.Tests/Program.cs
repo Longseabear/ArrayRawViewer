@@ -16,7 +16,10 @@ namespace ArrayImageViewer.Tests
                 QFormatAndRangeAreExact();
                 SourceElementTypesPreserveStorageShape();
                 SourceElementCodecDecodesSignedAndUnsignedValues();
+                DataWatchExpressionUsesFrameStride();
+                PointerAddressParsingSupportsFunctionWatchSnapshots();
                 StrideAndOriginRemainFullFrameRelative();
+                StatisticsRespectScopeAndBayerSites();
                 RoiGeometryClampsAndPreservesDragSelection();
                 BayerLayoutsRepeatAtExpectedBlockSizes();
                 RendererWritesExpectedGrayPixels();
@@ -60,6 +63,41 @@ namespace ArrayImageViewer.Tests
             Assert(config.GetBayerSite(0, 0) == BayerSite.R, "ROI origin preserves GRBG phase.");
         }
 
+        private static void DataWatchExpressionUsesFrameStride()
+        {
+            Assert(DataWatchExpression.Build("A", 4096, 1978, 369) == "((A) + 1513402)",
+                "Native data watch uses the full-frame y * stride + x offset.");
+            Assert(DataWatchExpression.Build("data->GetPointer()", 672, 5, 2) == "((data->GetPointer()) + 1349)",
+                "A complex pointer expression is parenthesized before indexing.");
+            Assert(DataWatchExpression.BuildViewerOwned("A", 4096, 1978, 369, 17) == "(((A) + 1513402) + (0 * 17))",
+                "Viewer data watches carry a no-op ownership tag and retain the exact address.");
+            ExpectArgumentException(delegate { DataWatchExpression.Build("A", 0, 0, 0); }, "Invalid stride is rejected for data watches.");
+            ExpectArgumentException(delegate { DataWatchExpression.BuildViewerOwned("A", 1, 0, 0, 0); }, "Missing data-watch ownership tag is rejected.");
+        }
+
+        private static void PointerAddressParsingSupportsFunctionWatchSnapshots()
+        {
+            ulong address;
+            Assert(DataWatchExpression.TryParsePointerAddress("0x00007FF612340000 {unsigned int *}", out address) &&
+                address == 0x00007FF612340000UL, "Pointer address parsing preserves a 64-bit debugger address.");
+            Assert(!DataWatchExpression.TryParsePointerAddress("not a pointer", out address),
+                "Non-pointer debugger values are rejected for function watches.");
+        }
+
+        private static void StatisticsRespectScopeAndBayerSites()
+        {
+            var config = new FrameConfiguration(2, 2, 2, 8, 0, false, PixelOrder.GRFirst, PixelType.Bayer, VisualizeChannel.Gray);
+            var frame = new FrameBuffer(config, new long[] { 10, 20, 30, 40 });
+            var all = FrameStatisticsCalculator.Calculate(frame, 0, 0, 2, 2, VisualizeChannel.Gray);
+            Assert(all.Visible.Count == 4 && all.Visible.Minimum == 10 && all.Visible.Maximum == 40, "Statistics include the selected rectangle.");
+            Assert(Math.Abs(all.Visible.Mean - 25.0) < 0.0001 && Math.Abs(all.Visible.StandardDeviation - Math.Sqrt(125.0)) < 0.0001,
+                "Statistics use population mean and standard deviation.");
+            Assert(all.R.Count == 1 && all.R.Mean == 20 && all.Gr.Mean == 10 && all.Gb.Mean == 40 && all.B.Mean == 30,
+                "Bayer channel statistics retain full-frame GRBG phase.");
+            var redOnly = FrameStatisticsCalculator.Calculate(frame, 0, 0, 2, 2, VisualizeChannel.R);
+            Assert(redOnly.Visible.Count == 1 && redOnly.Visible.Mean == 20, "Filter scope uses the selected display channel.");
+        }
+
         private static void SourceElementTypesPreserveStorageShape()
         {
             var signed16 = new FrameConfiguration(2, 1, 2, 8, 8, true, PixelOrder.GRFirst, PixelType.Bayer,
@@ -91,6 +129,9 @@ namespace ArrayImageViewer.Tests
             var topLeft = RoiGeometry.ClampCentered(4096, 3072, 0, 0, 5, 5);
             Assert(topLeft.X == 0 && topLeft.Y == 0 && topLeft.Width == 5 && topLeft.Height == 5, "5x5 ROI clamps at top-left.");
             Assert(topLeft.CenterX == 2 && topLeft.CenterY == 2, "Clamped ROI reports actual center.");
+            var visualTopLeft = RoiGeometry.CenteredUnclipped(0, 0, 5, 5);
+            Assert(visualTopLeft.X == -2 && visualTopLeft.Y == -2 && visualTopLeft.CenterX == 0 && visualTopLeft.CenterY == 0,
+                "Display ROI retains the requested edge centre.");
             var bottomRight = RoiGeometry.ClampCentered(4096, 3072, 4095, 3071, 5, 5);
             Assert(bottomRight.X == 4091 && bottomRight.Y == 3067, "5x5 ROI clamps at bottom-right.");
             var full = RoiGeometry.ClampCentered(4096, 3072, 1978, 369, 99999, 99999);

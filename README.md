@@ -127,15 +127,49 @@ a suggestion applies its element type and signedness. Each pointer that is captu
 or successfully loaded receives an in-window **Session Profile**: its dimensions,
 stride, source element type, Q-format, Bayer settings, visualization mode, and ROI
 are restored when that profile is selected. Settings update automatically and can
-also be saved explicitly with **Save settings**. Profiles contain configuration only
-(no samples are saved) and are discarded when the viewer window is closed.
+also be saved explicitly with **Save settings**. With **Remember for this solution**
+enabled, the last viewer state is restored after Visual Studio restarts with that
+same solution. Use **Set name** and **Save set** to store multiple named profile
+sets (for example `Full sensor`, `Padded raw`, or `Loss map`); each contains the
+expression, W/H/stride, Q/Bayer settings, View ROI, and Kernel ROI. These are
+local to the solution and contain configuration only—no debuggee samples are saved.
 
 **Auto update** is on by default: after you finish editing a field or select a
-local value, the viewer rereads the bounded View ROI after a short debounce. Turn
-it off when manually staging several settings. Invalid input is highlighted with a
+local value, the viewer rereads the bounded View ROI after a short debounce. It
+also refreshes that bounded ROI whenever F10/F11 (or another debugger transition)
+returns the debuggee to Break mode, so an updated output buffer is reread without
+pressing a button. Full preview is deliberately not reread after every step. Turn
+Auto update off when manually staging several settings. Invalid input is highlighted with a
 red border, tooltip, and status message. View movement is not a data operation:
 middle/Shift-drag, the View arrows, and keyboard arrows pan only the viewport and
 never reread debugger memory.
+
+### Hardware pixel watch
+
+While a native C++ debuggee is paused, **Watch + Run** installs one Visual Studio
+native data breakpoint for the selected full-frame sample and immediately resumes
+execution. The watched address follows `pointer + (y * stride + x)`, so row
+padding is honored. When that sample is written, Visual Studio stops and the
+current View ROI refreshes. Press **Watch + Run** again without changing the
+pointer/X/Y to continue until the next write; **Clear watch** removes the
+viewer-owned breakpoint. It is also removed when the viewer closes.
+
+This is a single hardware data breakpoint, not a whole-ROI watch. Plain pointer
+variables such as `A`, `B`, or `inputBuffer` are watched directly. A function or
+property expression such as `data->GetPointer()` is evaluated exactly once while
+paused, then the resulting literal address is watched; this avoids repeatedly
+calling the function from Visual Studio's data-breakpoint machinery. Re-arm that
+watch after the function's pointer value changes or after a new debug session starts.
+
+### Array tabs
+
+The strip immediately above the image has one tab per comparison target. Use
+**+ Array** to open a new input while retaining the current interpretation as a
+starting point, then choose another pointer or expression. Switching tabs restores
+that tab's expression, frame/Q/Bayer settings, View and Kernel ROI, zoom, scroll
+position, frame-map preview, and last rendered ROI without rereading debugger
+memory. Close (`×`) discards only that tab's in-memory image cache; no raw samples
+are written to disk.
 
 `Visualize` supports `Gray`, original color-coded `BayerRaw`, a lightweight
 `Composite` Bayer preview, and `R`/`G`/`Gr`/`Gb`/`B` planes. Composite uses the
@@ -207,17 +241,35 @@ frame coordinates into 2x2 and 4x4 blocks respectively.
 
 `samples\SensorRawDebuggee` is an x64 C++ console application that chooses the
 newest C++ toolset actually installed in the opened Visual Studio (normally v140
-in 2015, v141 in 2017, v142 in 2019, or v143 in 2022). It allocates and fills
-`sensorRaw`, a `uint32_t*` containing a 4096x3072 GRBG 13-bit test pattern, then
-stops at `__debugbreak()`.
+in 2015, v141 in 2017, v142 in 2019, or v143 in 2022). It stops at one
+`__debugbreak()` with these pointer locals alive:
+
+- `B` / `inputBuffer` / `sensorRaw`: `unsigned int*`, 4096x3072 GRBG, 13-bit input values.
+- `outputBuffer`: `uint16_t*`, the matching 4096x3072 processed output. The
+  sample applies black-level subtraction, Q8 digital gain, and 14-bit clipping
+  before the breakpoint.
+- `paddedRaw`: `uint16_t*`, 640x480 image with stride 672 and `0xDEAD` row padding.
+- `A` / `scoreMap`: `int*`, signed Q8.8 Gray score map.
+- `tetraRaw` and `tetraSquareRaw`: 12-bit `uint16_t*` test patterns for their
+  corresponding physical Bayer pixel types.
+- `defectMask`: 8-bit Gray grid/hot-pixel map.
+
+It also leaves each matching width, height, stride, center, and 5x5 ROI local in
+scope. `cachedSensorPointer` demonstrates the recommended replacement for a
+function-derived pointer expression: capture the pointer into a regular local,
+rather than making the debugger evaluate `object.GetPointer()` repeatedly.
 
 Set `SensorRawDebuggee` as the startup project and start debugging. At the break:
 
-- Set `expr` to `previewRaw`, `W/H/stride` to `128/128/128`, Q format to
-  `13.0b`, **Signed int** off, Pixel order to `GRFirst`, Pixel type to `Bayer`,
-  Visualize to `BayerRaw`, and ROI W/H to `5/5`; then select **Load ROI**. This
-  exercises the debugger-backed input path immediately.
-- Set `expr` to `sensorRaw` and dimensions to `4096/3072/4096` to use the same
-  settings intended for the full buffer. Set Go to X/Y and ROI W/H before
-  selecting **Load ROI**; the 4096x3072 frame is never read as 12 million
-  individual debugger expressions.
+- Select `B (unsigned int*)` from Pointer, or enter `inputBuffer`; use
+  `inputWidth/inputHeight/inputStride`, Q format `13.0b`, Pixel order `GRFirst`,
+  Pixel type `Bayer`, and Visualize `BayerRaw`. Then select `outputBuffer` and
+  use `outputWidth/outputHeight/outputStride`, `14.0b`, and the same Bayer
+  settings to compare the processing result at exactly the same coordinates.
+- Select `paddedRaw`; use `paddedWidth/paddedHeight/paddedStride` and `12.0b`.
+  The `0xDEAD` padding must not render, proving the stride is measured in samples.
+- Select `A (int*)` or `scoreMap`; use `smallWidth/smallHeight/smallStride`,
+  signed `8.8b`, and Visualize `Gray`.
+- Select `tetraRaw` or `tetraSquareRaw`; use the small dimensions, `12.0b`,
+  `GRFirst`, and their matching Pixel type. Use `defectMask` with `UInt8`,
+  `8.0b`, and `Gray` to verify an 8-bit generic map.

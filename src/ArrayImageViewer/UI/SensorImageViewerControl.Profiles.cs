@@ -219,6 +219,7 @@ namespace ArrayImageViewer.UI
             if (!isApplyingProfile)
             {
                 UpdateExpressionSuggestions();
+                PersistCurrentSessionIfRequested();
             }
         }
 
@@ -328,7 +329,73 @@ namespace ArrayImageViewer.UI
             activeProfileExpression = sourceExpression;
             SaveCurrentProfile();
             RebuildProfilePicker(sourceExpression);
-            SetStatus("Saved interpretation settings for " + sourceExpression + " in this Viewer window. RAW samples were not retained.");
+            SetStatus("Saved interpretation settings for " + sourceExpression + ". RAW samples were not retained.");
+        }
+
+        private void ProfileSetPickerChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (isApplyingProfile)
+            {
+                return;
+            }
+
+            var profileSet = profileSetPicker.SelectedItem as NamedProfileSet;
+            if (profileSet == null)
+            {
+                return;
+            }
+
+            SaveCurrentProfile();
+            profileSetName.Text = profileSet.Name;
+            profiles[profileSet.Profile.Expression] = profileSet.Profile;
+            ApplyProfile(profileSet.Profile);
+            PersistLastSession(profileSet.Profile);
+            SetStatus("Restored profile set '" + profileSet.Name + "'. The current View ROI will refresh after the debugger pauses.");
+            ScheduleAutoRefresh();
+        }
+
+        private void SaveProfileSet(object sender, RoutedEventArgs e)
+        {
+            var name = profileSetName.Text == null ? String.Empty : profileSetName.Text.Trim();
+            if (name.Length == 0)
+            {
+                SetInputError("Enter a name before saving a profile set.");
+                return;
+            }
+
+            var profile = CreateCurrentProfile();
+            if (String.IsNullOrWhiteSpace(profile.Expression))
+            {
+                SetInputError("Choose a pointer or enter an expression before saving a profile set.");
+                return;
+            }
+
+            profileSets[name] = new NamedProfileSet(name, profile);
+            profiles[profile.Expression] = profile;
+            activeProfileExpression = profile.Expression;
+            PersistProfile(profile.Expression, profile);
+            PersistProfileSet(profileSets[name]);
+            PersistLastSession(profile);
+            RebuildProfilePicker(profile.Expression);
+            RebuildProfileSetPicker(name);
+            SetStatus("Saved profile set '" + name + "' for this solution. It contains the pointer, frame, Bayer/Q, View, and Kernel settings.");
+        }
+
+        private void DeleteProfileSet(object sender, RoutedEventArgs e)
+        {
+            var profileSet = profileSetPicker.SelectedItem as NamedProfileSet;
+            var name = profileSet == null ? (profileSetName.Text == null ? String.Empty : profileSetName.Text.Trim()) : profileSet.Name;
+            if (name.Length == 0 || !profileSets.ContainsKey(name))
+            {
+                SetStatus("Choose a saved profile set to delete.");
+                return;
+            }
+
+            profileSets.Remove(name);
+            DeletePersistedProfileSet(name);
+            profileSetName.Text = String.Empty;
+            RebuildProfileSetPicker(null);
+            SetStatus("Deleted profile set '" + name + "' from this solution. The active viewer settings were kept.");
         }
 
         private void ConfigureProfileAutoSave()
@@ -352,6 +419,8 @@ namespace ArrayImageViewer.UI
             pixelType.SelectionChanged += ProfileOptionChanged;
             visualizeChannel.SelectionChanged += ProfileOptionChanged;
             normalizationMode.SelectionChanged += NormalizationModeChanged;
+            rememberForSolution.Checked += RememberForSolutionChanged;
+            rememberForSolution.Unchecked += RememberForSolutionChanged;
         }
 
         private void ProfileInputChanged(object sender, TextChangedEventArgs e)
@@ -368,6 +437,7 @@ namespace ArrayImageViewer.UI
             }
 
             SaveCurrentProfile();
+            PersistCurrentSessionIfRequested();
             if (changed == selectedX || changed == selectedY)
             {
                 ScheduleCoordinateUpdate();
@@ -407,7 +477,15 @@ namespace ArrayImageViewer.UI
             }
 
             autoUpdate.Checked += delegate { ScheduleAutoRefresh(); };
-            autoUpdate.Unchecked += delegate { autoRefreshTimer.Stop(); };
+            autoUpdate.Unchecked += delegate { autoRefreshTimer.Stop(); debuggerBreakRefreshTimer.Stop(); };
+        }
+
+        private void RememberForSolutionChanged(object sender, RoutedEventArgs e)
+        {
+            if (rememberForSolution.IsChecked == true)
+            {
+                PersistCurrentSessionIfRequested();
+            }
         }
 
         private void InputFieldLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
@@ -445,6 +523,63 @@ namespace ArrayImageViewer.UI
             LoadContextPreview(null, null);
         }
 
+        internal void DebuggerReturnedToBreakMode()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(DebuggerReturnedToBreakMode));
+                return;
+            }
+
+            var hardwareWatchHit = HardwareWatchReturnedToBreakMode();
+            if (autoUpdate.IsChecked != true || String.IsNullOrWhiteSpace(expression.Text))
+            {
+                return;
+            }
+
+            debuggerBreakRefreshTimer.Stop();
+            debuggerBreakRefreshTimer.Start();
+            SetStatus(hardwareWatchHit
+                ? "Watched pixel changed; refreshing the current View ROI."
+                : "Debugger paused; refreshing the current View ROI after the step.");
+        }
+
+        private void DebuggerBreakRefreshTimerTick(object sender, EventArgs e)
+        {
+            debuggerBreakRefreshTimer.Stop();
+            if (autoUpdate.IsChecked == true && !String.IsNullOrWhiteSpace(expression.Text))
+            {
+                // Full previews are intentionally not reread after each F10/F11.
+                // This keeps automatic updates bounded to the current View ROI.
+                RefreshCurrentViewAfterDebuggerBreak();
+            }
+        }
+
+        private void RefreshCurrentViewAfterDebuggerBreak()
+        {
+            try
+            {
+                ClearAllInputErrors();
+                BeginNewReadRequest();
+                var configuration = ReadConfiguration();
+                // A hardware watch may have advanced the in-memory cursor
+                // while selectedX/Y intentionally retain local expressions.
+                // Refresh the existing View ROI without reevaluating those
+                // expressions or moving the viewport away from the watch stop.
+                var selectedGlobalX = currentX >= 0 && currentX < configuration.Width
+                    ? currentX : ResolveCurrentSelection(configuration).X;
+                var selectedGlobalY = currentY >= 0 && currentY < configuration.Height
+                    ? currentY : ResolveCurrentSelection(configuration).Y;
+                preserveViewportOnNextRender = true;
+                LoadContextPreviewAt(configuration, selectedGlobalX, selectedGlobalY);
+            }
+            catch (Exception exception)
+            {
+                preserveViewportOnNextRender = false;
+                SetInputError("Cannot refresh the current View ROI after the debugger break: " + exception.Message);
+            }
+        }
+
         private void ScheduleCoordinateUpdate()
         {
             if (isApplyingProfile)
@@ -463,8 +598,11 @@ namespace ArrayImageViewer.UI
             {
                 var configuration = ReadConfiguration();
                 var selection = ResolveCurrentSelection(configuration);
-                UpdateSelection(selection.X, selection.Y, false);
-                SaveCurrentProfile();
+                // X/Y is a coordinate search, not merely a cursor edit.
+                // Move the visible View ROI to the resolved full-frame point
+                // so entering a literal or local centerX/centerY immediately
+                // shows the requested location.
+                MoveViewTo(selection.X, selection.Y, true);
             }
             catch (Exception exception)
             {
@@ -483,12 +621,14 @@ namespace ArrayImageViewer.UI
         private void ProfileOptionChanged(object sender, RoutedEventArgs e)
         {
             SaveCurrentProfile();
+            PersistCurrentSessionIfRequested();
             ScheduleAutoRefresh();
         }
 
         private void ProfileOptionChanged(object sender, SelectionChangedEventArgs e)
         {
             SaveCurrentProfile();
+            PersistCurrentSessionIfRequested();
             ScheduleAutoRefresh();
         }
 
@@ -514,6 +654,7 @@ namespace ArrayImageViewer.UI
             }
 
             SaveCurrentProfile();
+            PersistCurrentSessionIfRequested();
             ScheduleAutoRefresh();
         }
 
@@ -547,6 +688,7 @@ namespace ArrayImageViewer.UI
             var elementType = (SourceElementType)selected;
             signed.IsChecked = elementType == SourceElementType.Int8 || elementType == SourceElementType.Int16 || elementType == SourceElementType.Int32;
             SaveCurrentProfile();
+            PersistCurrentSessionIfRequested();
             ScheduleAutoRefresh();
         }
 
@@ -567,6 +709,7 @@ namespace ArrayImageViewer.UI
             }
 
             SaveCurrentProfile();
+            PersistCurrentSessionIfRequested();
             ScheduleAutoRefresh();
         }
 
@@ -592,12 +735,9 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            profiles.Add(sourceExpression.Trim(), ViewerProfile.Create(sourceExpression.Trim(), width.Text, height.Text, stride.Text, qFormat.Text,
-                signed.IsChecked == true, (SourceElementType)sourceElementType.SelectedItem, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
-                (VisualizeChannel)visualizeChannel.SelectedItem, GetSelectedNormalizationMode(), normalizationMinimum.Text, normalizationMaximum.Text,
-                selectedX.Text, selectedY.Text, renderWidth.Text, renderHeight.Text, roiWidth.Text, roiHeight.Text,
-                kernelCenterX, kernelCenterY, viewCenterX, viewCenterY));
+            profiles.Add(sourceExpression.Trim(), CreateCurrentProfile(sourceExpression.Trim()));
             PersistProfile(sourceExpression.Trim(), profiles[sourceExpression.Trim()]);
+            PersistLastSession(profiles[sourceExpression.Trim()]);
         }
 
         private void SaveCurrentProfile()
@@ -613,12 +753,23 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
-            profiles[sourceExpression] = ViewerProfile.Create(sourceExpression, width.Text, height.Text, stride.Text, qFormat.Text,
+            profiles[sourceExpression] = CreateCurrentProfile(sourceExpression);
+            PersistProfile(sourceExpression, profiles[sourceExpression]);
+            PersistLastSession(profiles[sourceExpression]);
+        }
+
+        private ViewerProfile CreateCurrentProfile()
+        {
+            return CreateCurrentProfile(expression.Text == null ? String.Empty : expression.Text.Trim());
+        }
+
+        private ViewerProfile CreateCurrentProfile(string sourceExpression)
+        {
+            return ViewerProfile.Create(sourceExpression, width.Text, height.Text, stride.Text, qFormat.Text,
                 signed.IsChecked == true, (SourceElementType)sourceElementType.SelectedItem, (PixelOrder)pixelOrder.SelectedItem, (PixelType)pixelType.SelectedItem,
                 (VisualizeChannel)visualizeChannel.SelectedItem, GetSelectedNormalizationMode(), normalizationMinimum.Text, normalizationMaximum.Text,
                 selectedX.Text, selectedY.Text, renderWidth.Text, renderHeight.Text, roiWidth.Text, roiHeight.Text,
                 kernelCenterX, kernelCenterY, viewCenterX, viewCenterY);
-            PersistProfile(sourceExpression, profiles[sourceExpression]);
         }
 
         private void RebuildProfilePicker(string selectedExpression)
@@ -677,6 +828,85 @@ namespace ArrayImageViewer.UI
             RebuildProfilePicker(profile.Expression);
         }
 
+        private void RebuildProfileSetPicker(string selectedName)
+        {
+            isApplyingProfile = true;
+            var items = new List<NamedProfileSet>();
+            foreach (var profileSet in profileSets.Values)
+            {
+                items.Add(profileSet);
+            }
+
+            profileSetPicker.ItemsSource = items;
+            profileSetPicker.SelectedItem = null;
+            for (var index = 0; index < items.Count; index++)
+            {
+                if (String.Equals(items[index].Name, selectedName, StringComparison.OrdinalIgnoreCase))
+                {
+                    profileSetPicker.SelectedItem = items[index];
+                    break;
+                }
+            }
+            isApplyingProfile = false;
+        }
+
+        private void RestorePersistentWorkspaceState()
+        {
+            if (rememberForSolution.IsChecked != true)
+            {
+                return;
+            }
+
+            try
+            {
+                var solutionIdentity = DebugExpressionFrameReader.GetActiveSolutionIdentity();
+                var profileSetPrefix = solutionIdentity + "\nprofile-set\n";
+                var profileSetRecords = ReadPersistedRecords(PersistedProfileSetsPath);
+                foreach (var pair in profileSetRecords)
+                {
+                    if (!pair.Key.StartsWith(profileSetPrefix, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    var profile = DeserializeProfile(pair.Value);
+                    var name = pair.Key.Substring(profileSetPrefix.Length);
+                    if (profile != null && !String.IsNullOrWhiteSpace(name))
+                    {
+                        profileSets[name] = new NamedProfileSet(name, profile);
+                    }
+                }
+                RebuildProfileSetPicker(null);
+
+                string serialized;
+                if (ReadPersistedRecords(PersistedLastSessionPath).TryGetValue(solutionIdentity + "\nlast-session", out serialized))
+                {
+                    var restored = DeserializeProfile(serialized);
+                    if (restored != null && !String.IsNullOrWhiteSpace(restored.Expression))
+                    {
+                        profiles[restored.Expression] = restored;
+                        ApplyProfile(restored);
+                        SetStatus("Restored the last viewer state for this solution. Pause the debuggee to refresh its current View ROI.");
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Persisted settings are optional. A corrupt user file must
+                // never prevent the viewer from opening.
+            }
+        }
+
+        private void PersistCurrentSessionIfRequested()
+        {
+            if (isApplyingProfile || rememberForSolution.IsChecked != true || String.IsNullOrWhiteSpace(expression.Text))
+            {
+                return;
+            }
+
+            PersistLastSession(CreateCurrentProfile());
+        }
+
         // Profiles are kept below LocalAppData rather than in the solution
         // directory, so opening the same solution restores its interpretation
         // without creating untracked project files. The key includes the
@@ -691,6 +921,22 @@ namespace ArrayImageViewer.UI
             }
         }
 
+        private static string PersistedProfileSetsPath
+        {
+            get
+            {
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ArrayImageViewer", "profile-sets-v1.txt");
+            }
+        }
+
+        private static string PersistedLastSessionPath
+        {
+            get
+            {
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ArrayImageViewer", "last-session-v1.txt");
+            }
+        }
+
         private string GetPersistedProfileKey(string sourceExpression, SourceElementType elementType)
         {
             return DebugExpressionFrameReader.GetActiveSolutionIdentity() + "\n" + sourceExpression.Trim() + "\n" + elementType.ToString();
@@ -698,31 +944,17 @@ namespace ArrayImageViewer.UI
 
         private void PersistProfile(string sourceExpression, ViewerProfile profile)
         {
+            if (rememberForSolution.IsChecked != true)
+            {
+                return;
+            }
+
             try
             {
                 var key = GetPersistedProfileKey(sourceExpression, profile.SourceElementType);
-                var records = new Dictionary<string, string>(StringComparer.Ordinal);
-                if (File.Exists(PersistedProfilesPath))
-                {
-                    var lines = File.ReadAllLines(PersistedProfilesPath);
-                    for (var index = 0; index < lines.Length; index++)
-                    {
-                        var split = lines[index].IndexOf('\t');
-                        if (split > 0)
-                        {
-                            records[DecodeStoredValue(lines[index].Substring(0, split))] = lines[index].Substring(split + 1);
-                        }
-                    }
-                }
-
+                var records = ReadPersistedRecords(PersistedProfilesPath);
                 records[key] = SerializeProfile(profile);
-                Directory.CreateDirectory(Path.GetDirectoryName(PersistedProfilesPath));
-                var output = new List<string>();
-                foreach (var pair in records)
-                {
-                    output.Add(EncodeStoredValue(pair.Key) + "\t" + pair.Value);
-                }
-                File.WriteAllLines(PersistedProfilesPath, output.ToArray());
+                WritePersistedRecords(PersistedProfilesPath, records);
             }
             catch (Exception)
             {
@@ -736,21 +968,17 @@ namespace ArrayImageViewer.UI
             profile = null;
             try
             {
-                if (!File.Exists(PersistedProfilesPath))
+                if (rememberForSolution.IsChecked != true)
                 {
                     return false;
                 }
 
                 var key = GetPersistedProfileKey(sourceExpression, elementType);
-                var lines = File.ReadAllLines(PersistedProfilesPath);
-                for (var index = 0; index < lines.Length; index++)
+                string serialized;
+                if (ReadPersistedRecords(PersistedProfilesPath).TryGetValue(key, out serialized))
                 {
-                    var split = lines[index].IndexOf('\t');
-                    if (split > 0 && String.Equals(DecodeStoredValue(lines[index].Substring(0, split)), key, StringComparison.Ordinal))
-                    {
-                        profile = DeserializeProfile(lines[index].Substring(split + 1));
-                        return profile != null;
-                    }
+                    profile = DeserializeProfile(serialized);
+                    return profile != null;
                 }
             }
             catch (Exception)
@@ -759,6 +987,99 @@ namespace ArrayImageViewer.UI
             }
 
             return false;
+        }
+
+        private void PersistProfileSet(NamedProfileSet profileSet)
+        {
+            if (rememberForSolution.IsChecked != true)
+            {
+                return;
+            }
+
+            try
+            {
+                var records = ReadPersistedRecords(PersistedProfileSetsPath);
+                records[GetProfileSetKey(profileSet.Name)] = SerializeProfile(profileSet.Profile);
+                WritePersistedRecords(PersistedProfileSetsPath, records);
+            }
+            catch (Exception)
+            {
+                // The in-memory set remains usable if local persistence fails.
+            }
+        }
+
+        private void DeletePersistedProfileSet(string name)
+        {
+            if (rememberForSolution.IsChecked != true)
+            {
+                return;
+            }
+
+            try
+            {
+                var records = ReadPersistedRecords(PersistedProfileSetsPath);
+                records.Remove(GetProfileSetKey(name));
+                WritePersistedRecords(PersistedProfileSetsPath, records);
+            }
+            catch (Exception)
+            {
+                // The UI already removed the in-memory entry.
+            }
+        }
+
+        private void PersistLastSession(ViewerProfile profile)
+        {
+            if (rememberForSolution.IsChecked != true || profile == null || String.IsNullOrWhiteSpace(profile.Expression))
+            {
+                return;
+            }
+
+            try
+            {
+                var records = ReadPersistedRecords(PersistedLastSessionPath);
+                records[DebugExpressionFrameReader.GetActiveSolutionIdentity() + "\nlast-session"] = SerializeProfile(profile);
+                WritePersistedRecords(PersistedLastSessionPath, records);
+            }
+            catch (Exception)
+            {
+                // Persistence must not interfere with debugger inspection.
+            }
+        }
+
+        private string GetProfileSetKey(string name)
+        {
+            return DebugExpressionFrameReader.GetActiveSolutionIdentity() + "\nprofile-set\n" + name;
+        }
+
+        private static Dictionary<string, string> ReadPersistedRecords(string path)
+        {
+            var records = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (!File.Exists(path))
+            {
+                return records;
+            }
+
+            var lines = File.ReadAllLines(path);
+            for (var index = 0; index < lines.Length; index++)
+            {
+                var split = lines[index].IndexOf('\t');
+                if (split > 0)
+                {
+                    records[DecodeStoredValue(lines[index].Substring(0, split))] = lines[index].Substring(split + 1);
+                }
+            }
+            return records;
+        }
+
+        private static void WritePersistedRecords(string path, Dictionary<string, string> records)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            var output = new List<string>();
+            foreach (var pair in records)
+            {
+                output.Add(EncodeStoredValue(pair.Key) + "\t" + pair.Value);
+            }
+            File.WriteAllLines(path, output.ToArray());
         }
 
         private static string SerializeProfile(ViewerProfile profile)

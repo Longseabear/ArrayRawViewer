@@ -341,8 +341,8 @@ namespace ArrayImageViewer.UI
 
         private void ShowMouseRoiPreview(RoiRectangle roi, string prefix)
         {
-            var localX = showsFullFrameContext ? roi.X : roi.X - frame.Configuration.OriginX;
-            var localY = showsFullFrameContext ? roi.Y : roi.Y - frame.Configuration.OriginY;
+            var localX = showsFullFrameContext ? roi.X + virtualCanvasPaddingX : roi.X - frame.Configuration.OriginX;
+            var localY = showsFullFrameContext ? roi.Y + virtualCanvasPaddingY : roi.Y - frame.Configuration.OriginY;
             mouseRoiRectangle.Width = Math.Max(1, roi.Width * zoom - 2);
             mouseRoiRectangle.Height = Math.Max(1, roi.Height * zoom - 2);
             Canvas.SetLeft(mouseRoiRectangle, localX * zoom + 1);
@@ -384,8 +384,8 @@ namespace ArrayImageViewer.UI
 
             var canvasX = (int)Math.Floor(point.X / zoom);
             var canvasY = (int)Math.Floor(point.Y / zoom);
-            var localX = canvasX - (showsFullFrameContext ? frame.Configuration.OriginX : 0);
-            var localY = canvasY - (showsFullFrameContext ? frame.Configuration.OriginY : 0);
+            var localX = canvasX - (showsFullFrameContext ? frame.Configuration.OriginX + virtualCanvasPaddingX : 0);
+            var localY = canvasY - (showsFullFrameContext ? frame.Configuration.OriginY + virtualCanvasPaddingY : 0);
             if (localX < 0 || localY < 0 || localX >= frame.Configuration.Width || localY >= frame.Configuration.Height)
             {
                 return false;
@@ -403,8 +403,8 @@ namespace ArrayImageViewer.UI
                 return TryGetGlobalImageCoordinate(point, out globalX, out globalY);
             }
 
-            globalX = (int)Math.Floor(point.X / zoom);
-            globalY = (int)Math.Floor(point.Y / zoom);
+            globalX = (int)Math.Floor(point.X / zoom) - virtualCanvasPaddingX;
+            globalY = (int)Math.Floor(point.Y / zoom) - virtualCanvasPaddingY;
             return globalX >= 0 && globalY >= 0 && globalX < fullFrameWidth && globalY < fullFrameHeight;
         }
 
@@ -455,8 +455,12 @@ namespace ArrayImageViewer.UI
             try
             {
                 var configuration = ReadConfiguration();
-                var selection = ResolveCurrentSelection(configuration);
-                MoveViewTo(selection.X, selection.Y, true);
+                // Local coordinate expressions remain intact across a Watch,
+                // but Center cursor must follow the actual stopped pixel, not
+                // reevaluate an older expression such as centerX/centerY.
+                var x = frame != null && currentX >= 0 && currentX < configuration.Width ? currentX : ResolveCurrentSelection(configuration).X;
+                var y = frame != null && currentY >= 0 && currentY < configuration.Height ? currentY : ResolveCurrentSelection(configuration).Y;
+                MoveViewTo(x, y, true);
             }
             catch (Exception exception)
             {

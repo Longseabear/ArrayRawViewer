@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Debugger.Interop;
@@ -19,6 +20,102 @@ namespace ArrayImageViewer.Debugging
         public const int DraftSampleLimit = 16384;
         public static bool LastRoiReadUsedMemory { get; private set; }
 
+        // Breakpoints.Add returns the collection rather than the new item.
+        // Resolve the actual COM breakpoint as the new automation object that
+        // appeared after Add. Native data breakpoints expose an empty Data
+        // property on several VS engines, and collection ordering is unstable.
+        private sealed class NativeDataBreakpointReference
+        {
+            private readonly object breakpoints;
+            private readonly HashSet<string> existingBreakpointIdentities;
+            private readonly int breakpointCountBeforeAdd;
+            private string resolvedBreakpointIdentity;
+            private string resolvedBreakpointName;
+            public string LastResolutionError { get; private set; }
+
+            public NativeDataBreakpointReference(object breakpoints, HashSet<string> existingBreakpointIdentities,
+                int breakpointCountBeforeAdd)
+            {
+                this.breakpoints = breakpoints;
+                this.existingBreakpointIdentities = existingBreakpointIdentities;
+                this.breakpointCountBeforeAdd = breakpointCountBeforeAdd;
+            }
+
+            public object TryResolve()
+            {
+                try
+                {
+                    LastResolutionError = null;
+                    var breakpointSnapshot = GetBreakpointSnapshot(breakpoints);
+                    var count = breakpointSnapshot.Count;
+
+                    // The generated Name contains the resolved native address
+                    // even when EnvDTE exposes an empty Data expression. Match
+                    // it first so Delete always receives a freshly retrieved
+                    // collection item rather than a stale COM wrapper.
+                    if (!String.IsNullOrWhiteSpace(resolvedBreakpointName))
+                    {
+                        for (var index = 1; index <= count; index++)
+                        {
+                            var candidate = breakpointSnapshot[index - 1];
+                            var candidateName = Convert.ToString(GetOptionalMember(candidate, "Name"), CultureInfo.InvariantCulture);
+                            if (String.Equals(candidateName, resolvedBreakpointName, StringComparison.Ordinal))
+                            {
+                                resolvedBreakpointIdentity = GetAutomationObjectIdentity(candidate);
+                                return candidate;
+                            }
+                        }
+                    }
+
+                    // EnvDTE appends a newly added native data breakpoint. This
+                    // exact position remains reliable while its COM identity is
+                    // still being published, whereas identity-only matching can
+                    // temporarily see the old collection snapshot.
+                    if (count >= breakpointCountBeforeAdd + 1)
+                    {
+                        var appended = breakpointSnapshot[breakpointCountBeforeAdd];
+                        var appendedIdentity = GetAutomationObjectIdentity(appended);
+                        // Add was invoked specifically with the Data argument,
+                        // so this appended item is the viewer's native data
+                        // breakpoint. Some native engines do not implement
+                        // LocationType through IDispatch (DISP_E_MEMBERNOTFOUND).
+                        if (!existingBreakpointIdentities.Contains(appendedIdentity))
+                        {
+                            resolvedBreakpointIdentity = appendedIdentity;
+                            resolvedBreakpointName = Convert.ToString(GetOptionalMember(appended, "Name"), CultureInfo.InvariantCulture);
+                            return appended;
+                        }
+                    }
+
+                    for (var index = 1; index <= count; index++)
+                    {
+                        var candidate = breakpointSnapshot[index - 1];
+                        var candidateIdentity = GetAutomationObjectIdentity(candidate);
+                        if (!String.IsNullOrWhiteSpace(resolvedBreakpointIdentity) &&
+                            String.Equals(candidateIdentity, resolvedBreakpointIdentity, StringComparison.Ordinal))
+                        {
+                            return candidate;
+                        }
+                        if (!String.IsNullOrWhiteSpace(candidateIdentity) &&
+                            !existingBreakpointIdentities.Contains(candidateIdentity))
+                        {
+                            resolvedBreakpointIdentity = candidateIdentity;
+                            resolvedBreakpointName = Convert.ToString(GetOptionalMember(candidate, "Name"), CultureInfo.InvariantCulture);
+                            return candidate;
+                        }
+                    }
+                }
+                catch (Exception exception)
+                {
+                    // The engine may still be publishing the breakpoint. A
+                    // later hit/clear attempt can resolve it again.
+                    LastResolutionError = exception.GetType().Name + ": " + exception.Message;
+                }
+
+                return null;
+            }
+        }
+
         public static FrameBuffer Read(string expression, FrameConfiguration configuration)
         {
             if (String.IsNullOrWhiteSpace(expression))
@@ -32,7 +129,7 @@ namespace ArrayImageViewer.Debugging
                     "Expression evaluation is limited to 16,384 samples. Use Load ROI on a native engine with debugger-memory access for larger data.");
             }
 
-            var dte = Package.GetGlobalService(typeof(SDTE));
+            var dte = GetDte();
             if (dte == null)
             {
                 throw new InvalidOperationException("Visual Studio's debugger service is unavailable. Break in the debuggee and try again.");
@@ -146,7 +243,7 @@ namespace ArrayImageViewer.Debugging
 
         public static string GetActiveEditorSelection()
         {
-            var dte = Package.GetGlobalService(typeof(SDTE));
+            var dte = GetDte();
             var document = GetMember(dte, "ActiveDocument");
             var selection = GetMember(document, "Selection");
             var selectedText = Convert.ToString(GetMember(selection, "Text"), CultureInfo.InvariantCulture);
@@ -176,7 +273,7 @@ namespace ArrayImageViewer.Debugging
         {
             try
             {
-                var dte = Package.GetGlobalService(typeof(SDTE));
+                var dte = GetDte();
                 var solution = GetOptionalMember(dte, "Solution");
                 var fullName = GetOptionalMember(solution, "FullName") as string;
                 if (!String.IsNullOrWhiteSpace(fullName))
@@ -221,10 +318,348 @@ namespace ArrayImageViewer.Debugging
             return (int)parsed;
         }
 
+        // A native data breakpoint must receive an address expression.  Passing
+        // data->GetPointer() directly makes some native engines reevaluate the
+        // method while programming or checking the breakpoint.  Resolve it
+        // exactly once while paused, then watch the resulting literal address.
+        internal static string ResolvePointerExpressionToAddress(string expression)
+        {
+            if (String.IsNullOrWhiteSpace(expression))
+            {
+                throw new ArgumentException("A pointer expression is required.", "expression");
+            }
+
+            var debugger = GetDebugger();
+            var evaluated = Invoke(debugger, "GetExpression", expression, true, 2000);
+            var value = Convert.ToString(GetMember(evaluated, "Value"), CultureInfo.InvariantCulture);
+            ulong address;
+            if (!DataWatchExpression.TryParsePointerAddress(value, out address))
+            {
+                throw new FormatException("The debugger did not return a pointer address for " + expression + ": " + value);
+            }
+            if (address == 0)
+            {
+                throw new InvalidOperationException("The pointer expression resolved to null.");
+            }
+
+            return "0x" + address.ToString("X", CultureInfo.InvariantCulture);
+        }
+
+        // EnvDTE exposes native data breakpoints through the ordinary
+        // Breakpoints collection. Keep this late-bound: the automation wrapper
+        // is available from VS 2015 onward, while the exact COM type differs
+        // between debugger engines and VS shells.
+        internal static object AddNativeDataBreakpoint(string dataExpression)
+        {
+            if (String.IsNullOrWhiteSpace(dataExpression))
+            {
+                throw new ArgumentException("A data expression is required.", "dataExpression");
+            }
+
+            var debugger = GetDebugger();
+            var breakpoints = GetMember(debugger, "Breakpoints");
+            if (breakpoints == null)
+            {
+                throw new InvalidOperationException("The current debugger does not expose a breakpoint collection.");
+            }
+
+            // EnvDTE.Breakpoints.Add(Function, File, Line, Column,
+            // Condition, ConditionType, Language, Data, DataCount, Address,
+            // HitCount, HitCountType). Enum value 1 is the documented
+            // WhenTrue/None default for VS 2015-2022.
+            var breakpointCountBeforeAdd = GetBreakpointSnapshot(breakpoints).Count;
+            var breakpointIdentitiesBeforeAdd = GetBreakpointIdentities(breakpoints);
+            Invoke(breakpoints, "Add", "", "", 1, 1, "", 1,
+                "", dataExpression, 1, "", 0, 1);
+            // Native engines can publish the new breakpoint to the automation
+            // collection later (often only once the debugger resumes). Add has
+            // already accepted the request, so keep a lazy reference instead
+            // of falsely reporting failure from a stale Count value.
+            return new NativeDataBreakpointReference(breakpoints, breakpointIdentitiesBeforeAdd, breakpointCountBeforeAdd);
+        }
+
+        internal static bool DeleteBreakpoint(object breakpoint)
+        {
+            string ignored;
+            return DeleteBreakpoint(breakpoint, out ignored);
+        }
+
+        internal static bool DeleteBreakpoint(object breakpoint, out string failureReason)
+        {
+            failureReason = null;
+            if (breakpoint == null)
+            {
+                return true;
+            }
+
+            try
+            {
+                var pending = breakpoint as NativeDataBreakpointReference;
+                if (pending != null)
+                {
+                    breakpoint = pending.TryResolve();
+                    if (breakpoint == null)
+                    {
+                        failureReason = "The Visual Studio breakpoint entry was not published. " + (pending.LastResolutionError ?? String.Empty);
+                        return false;
+                    }
+                }
+
+                // __ComObject's reflection binder can acknowledge Delete
+                // without dispatching it to the native engine.  The C# COM
+                // binder issues the IDispatch call used by EnvDTE itself.
+                dynamic nativeBreakpoint = breakpoint;
+                nativeBreakpoint.Delete();
+                return true;
+            }
+            catch (Exception exception)
+            {
+                // A native debugger can discard its data breakpoint at the
+                // end of a session. Treat that as already deleted.
+                failureReason = exception.GetType().Name + ": " + exception.Message;
+                return false;
+            }
+        }
+
+        internal static bool TryGetBreakpointHitCount(object breakpoint, out int hitCount)
+        {
+            hitCount = 0;
+            if (breakpoint == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var pending = breakpoint as NativeDataBreakpointReference;
+                if (pending != null)
+                {
+                    breakpoint = pending.TryResolve();
+                    if (breakpoint == null)
+                    {
+                        return false;
+                    }
+                }
+                var value = GetOptionalMember(breakpoint, "HitCount");
+                if (value == null)
+                {
+                    return false;
+                }
+                hitCount = Convert.ToInt32(value, CultureInfo.InvariantCulture);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        internal static bool WasBreakpointLastHit(object breakpoint)
+        {
+            if (breakpoint == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var pending = breakpoint as NativeDataBreakpointReference;
+                if (pending != null)
+                {
+                    breakpoint = pending.TryResolve();
+                    if (breakpoint == null)
+                    {
+                        return false;
+                    }
+                }
+
+                var debugger = GetDebugger();
+                var lastHit = GetOptionalMember(debugger, "BreakpointLastHit");
+                if (lastHit == null)
+                {
+                    return false;
+                }
+
+                // Native data breakpoints commonly expose an empty Data value
+                // and use a generated address as Name. Compare COM identity
+                // first; the text fields below are only compatibility
+                // fallbacks for engines that do not preserve COM identity.
+                if (AutomationObjectsMatch(breakpoint, lastHit))
+                {
+                    return true;
+                }
+
+                var watchedData = Convert.ToString(GetOptionalMember(breakpoint, "Data"), CultureInfo.InvariantCulture);
+                var hitData = Convert.ToString(GetOptionalMember(lastHit, "Data"), CultureInfo.InvariantCulture);
+                if (DataExpressionsMatch(watchedData, hitData))
+                {
+                    return true;
+                }
+
+                var watchedName = Convert.ToString(GetOptionalMember(breakpoint, "Name"), CultureInfo.InvariantCulture);
+                var hitName = Convert.ToString(GetOptionalMember(lastHit, "Name"), CultureInfo.InvariantCulture);
+                return !String.IsNullOrWhiteSpace(watchedName) &&
+                    String.Equals(watchedName, hitName, StringComparison.Ordinal);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static bool DataExpressionsMatch(string first, string second)
+        {
+            if (String.IsNullOrWhiteSpace(first) || String.IsNullOrWhiteSpace(second))
+            {
+                return false;
+            }
+
+            if (String.Equals(first, second, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            return String.Equals(RemoveWhitespace(first), RemoveWhitespace(second), StringComparison.Ordinal);
+        }
+
+        private static string RemoveWhitespace(string value)
+        {
+            var builder = new StringBuilder(value.Length);
+            for (var index = 0; index < value.Length; index++)
+            {
+                if (!Char.IsWhiteSpace(value[index]))
+                {
+                    builder.Append(value[index]);
+                }
+            }
+            return builder.ToString();
+        }
+
+        private static HashSet<string> GetBreakpointIdentities(object breakpoints)
+        {
+            var identities = new HashSet<string>(StringComparer.Ordinal);
+            try
+            {
+                foreach (var breakpoint in GetBreakpointSnapshot(breakpoints))
+                {
+                    var identity = GetAutomationObjectIdentity(breakpoint);
+                    if (!String.IsNullOrWhiteSpace(identity))
+                    {
+                        identities.Add(identity);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Adding a data breakpoint still succeeds on engines that do
+                // not publish their collection synchronously. Resolution will
+                // retry when the debugger later enters break mode.
+            }
+            return identities;
+        }
+
+        private static List<object> GetBreakpointSnapshot(object breakpoints)
+        {
+            var result = new List<object>();
+            var enumerable = breakpoints as IEnumerable;
+            if (enumerable == null)
+            {
+                throw new InvalidOperationException("The Visual Studio breakpoint collection is not enumerable.");
+            }
+
+            foreach (var breakpoint in enumerable)
+            {
+                if (breakpoint != null)
+                {
+                    result.Add(breakpoint);
+                }
+            }
+            return result;
+        }
+
+        private static bool AutomationObjectsMatch(object first, object second)
+        {
+            if (Object.ReferenceEquals(first, second))
+            {
+                return true;
+            }
+
+            var firstIdentity = GetAutomationObjectIdentity(first);
+            var secondIdentity = GetAutomationObjectIdentity(second);
+            return !String.IsNullOrWhiteSpace(firstIdentity) &&
+                String.Equals(firstIdentity, secondIdentity, StringComparison.Ordinal);
+        }
+
+        private static string GetAutomationObjectIdentity(object value)
+        {
+            if (value == null)
+            {
+                return null;
+            }
+
+            IntPtr unknown = IntPtr.Zero;
+            try
+            {
+                unknown = Marshal.GetIUnknownForObject(value);
+                return unknown.ToInt64().ToString("X", CultureInfo.InvariantCulture);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                if (unknown != IntPtr.Zero)
+                {
+                    Marshal.Release(unknown);
+                }
+            }
+        }
+
+        internal static void ContinueDebuggee()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            var uiShell = Package.GetGlobalService(typeof(SVsUIShell)) as IVsUIShell;
+            if (uiShell == null)
+            {
+                throw new InvalidOperationException("No active Visual Studio shell service is available.");
+            }
+
+            // Standard command set 97, command 295, is Visual Studio's F5
+            // Start command. In break mode it continues the current native
+            // debuggee. PostExecCommand is stable across VS 2015-2022 and
+            // does not rely on debugger-specific EnvDTE wrappers.
+            var commandGroup = new Guid("5EFC7975-14BC-11CF-9B2B-00AA00573819");
+            var result = uiShell.PostExecCommand(ref commandGroup, 295, 0, IntPtr.Zero);
+            if (result < 0)
+            {
+                Marshal.ThrowExceptionForHR(result);
+            }
+        }
+
+        internal static void StepOverDebuggee()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            var uiShell = Package.GetGlobalService(typeof(SVsUIShell)) as IVsUIShell;
+            if (uiShell == null)
+            {
+                throw new InvalidOperationException("No active Visual Studio shell service is available.");
+            }
+
+            // VSStd97 StepOver (F10). This is a normal source-line step and
+            // intentionally does not create a native data breakpoint.
+            var commandGroup = new Guid("5EFC7975-14BC-11CF-9B2B-00AA00573819");
+            var result = uiShell.PostExecCommand(ref commandGroup, 249, 0, IntPtr.Zero);
+            if (result < 0)
+            {
+                Marshal.ThrowExceptionForHR(result);
+            }
+        }
+
         private static IList<LocalExpression> GetCurrentFrameLocals()
         {
             var result = new List<LocalExpression>();
-            var dte = Package.GetGlobalService(typeof(SDTE));
+            var dte = GetDte();
             var debugger = GetMember(dte, "Debugger");
             // IDebugStackFrame2 is useful for direct memory access but does
             // not expose DTE's Locals/Arguments collections. Prefer the DTE
@@ -333,6 +768,7 @@ namespace ArrayImageViewer.Debugging
             IntPtr typedUnknown = IntPtr.Zero;
             try
             {
+                ThreadHelper.ThrowIfNotOnUIThread();
                 var debuggerService = Package.GetGlobalService(typeof(SVsShellDebugger));
                 if (debuggerService == null)
                 {
@@ -513,7 +949,7 @@ namespace ArrayImageViewer.Debugging
 
         private static object GetDebugger()
         {
-            var dte = Package.GetGlobalService(typeof(SDTE));
+            var dte = GetDte();
             var debugger = GetMember(dte, "Debugger");
             if (debugger == null)
             {
@@ -521,6 +957,18 @@ namespace ArrayImageViewer.Debugging
             }
 
             return debugger;
+        }
+
+        private static object GetDte()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            var dte = Package.GetGlobalService(typeof(SDTE));
+            if (dte == null)
+            {
+                throw new InvalidOperationException("Visual Studio's DTE service is unavailable.");
+            }
+
+            return dte;
         }
 
         private static bool IsIntegerType(string type)
