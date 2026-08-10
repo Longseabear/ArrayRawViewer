@@ -637,25 +637,6 @@ namespace ArrayImageViewer.Debugging
             }
         }
 
-        internal static void StepOverDebuggee()
-        {
-            ThreadHelper.ThrowIfNotOnUIThread();
-            var uiShell = Package.GetGlobalService(typeof(SVsUIShell)) as IVsUIShell;
-            if (uiShell == null)
-            {
-                throw new InvalidOperationException("No active Visual Studio shell service is available.");
-            }
-
-            // VSStd97 StepOver (F10). This is a normal source-line step and
-            // intentionally does not create a native data breakpoint.
-            var commandGroup = new Guid("5EFC7975-14BC-11CF-9B2B-00AA00573819");
-            var result = uiShell.PostExecCommand(ref commandGroup, 249, 0, IntPtr.Zero);
-            if (result < 0)
-            {
-                Marshal.ThrowExceptionForHR(result);
-            }
-        }
-
         private static IList<LocalExpression> GetCurrentFrameLocals()
         {
             var result = new List<LocalExpression>();

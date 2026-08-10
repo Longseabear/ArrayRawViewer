@@ -337,7 +337,9 @@ namespace ArrayImageViewer.UI
                 target.BorderBrush = ErrorBrush;
                 target.BorderThickness = new Thickness(2);
                 target.ToolTip = message;
-                target.Focus();
+                // Keep the user's current editor/focus untouched. Moving
+                // focus here interrupts expression typing and also makes the
+                // settings ScrollViewer jump to the highlighted field.
             }
 
             status.Foreground = ErrorBrush;

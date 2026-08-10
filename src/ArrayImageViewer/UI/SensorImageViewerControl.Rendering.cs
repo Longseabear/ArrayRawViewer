@@ -280,6 +280,7 @@ namespace ArrayImageViewer.UI
         private void ApplyRenderedFrame(FrameBuffer source, ImageSource bitmap, NormalizationRange normalization, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY,
             bool isFullPreview, bool showFullFrameContext, string sourceExpression, string readPath)
         {
+            var configurationScrollOffset = configurationScrollViewer == null ? 0 : configurationScrollViewer.VerticalOffset;
             var preserveViewport = preserveViewportOnNextRender;
             preserveViewportOnNextRender = false;
             var preserveContextZoom = showFullFrameContext && showsFullFrameContext && frame != null;
@@ -298,6 +299,7 @@ namespace ArrayImageViewer.UI
             RebuildProfilePicker(sourceExpression);
             CaptureActiveViewerTab();
             RefreshViewerTabs();
+            RestoreConfigurationScrollOffset(configurationScrollOffset);
         }
 
         private NormalizationRange ResolveNormalizationRange(FrameBuffer source)

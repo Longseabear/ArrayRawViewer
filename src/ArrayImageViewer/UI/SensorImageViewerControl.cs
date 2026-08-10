@@ -81,6 +81,7 @@ namespace ArrayImageViewer.UI
             ToolTip = "Select text and press Ctrl+C to copy."
         };
         private readonly TextBlock viewport = new TextBlock { Foreground = MutedBrush, Text = "No frame loaded", Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        private ScrollViewer configurationScrollViewer;
         private readonly ScrollViewer scrollViewer = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Background = CanvasBrush, Focusable = true };
         private readonly Canvas canvas = new Canvas { Background = CanvasBrush, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, MinWidth = 520, MinHeight = 260, Focusable = true };
         private readonly Rectangle unloadedFrame = new Rectangle { Fill = UnloadedFrameBrush, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
@@ -252,7 +253,7 @@ namespace ArrayImageViewer.UI
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 180 });
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var header = CreateHeader();
-            var configurationScroll = new ScrollViewer
+            configurationScrollViewer = new ScrollViewer
             {
                 Content = header,
                 Background = RootBrush,
@@ -261,8 +262,8 @@ namespace ArrayImageViewer.UI
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
-            Grid.SetRow(configurationScroll, 0);
-            root.Children.Add(configurationScroll);
+            Grid.SetRow(configurationScrollViewer, 0);
+            root.Children.Add(configurationScrollViewer);
             var splitter = new GridSplitter
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -291,6 +292,20 @@ namespace ArrayImageViewer.UI
             {
                 SetStatus("Pause the debuggee, choose a pointer or editor selection, then show ROI + context around X/Y.");
             }
+        }
+
+        private void RestoreConfigurationScrollOffset(double verticalOffset)
+        {
+            if (configurationScrollViewer == null)
+            {
+                return;
+            }
+
+            Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(delegate
+            {
+                var clampedOffset = Math.Max(0, Math.Min(verticalOffset, configurationScrollViewer.ScrollableHeight));
+                configurationScrollViewer.ScrollToVerticalOffset(clampedOffset);
+            }));
         }
 
         private UIElement CreateHeader()
@@ -427,16 +442,16 @@ namespace ArrayImageViewer.UI
 
             var watchContent = new StackPanel();
             var watchActions = CreateRow();
-            watchActions.Children.Add(CreateCompactAction(CreateButton("Next line", NextDebuggerLine, false)));
-            watchActions.Children.Add(CreateCompactAction(CreateButton("Watch + Run", WatchSelectedPixelAndContinue, true)));
-            watchActions.Children.Add(CreateCompactAction(CreateButton("Watch next", WatchNextPixelAndContinue, false)));
+            watchActions.Children.Add(CreateCompactAction(CreateButton("Watch (Go To X/Y)", WatchSelectedPixelAndContinue, true)));
+            watchActions.Children.Add(CreateCompactAction(CreateButton("Watch Next X", WatchNextPixelAndContinue, false)));
+            watchActions.Children.Add(CreateCompactAction(CreateButton("Watch Next Y", WatchNextLineAndContinue, false)));
             watchActions.Children.Add(new Border { Child = keepHardwareWatchArmed, Margin = new Thickness(2, 0, 12, 0), Padding = new Thickness(2, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
             watchActions.Children.Add(CreateCompactAction(CreateButton("Clear watch", ClearHardwareWatch, false)));
             watchContent.Children.Add(watchActions);
             watchContent.Children.Add(hardwareWatchInfo);
             watchContent.Children.Add(new TextBlock
             {
-                Text = "Next line is a normal F10 step. Watch + Run stops at the selected sample's next write and removes the one-shot watch. Watch next moves to the next sample first. Enable Keep armed only for repeated changes at the same sample.",
+                Text = "Watch uses the current Go To X/Y sample. Watch Next X advances one sample in row-major order; Watch Next Y keeps X and advances Y by one. Each one-shot watch is removed after it stops. Enable Keep armed only for repeated changes at the same sample.",
                 Foreground = MutedBrush,
                 FontSize = 10,
                 LineHeight = 15,

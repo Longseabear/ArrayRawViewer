@@ -23,22 +23,9 @@ namespace ArrayImageViewer.UI
         private FrameConfiguration pendingHardwareWatchConfiguration;
         private int pendingHardwareWatchX;
         private int pendingHardwareWatchY;
-        private bool pendingHardwareWatchIsNextPixel;
+        private string pendingHardwareWatchAdvanceLabel;
         private int pendingHardwareWatchReleaseAttempts;
         private string lastHardwareWatchReleaseError;
-
-        private void NextDebuggerLine(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                DebugExpressionFrameReader.StepOverDebuggee();
-                SetStatus("Stepping to the next source line (F10). The current View ROI will refresh when the debugger pauses.");
-            }
-            catch (Exception exception)
-            {
-                SetInputError("Cannot step to the next source line: " + exception.Message);
-            }
-        }
 
         private void WatchSelectedPixelAndContinue(object sender, RoutedEventArgs e)
         {
@@ -47,7 +34,7 @@ namespace ArrayImageViewer.UI
             {
                 var configuration = ReadConfiguration();
                 var selection = ResolveCurrentSelection(configuration);
-                StartHardwareWatchAndContinue(configuration, selection.X, selection.Y, false);
+                StartHardwareWatchAndContinue(configuration, selection.X, selection.Y, null);
             }
             catch (Exception exception)
             {
@@ -75,7 +62,7 @@ namespace ArrayImageViewer.UI
                     throw new InvalidOperationException("The selected pixel is the last sample in the frame; there is no next pixel to watch.");
                 }
 
-                if (StartHardwareWatchAndContinue(configuration, nextX, nextY, true))
+                if (StartHardwareWatchAndContinue(configuration, nextX, nextY, "X"))
                 {
                     UpdateWatchSelectionWithoutChangingView(nextX, nextY);
                 }
@@ -83,13 +70,40 @@ namespace ArrayImageViewer.UI
             catch (Exception exception)
             {
                 hardwareWatchRunning = false;
-                SetInputError("Cannot start next-pixel hardware watch: " + exception.Message);
+                SetInputError("Cannot start next-X hardware watch: " + exception.Message);
             }
         }
 
-        private bool StartHardwareWatchAndContinue(FrameConfiguration configuration, int x, int y, bool isNextPixel)
+        private void WatchNextLineAndContinue(object sender, RoutedEventArgs e)
         {
             Dispatcher.VerifyAccess();
+            try
+            {
+                var configuration = ReadConfiguration();
+                var selection = ResolveCurrentSelection(configuration);
+                var nextX = selection.X;
+                var nextY = selection.Y + 1;
+                if (nextY >= configuration.Height)
+                {
+                    throw new InvalidOperationException("The selected pixel is on the final image row; there is no next Y sample to watch.");
+                }
+
+                if (StartHardwareWatchAndContinue(configuration, nextX, nextY, "Y"))
+                {
+                    UpdateWatchSelectionWithoutChangingView(nextX, nextY);
+                }
+            }
+            catch (Exception exception)
+            {
+                hardwareWatchRunning = false;
+                SetInputError("Cannot start next-Y hardware watch: " + exception.Message);
+            }
+        }
+
+        private bool StartHardwareWatchAndContinue(FrameConfiguration configuration, int x, int y, string advanceLabel)
+        {
+            Dispatcher.VerifyAccess();
+            var isNextPixel = !String.IsNullOrEmpty(advanceLabel);
             var sourceExpression = expression.Text == null ? String.Empty : expression.Text.Trim();
             if (String.IsNullOrWhiteSpace(sourceExpression))
             {
@@ -111,7 +125,7 @@ namespace ArrayImageViewer.UI
                 CleanupRetiredHardwareWatches();
                 if (retiredHardwareWatchBreakpoints.Count > 0)
                 {
-                    QueueHardwareWatchAfterRelease(configuration, x, y, isNextPixel);
+                    QueueHardwareWatchAfterRelease(configuration, x, y, advanceLabel);
                     return false;
                 }
                 var dataExpression = DataWatchExpression.BuildViewerOwned(
@@ -146,7 +160,7 @@ namespace ArrayImageViewer.UI
             }
             SetStatus(isSameWatch
                 ? "Hardware watch is already armed for pixel (" + x.ToString(CultureInfo.InvariantCulture) + ", " + y.ToString(CultureInfo.InvariantCulture) + "). Continuing until its next write."
-                : (isNextPixel ? "Watch next armed for pixel (" : "Hardware watch armed for pixel (") +
+                : (isNextPixel ? "Watch Next " + advanceLabel + " armed for pixel (" : "Watch armed for pixel (") +
                     x.ToString(CultureInfo.InvariantCulture) + ", " + y.ToString(CultureInfo.InvariantCulture) + "). Running until that sample is written.");
             return true;
         }
@@ -205,12 +219,12 @@ namespace ArrayImageViewer.UI
             }
         }
 
-        private void QueueHardwareWatchAfterRelease(FrameConfiguration configuration, int x, int y, bool isNextPixel)
+        private void QueueHardwareWatchAfterRelease(FrameConfiguration configuration, int x, int y, string advanceLabel)
         {
             pendingHardwareWatchConfiguration = configuration;
             pendingHardwareWatchX = x;
             pendingHardwareWatchY = y;
-            pendingHardwareWatchIsNextPixel = isNextPixel;
+            pendingHardwareWatchAdvanceLabel = advanceLabel;
             pendingHardwareWatchReleaseAttempts = 0;
             if (hardwareWatchReleaseTimer == null)
             {
@@ -220,7 +234,7 @@ namespace ArrayImageViewer.UI
             }
             hardwareWatchReleaseTimer.Start();
             hardwareWatchInfo.Text = "Releasing the previous native data breakpoint...";
-            SetStatus((isNextPixel ? "Watch next" : "Hardware watch") +
+            SetStatus((String.IsNullOrEmpty(advanceLabel) ? "Watch" : "Watch Next " + advanceLabel) +
                 " is queued and will arm automatically as soon as Visual Studio releases the previous data breakpoint.");
         }
 
@@ -244,11 +258,11 @@ namespace ArrayImageViewer.UI
             var configuration = pendingHardwareWatchConfiguration;
             var x = pendingHardwareWatchX;
             var y = pendingHardwareWatchY;
-            var isNextPixel = pendingHardwareWatchIsNextPixel;
+            var advanceLabel = pendingHardwareWatchAdvanceLabel;
             CancelPendingHardwareWatch();
             try
             {
-                if (StartHardwareWatchAndContinue(configuration, x, y, isNextPixel) && isNextPixel)
+                if (StartHardwareWatchAndContinue(configuration, x, y, advanceLabel) && !String.IsNullOrEmpty(advanceLabel))
                 {
                     UpdateWatchSelectionWithoutChangingView(x, y);
                 }
@@ -267,6 +281,7 @@ namespace ArrayImageViewer.UI
                 hardwareWatchReleaseTimer.Stop();
             }
             pendingHardwareWatchConfiguration = null;
+            pendingHardwareWatchAdvanceLabel = null;
             pendingHardwareWatchReleaseAttempts = 0;
         }
 
