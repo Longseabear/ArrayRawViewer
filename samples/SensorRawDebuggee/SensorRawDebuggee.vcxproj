@@ -62,7 +62,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="ImageSimulator.cpp" />
     <ClCompile Include="SensorRawDebuggee.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ImageSimulator.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

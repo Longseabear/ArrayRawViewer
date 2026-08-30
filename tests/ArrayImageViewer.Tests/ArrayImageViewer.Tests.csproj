@@ -28,6 +28,8 @@
     <Compile Include="..\..\src\ArrayImageViewer\Core\FrameBuffer.cs"><Link>Core\FrameBuffer.cs</Link></Compile>
     <Compile Include="..\..\src\ArrayImageViewer\Core\FrameRenderer.cs"><Link>Core\FrameRenderer.cs</Link></Compile>
     <Compile Include="..\..\src\ArrayImageViewer\Core\FrameStatistics.cs"><Link>Core\FrameStatistics.cs</Link></Compile>
+    <Compile Include="..\..\src\ArrayImageViewer\Core\StructureTemplateExpressions.cs"><Link>Core\StructureTemplateExpressions.cs</Link></Compile>
+    <Compile Include="..\..\src\ArrayImageViewer\Core\StructureSearchPolicy.cs"><Link>Core\StructureSearchPolicy.cs</Link></Compile>
     <Compile Include="..\..\src\ArrayImageViewer\Core\QFormat.cs"><Link>Core\QFormat.cs</Link></Compile>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

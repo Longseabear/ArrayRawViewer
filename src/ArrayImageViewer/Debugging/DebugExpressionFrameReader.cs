@@ -269,6 +269,106 @@ namespace ArrayImageViewer.Debugging
             return result;
         }
 
+        // Structure capture deliberately starts at one expression supplied by
+        // the user (normally "this").  It never walks Locals, Arguments, or
+        // another stack frame, which keeps discovery predictable in large
+        // native applications.  The debugger only expands children below that
+        // root and the two limits prevent a container or cyclic view from
+        // making the tool window unresponsive.
+        internal static IList<StructureCandidate> CaptureInterestedStructures(string rootExpression,
+            IList<string> interestedTypeNames, int maximumDepth, int maximumNodes)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            if (String.IsNullOrWhiteSpace(rootExpression))
+            {
+                throw new ArgumentException("Enter a root object expression such as this.");
+            }
+            if (interestedTypeNames == null || interestedTypeNames.Count == 0)
+            {
+                throw new ArgumentException("Create at least one structure template in Tools > Options before capture.");
+            }
+
+            var debugger = GetDebugger();
+            var results = new List<StructureCandidate>();
+            var pending = new Queue<StructureCaptureNode>();
+            var seenExpressions = new HashSet<string>(StringComparer.Ordinal);
+            pending.Enqueue(new StructureCaptureNode(rootExpression.Trim(), 0));
+
+            var visited = 0;
+            while (pending.Count > 0 && visited < maximumNodes)
+            {
+                var node = pending.Dequeue();
+                if (!seenExpressions.Add(node.Expression))
+                {
+                    continue;
+                }
+
+                visited++;
+                var evaluated = node.EvaluatedExpression;
+                if (evaluated == null)
+                {
+                    try
+                    {
+                        evaluated = Invoke(debugger, "GetExpression", node.Expression, true, 2000);
+                    }
+                    catch (Exception)
+                    {
+                        // A member can disappear in optimized native code. Keep
+                        // capture useful for the remaining object graph.
+                        continue;
+                    }
+                }
+
+                var type = !String.IsNullOrWhiteSpace(node.Type)
+                    ? node.Type
+                    : Convert.ToString(GetOptionalMember(evaluated, "Type"), CultureInfo.InvariantCulture) ?? String.Empty;
+                var matchedTemplate = StructureSearchPolicy.FindInterestedTypeName(type, interestedTypeNames);
+                if (matchedTemplate != null)
+                {
+                    results.Add(new StructureCandidate(node.Expression, GetPointerRootExpression(node.Expression, type), type, matchedTemplate));
+                    // A template object has already been found. Its m_data
+                    // pointer may expose thousands of raw elements, none of
+                    // which can contain another registered structure.
+                    continue;
+                }
+
+                if (node.Depth >= maximumDepth)
+                {
+                    continue;
+                }
+
+                var expansion = StructureSearchPolicy.GetExpansion(type, interestedTypeNames);
+                if (expansion == StructureSearchExpansion.None)
+                {
+                    continue;
+                }
+
+                var containerElements = 0;
+                foreach (var child in EnumerateExpressionChildren(evaluated))
+                {
+                    var childName = Convert.ToString(GetOptionalMember(child, "Name"), CultureInfo.InvariantCulture);
+                    if (String.IsNullOrWhiteSpace(childName) || IsDebuggerPresentationMember(childName))
+                    {
+                        continue;
+                    }
+
+                    if (expansion == StructureSearchExpansion.InterestedContainerElements)
+                    {
+                        if (!StructureSearchPolicy.IsContainerElementName(childName) || containerElements >= 16)
+                        {
+                            continue;
+                        }
+                        containerElements++;
+                    }
+
+                    var childType = Convert.ToString(GetOptionalMember(child, "Type"), CultureInfo.InvariantCulture);
+                    pending.Enqueue(new StructureCaptureNode(ComposeChildExpression(node.Expression, type, childName.Trim()), node.Depth + 1, child, childType));
+                }
+            }
+
+            return results;
+        }
+
         internal static string GetActiveSolutionIdentity()
         {
             try
@@ -318,6 +418,57 @@ namespace ArrayImageViewer.Debugging
             return (int)parsed;
         }
 
+        internal static bool TryGetExpressionType(string expression, out string type)
+        {
+            type = null;
+            if (String.IsNullOrWhiteSpace(expression))
+            {
+                return false;
+            }
+
+            try
+            {
+                var evaluated = Invoke(GetDebugger(), "GetExpression", expression.Trim(), true, 2000);
+                type = Convert.ToString(GetOptionalMember(evaluated, "Type"), CultureInfo.InvariantCulture);
+                return !String.IsNullOrWhiteSpace(type);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        internal static bool TryGetIntegralPointerType(string expression, out SourceElementType elementType, out string error)
+        {
+            elementType = SourceElementType.UInt32;
+            error = null;
+            if (String.IsNullOrWhiteSpace(expression))
+            {
+                error = "The RAW data expression is empty.";
+                return false;
+            }
+
+            try
+            {
+                var debugger = GetDebugger();
+                var evaluated = Invoke(debugger, "GetExpression", expression.Trim(), true, 2000);
+                var type = Convert.ToString(GetMember(evaluated, "Type"), CultureInfo.InvariantCulture);
+                if (!IsSupportedIntegralPointerType(type))
+                {
+                    error = "'" + expression + "' has type '" + type + "'. RAW data must be an 8/16/32-bit signed or unsigned integral pointer.";
+                    return false;
+                }
+
+                elementType = GetSourceElementType(type);
+                return true;
+            }
+            catch (Exception exception)
+            {
+                error = "Cannot evaluate RAW data expression '" + expression + "': " + exception.Message;
+                return false;
+            }
+        }
+
         // A native data breakpoint must receive an address expression.  Passing
         // data->GetPointer() directly makes some native engines reevaluate the
         // method while programming or checking the breakpoint.  Resolve it
@@ -349,11 +500,15 @@ namespace ArrayImageViewer.Debugging
         // Breakpoints collection. Keep this late-bound: the automation wrapper
         // is available from VS 2015 onward, while the exact COM type differs
         // between debugger engines and VS shells.
-        internal static object AddNativeDataBreakpoint(string dataExpression)
+        internal static object AddNativeDataBreakpoint(string dataExpression, int byteCount)
         {
             if (String.IsNullOrWhiteSpace(dataExpression))
             {
                 throw new ArgumentException("A data expression is required.", "dataExpression");
+            }
+            if (byteCount <= 0)
+            {
+                throw new ArgumentOutOfRangeException("byteCount");
             }
 
             var debugger = GetDebugger();
@@ -370,7 +525,7 @@ namespace ArrayImageViewer.Debugging
             var breakpointCountBeforeAdd = GetBreakpointSnapshot(breakpoints).Count;
             var breakpointIdentitiesBeforeAdd = GetBreakpointIdentities(breakpoints);
             Invoke(breakpoints, "Add", "", "", 1, 1, "", 1,
-                "", dataExpression, 1, "", 0, 1);
+                "", dataExpression, byteCount, "", 0, 1);
             // Native engines can publish the new breakpoint to the automation
             // collection later (often only once the debugger resumes). Add has
             // already accepted the request, so keep a lazy reference instead
@@ -887,6 +1042,73 @@ namespace ArrayImageViewer.Debugging
             }
         }
 
+        private static IEnumerable<object> EnumerateExpressionChildren(object expression)
+        {
+            var children = GetOptionalMember(expression, "DataMembers");
+            if (children == null)
+            {
+                yield break;
+            }
+
+            var enumerable = children as IEnumerable;
+            if (enumerable != null)
+            {
+                foreach (var child in enumerable)
+                {
+                    if (child != null)
+                    {
+                        yield return child;
+                    }
+                }
+                yield break;
+            }
+
+            var countObject = GetOptionalMember(children, "Count");
+            var count = countObject == null ? 0 : Convert.ToInt32(countObject, CultureInfo.InvariantCulture);
+            for (var index = 1; index <= count; index++)
+            {
+                object child;
+                try
+                {
+                    child = GetItem(children, index);
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+                if (child != null)
+                {
+                    yield return child;
+                }
+            }
+        }
+
+        private static string ComposeChildExpression(string parentExpression, string parentType, string childName)
+        {
+            if (childName.StartsWith("[", StringComparison.Ordinal))
+            {
+                return "(" + parentExpression + ")" + childName;
+            }
+
+            return "(" + parentExpression + ")" + (IsPointerType(parentType) ? "->" : ".") + childName;
+        }
+
+        private static string GetPointerRootExpression(string expression, string type)
+        {
+            return IsPointerType(type) ? expression : "&(" + expression + ")";
+        }
+
+        private static bool IsPointerType(string type)
+        {
+            return !String.IsNullOrWhiteSpace(type) && type.IndexOf('*') >= 0;
+        }
+
+        private static bool IsDebuggerPresentationMember(string name)
+        {
+            return name.StartsWith("{", StringComparison.Ordinal) || name.StartsWith("<", StringComparison.Ordinal) ||
+                String.Equals(name, "Raw View", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static void AddExpression(IList<LocalExpression> result, object local, int index)
         {
             string name;
@@ -958,6 +1180,32 @@ namespace ArrayImageViewer.Debugging
             return normalized.IndexOf("int") >= 0 || normalized.IndexOf("long") >= 0 || normalized.IndexOf("short") >= 0 ||
                    normalized.IndexOf("char") >= 0 || normalized.IndexOf("size_t") >= 0 || normalized.IndexOf("dword") >= 0 ||
                    normalized.IndexOf("word") >= 0;
+        }
+
+        private static bool IsSupportedIntegralPointerType(string type)
+        {
+            if (String.IsNullOrWhiteSpace(type))
+            {
+                return false;
+            }
+
+            var normalized = type.ToLowerInvariant();
+            var pointerCount = 0;
+            for (var index = 0; index < normalized.Length; index++)
+            {
+                if (normalized[index] == '*') pointerCount++;
+            }
+            if (pointerCount != 1 || normalized.IndexOf("float", StringComparison.Ordinal) >= 0 ||
+                normalized.IndexOf("double", StringComparison.Ordinal) >= 0 || normalized.IndexOf("bool", StringComparison.Ordinal) >= 0 ||
+                normalized.IndexOf("void", StringComparison.Ordinal) >= 0 || normalized.IndexOf("enum", StringComparison.Ordinal) >= 0 ||
+                normalized.IndexOf("class", StringComparison.Ordinal) >= 0 || normalized.IndexOf("struct", StringComparison.Ordinal) >= 0 ||
+                normalized.IndexOf("int64", StringComparison.Ordinal) >= 0 || normalized.IndexOf("uint64", StringComparison.Ordinal) >= 0 ||
+                normalized.IndexOf("__int64", StringComparison.Ordinal) >= 0 || normalized.IndexOf("long long", StringComparison.Ordinal) >= 0)
+            {
+                return false;
+            }
+
+            return IsIntegerType(normalized);
         }
 
         private static SourceElementType GetSourceElementType(string type)
@@ -1161,6 +1409,48 @@ namespace ArrayImageViewer.Debugging
             {
                 return Name + "  (" + Type + ")";
             }
+        }
+
+        internal sealed class StructureCandidate
+        {
+            public StructureCandidate(string expression, string pointerRootExpression, string type, string templateClassName)
+            {
+                Expression = expression;
+                PointerRootExpression = pointerRootExpression;
+                Type = type;
+                TemplateClassName = templateClassName;
+            }
+
+            public string Expression { get; private set; }
+            public string PointerRootExpression { get; private set; }
+            public string Type { get; private set; }
+            public string TemplateClassName { get; private set; }
+
+            public override string ToString()
+            {
+                return Expression + "  (" + Type + ")";
+            }
+        }
+
+        private sealed class StructureCaptureNode
+        {
+            public StructureCaptureNode(string expression, int depth)
+                : this(expression, depth, null, null)
+            {
+            }
+
+            public StructureCaptureNode(string expression, int depth, object evaluatedExpression, string type)
+            {
+                Expression = expression;
+                Depth = depth;
+                EvaluatedExpression = evaluatedExpression;
+                Type = type;
+            }
+
+            public string Expression { get; private set; }
+            public int Depth { get; private set; }
+            public object EvaluatedExpression { get; private set; }
+            public string Type { get; private set; }
         }
 
         private sealed class LocalExpression

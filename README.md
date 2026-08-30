@@ -122,8 +122,10 @@ seconds to about 1 second. Composite demosaic remains intentionally more expensi
 because each output pixel searches neighboring Bayer samples.
 
 When the expression box receives focus while the debuggee is paused, it refreshes
-the current stack's pointer locals and offers matching names as you type. Selecting
-a suggestion applies its element type and signedness. Each pointer that is captured
+the current stack's pointer locals and offers matching names as you type. A
+suggestion is applied only by pressing Enter or double-clicking it; refreshing
+locals never replaces a manually entered member expression such as `this->D`.
+Each pointer that is captured
 or successfully loaded receives an in-window **Session Profile**: its dimensions,
 stride, source element type, Q-format, Bayer settings, visualization mode, and ROI
 are restored when that profile is selected. Settings update automatically and can
@@ -144,15 +146,61 @@ red border, tooltip, and status message. View movement is not a data operation:
 middle/Shift-drag, the View arrows, and keyboard arrows pan only the viewport and
 never reread debugger memory.
 
+### Structure templates
+
+Use **Tools > Options > Array RAW Viewer > Structure Templates** to define one
+or more framework mappings without repeatedly typing member expressions. Select
+a saved template in the viewer to bind it. A template contains only a portable
+class/template name plus `RAW DATA`, `WIDTH`, and `HEIGHT` member paths such as
+`D`, `W`, and `H`. **SEARCH ROOT** belongs to the live Viewer session, not the
+template: enter `this`, `frame`, `ctx->input`, or another current-frame
+expression and press **Search objects**. The viewer composes `SEARCH ROOT=this`,
+`RAW DATA=D` as `(this)->D`. For unusual APIs, write an explicit suffix such as
+`->GetPointer()` or use `{root}` in a full expression such as `{root}.data()`.
+
+**Bind current root** evaluates Width/Height, sets stride equal to Width, and
+infers signedness and storage width from RAW DATA. Binding rejects missing
+expressions and non-integral, pointer-to-pointer, floating-point, bool, void, or
+64-bit raw data; supported sources are signed/unsigned primitive 8/16/32-bit
+pointers. Templates are retained per solution, contain no debuggee samples, and
+can be shared through the Options page's **Export JSON**/**Import JSON** buttons
+(`FormatVersion: 1`). This makes
+them suitable for committing alongside a framework integration or distributing
+with a team setup guide. A minimal portable file is:
+
+```json
+{
+  "FormatVersion": 1,
+  "Templates": [{
+    "ClassName": "MyStructure",
+    "DataAccess": "D",
+    "WidthAccess": "W",
+    "HeightAccess": "H"
+  }]
+}
+```
+
+**Search objects** is the fast path for a parent object. Enter a single
+root pointer such as `this`, then search. The viewer recursively expands only
+that object graph (depth 4, maximum 64 debugger nodes); it does not search
+Locals, Arguments, or the rest of the call stack. Only instances whose debugger
+type matches a registered template class are listed. Selecting a candidate does
+not change **SEARCH ROOT**. Press **Use captured object** to bind the selected
+candidate; a value object such as `this->input` then binds through
+`&((this)->input)` while a pointer member is used directly.
+
 ### Hardware pixel watch
 
-While a native C++ debuggee is paused, **Watch + Run** installs one Visual Studio
+While a native C++ debuggee is paused, **Watch (Go To X/Y)** installs one Visual Studio
 native data breakpoint for the selected full-frame sample and immediately resumes
-execution. The watched address follows `pointer + (y * stride + x)`, so row
-padding is honored. When that sample is written, Visual Studio stops and the
-current View ROI refreshes. Press **Watch + Run** again without changing the
-pointer/X/Y to continue until the next write; **Clear watch** removes the
-viewer-owned breakpoint. It is also removed when the viewer closes.
+execution. The viewer resolves the selected pointer while paused and registers
+the literal address `pointer + (y * stride + x) * elementSize`, so row padding
+is honored and the native engine does not need to reevaluate a `this`-dependent
+expression after it resumes. The breakpoint watches the source element's full
+byte width. When that sample is written, Visual Studio stops and the current View
+ROI refreshes. **Watch Next X** and **Watch Next Y** move the watched coordinate;
+**Clear watch** removes the viewer-owned breakpoint. It is also removed when the
+viewer closes.
 
 This is a single hardware data breakpoint, not a whole-ROI watch. Plain pointer
 variables such as `A`, `B`, or `inputBuffer` are watched directly. A function or
@@ -253,6 +301,9 @@ in 2015, v141 in 2017, v142 in 2019, or v143 in 2022). It stops at one
 - `tetraRaw` and `tetraSquareRaw`: 12-bit `uint16_t*` test patterns for their
   corresponding physical Bayer pixel types.
 - `defectMask`: 8-bit Gray grid/hot-pixel map.
+- `imageSimulator`: an `ImageSimulator` object whose `input`/`output` members,
+  `input_aux_stream` vector, and `output_aux_stream` C++ array all contain
+  minimal `ImageStream { m_width, m_height, unsigned int* m_data }` values.
 
 It also leaves each matching width, height, stride, center, and 5x5 ROI local in
 scope. `cachedSensorPointer` demonstrates the recommended replacement for a
@@ -273,3 +324,23 @@ Set `SensorRawDebuggee` as the startup project and start debugging. At the break
 - Select `tetraRaw` or `tetraSquareRaw`; use the small dimensions, `12.0b`,
   `GRFirst`, and their matching Pixel type. Use `defectMask` with `UInt8`,
   `8.0b`, and `Gray` to verify an 8-bit generic map.
+- The first break happens in `ImageSimulator.cpp` inside `ImageSimulator::ProcessAndBreakForCapture`, before
+  its nested `for (y) / for (x)` processing loop writes `output.m_data[y * width + x]`.
+  In the viewer use root `this` and **Capture structures**. The viewer detects the
+  included `ImageSimulator` root and adds the `ImageStream` sample mapping
+  (`m_data`, `m_width`, `m_height`) automatically. It should list the two direct
+  streams, two vector elements, and two array elements; select one then press
+  **Use captured object** to bind it. Bind `output`, choose a pixel, and use
+  **Watch (Go to X, Y)** before continuing to stop at that exact nested-loop write.
+
+### Native GoogleTest sample checks
+
+The repository includes a standalone GoogleTest target for the `ImageSimulator`
+fixture. CMake downloads GoogleTest 1.14.0 on first configuration; no manual
+gtest or vcpkg installation is required.
+
+```powershell
+cmake -S tests\NativeImageSimulatorTests -B tests\NativeImageSimulatorTests\build -G "Visual Studio 17 2022" -A x64
+cmake --build tests\NativeImageSimulatorTests\build --config Debug
+ctest --test-dir tests\NativeImageSimulatorTests\build -C Debug --output-on-failure
+```

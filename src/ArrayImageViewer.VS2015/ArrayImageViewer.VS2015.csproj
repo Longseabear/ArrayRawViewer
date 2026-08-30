@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -18,14 +18,38 @@
     <DeployExtension>false</DeployExtension>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DebugSymbols>true</DebugSymbols><DebugType>full</DebugType><Optimize>false</Optimize><OutputPath>bin\Debug\</OutputPath><DefineConstants>DEBUG;TRACE</DefineConstants>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <DebugType>pdbonly</DebugType><Optimize>true</Optimize><OutputPath>bin\Release\</OutputPath><DefineConstants>TRACE</DefineConstants>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+  </PropertyGroup>
+  <!-- VS 2022 builds this project only as a source-compatibility check. Its
+       64-bit VSIX tools cannot create a VS 2015 (Shell 14) pkgdef. The real
+       VS 2015 build keeps packaging enabled below. -->
+  <PropertyGroup Condition="'$(VisualStudioVersion)' &gt;= '17.0'">
+    <GeneratePkgDefFile>false</GeneratePkgDefFile>
+    <CreateVsixContainer>false</CreateVsixContainer>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="System" /><Reference Include="System.Core" /><Reference Include="System.Design" /><Reference Include="System.Xaml" />
-    <Reference Include="WindowsBase" /><Reference Include="PresentationCore" /><Reference Include="PresentationFramework" />
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Design" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
     <Reference Include="Microsoft.VisualStudio.Debugger.Interop">
       <HintPath>$(NuGetPackageRoot)microsoft.visualstudio.debugger.interop\8.0.50729\lib\net11\Microsoft.VisualStudio.Debugger.Interop.dll</HintPath>
       <Private>True</Private>
@@ -45,42 +69,112 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\ArrayImageViewer\CommandIds.cs"><Link>CommandIds.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\SensorImageViewerPackage.cs"><Link>SensorImageViewerPackage.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\SensorImageToolWindow.cs"><Link>SensorImageToolWindow.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\Core\BayerLayout.cs"><Link>Core\BayerLayout.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\Core\DataWatchExpression.cs"><Link>Core\DataWatchExpression.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\Core\FrameConfiguration.cs"><Link>Core\FrameConfiguration.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\Core\FrameBuffer.cs"><Link>Core\FrameBuffer.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\Core\FrameRenderer.cs"><Link>Core\FrameRenderer.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\Core\FrameStatistics.cs"><Link>Core\FrameStatistics.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\GlobalSuppressions.cs"><Link>GlobalSuppressions.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\Core\QFormat.cs"><Link>Core\QFormat.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\Debugging\DebugExpressionFrameReader.cs"><Link>Debugging\DebugExpressionFrameReader.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\Debugging\DebugMemoryFrameReader.cs"><Link>Debugging\DebugMemoryFrameReader.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.cs"><Link>UI\SensorImageViewerControl.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Profiles.cs"><Link>UI\SensorImageViewerControl.Profiles.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Rendering.cs"><Link>UI\SensorImageViewerControl.Rendering.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Navigation.cs"><Link>UI\SensorImageViewerControl.Navigation.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Interaction.cs"><Link>UI\SensorImageViewerControl.Interaction.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Viewport.cs"><Link>UI\SensorImageViewerControl.Viewport.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Export.cs"><Link>UI\SensorImageViewerControl.Export.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.DebugWatch.cs"><Link>UI\SensorImageViewerControl.DebugWatch.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Statistics.cs"><Link>UI\SensorImageViewerControl.Statistics.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Tabs.cs"><Link>UI\SensorImageViewerControl.Tabs.cs</Link></Compile>
-    <Compile Include="..\ArrayImageViewer\Properties\AssemblyInfo.cs"><Link>Properties\AssemblyInfo.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\CommandIds.cs">
+      <Link>CommandIds.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\SensorImageViewerPackage.cs">
+      <Link>SensorImageViewerPackage.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\SensorImageToolWindow.cs">
+      <Link>SensorImageToolWindow.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\Core\BayerLayout.cs">
+      <Link>Core\BayerLayout.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\Core\DataWatchExpression.cs">
+      <Link>Core\DataWatchExpression.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\Core\FrameConfiguration.cs">
+      <Link>Core\FrameConfiguration.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\Core\FrameBuffer.cs">
+      <Link>Core\FrameBuffer.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\Core\FrameRenderer.cs">
+      <Link>Core\FrameRenderer.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\Core\FrameStatistics.cs">
+      <Link>Core\FrameStatistics.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\Core\StructureTemplateExpressions.cs">
+      <Link>Core\StructureTemplateExpressions.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\Core\StructureSearchPolicy.cs">
+      <Link>Core\StructureSearchPolicy.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\GlobalSuppressions.cs">
+      <Link>GlobalSuppressions.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\Core\QFormat.cs">
+      <Link>Core\QFormat.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\Debugging\DebugExpressionFrameReader.cs">
+      <Link>Debugging\DebugExpressionFrameReader.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\Debugging\DebugMemoryFrameReader.cs">
+      <Link>Debugging\DebugMemoryFrameReader.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\Options\StructureTemplateOptionsPage.cs">
+      <Link>Options\StructureTemplateOptionsPage.cs</Link>
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.cs">
+      <Link>UI\SensorImageViewerControl.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Profiles.cs">
+      <Link>UI\SensorImageViewerControl.Profiles.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Rendering.cs">
+      <Link>UI\SensorImageViewerControl.Rendering.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Navigation.cs">
+      <Link>UI\SensorImageViewerControl.Navigation.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Interaction.cs">
+      <Link>UI\SensorImageViewerControl.Interaction.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Viewport.cs">
+      <Link>UI\SensorImageViewerControl.Viewport.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Export.cs">
+      <Link>UI\SensorImageViewerControl.Export.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.DebugWatch.cs">
+      <Link>UI\SensorImageViewerControl.DebugWatch.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Statistics.cs">
+      <Link>UI\SensorImageViewerControl.Statistics.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Tabs.cs">
+      <Link>UI\SensorImageViewerControl.Tabs.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.StructureTemplates.cs">
+      <Link>UI\SensorImageViewerControl.StructureTemplates.cs</Link>
+    </Compile>
+    <Compile Include="..\ArrayImageViewer\Properties\AssemblyInfo.cs">
+      <Link>Properties\AssemblyInfo.cs</Link>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <None Include="source.extension.vsixmanifest" />
-    <VSCTCompile Include="..\ArrayImageViewer\Menus.vsct"><Link>Menus.vsct</Link><ResourceName>Menus.ctmenu</ResourceName></VSCTCompile>
-    <EmbeddedResource Include="..\ArrayImageViewer\Resources.resx"><Link>Resources.resx</Link><MergeWithCTO>true</MergeWithCTO><ManifestResourceName>VSPackage</ManifestResourceName></EmbeddedResource>
+    <VSCTCompile Include="..\ArrayImageViewer\Menus.vsct">
+      <Link>Menus.vsct</Link>
+      <ResourceName>Menus.ctmenu</ResourceName>
+    </VSCTCompile>
+    <EmbeddedResource Include="..\ArrayImageViewer\Resources.resx">
+      <Link>Resources.resx</Link>
+      <MergeWithCTO>true</MergeWithCTO>
+      <ManifestResourceName>VSPackage</ManifestResourceName>
+    </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.Shell.14.0" Version="14.3.25407" />
-    <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="15.9.3039" PrivateAssets="all" />
+    <!-- The legacy project packages only under VS 2015/2019-era MSBuild.
+         VS 2022 skips this task import and builds it as a compile check. -->
+    <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="15.9.3039" PrivateAssets="all" Condition="'$(VisualStudioVersion)' &lt; '17.0'" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <Import Project="$(NuGetPackageRoot)microsoft.vssdk.buildtools\15.9.3039\tools\VSSDK\Microsoft.VsSDK.targets" Condition="Exists('$(NuGetPackageRoot)microsoft.vssdk.buildtools\15.9.3039\tools\VSSDK\Microsoft.VsSDK.targets')" />
+  <Import Project="$(NuGetPackageRoot)microsoft.vssdk.buildtools\15.9.3039\tools\VSSDK\Microsoft.VsSDK.targets" Condition="'$(VisualStudioVersion)' &lt; '17.0' and Exists('$(NuGetPackageRoot)microsoft.vssdk.buildtools\15.9.3039\tools\VSSDK\Microsoft.VsSDK.targets')" />
   <Target Name="AddDebuggerInteropToVsix" AfterTargets="GetVsixSourceItems">
     <ItemGroup>
       <VSIXSourceItem Include="$(NuGetPackageRoot)microsoft.visualstudio.debugger.interop\8.0.50729\lib\net11\Microsoft.VisualStudio.Debugger.Interop.dll">

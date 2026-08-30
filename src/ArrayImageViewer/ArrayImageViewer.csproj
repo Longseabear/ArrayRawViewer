@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -16,6 +16,10 @@
     <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
     <IncludeDebugSymbolsInVSIXContainer>true</IncludeDebugSymbolsInVSIXContainer>
     <CreateVsixContainer>true</CreateVsixContainer>
+    <!-- Deployment is performed by VSIXInstaller. Avoid the legacy automatic
+         deployment task, which probes the wrong task-host dependencies in
+         64-bit VS 2022 MSBuild. -->
+    <DeployExtension>false</DeployExtension>
     <VsixManifest>source.extension.vsixmanifest</VsixManifest>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
@@ -39,6 +43,10 @@
     <Reference Include="System.Core" />
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Design" />
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xaml" />
     <Reference Include="WindowsBase" />
     <Reference Include="PresentationCore" />
@@ -61,10 +69,15 @@
     <Compile Include="Core\FrameBuffer.cs" />
     <Compile Include="Core\FrameRenderer.cs" />
     <Compile Include="Core\FrameStatistics.cs" />
+    <Compile Include="Core\StructureTemplateExpressions.cs" />
+    <Compile Include="Core\StructureSearchPolicy.cs" />
     <Compile Include="GlobalSuppressions.cs" />
     <Compile Include="Core\QFormat.cs" />
     <Compile Include="Debugging\DebugExpressionFrameReader.cs" />
     <Compile Include="Debugging\DebugMemoryFrameReader.cs" />
+    <Compile Include="Options\StructureTemplateOptionsPage.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="UI\SensorImageViewerControl.cs" />
     <Compile Include="UI\SensorImageViewerControl.Profiles.cs" />
     <Compile Include="UI\SensorImageViewerControl.Rendering.cs" />
@@ -75,6 +88,7 @@
     <Compile Include="UI\SensorImageViewerControl.DebugWatch.cs" />
     <Compile Include="UI\SensorImageViewerControl.Statistics.cs" />
     <Compile Include="UI\SensorImageViewerControl.Tabs.cs" />
+    <Compile Include="UI\SensorImageViewerControl.StructureTemplates.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
@@ -89,10 +103,19 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.Shell.15.0" Version="15.9.28307" />
-    <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="15.9.3039" PrivateAssets="all" />
+    <!-- VS 2022 builds inside a 64-bit MSBuild process.  The 15.x task
+         assembly is x86-era and fails to load there (BadImageFormat). -->
+    <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="17.14.2142" PrivateAssets="all" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Import Project="$(PkgMicrosoft_VSSDK_BuildTools)\tools\VSSDK\Microsoft.VsSDK.targets" Condition="Exists('$(PkgMicrosoft_VSSDK_BuildTools)\tools\VSSDK\Microsoft.VsSDK.targets')" />
+  <!-- Microsoft.VSSDK.BuildTools 17.x sets this path before packaging, but
+       manifest inspection occurs earlier in legacy non-SDK projects. Set it
+       before detokenizing the manifest so 64-bit MSBuild can resolve the
+       BuildTools dependency assemblies. -->
+  <Target Name="SetVsSdkEnvironmentBeforeManifestInspection" BeforeTargets="DetokenizeVsixManifestFile" Condition="'$(PkgMicrosoft_VSSDK_BuildTools)' != ''">
+    <SetVsSDKEnvironmentVariables ProjectDirectory="$(PkgMicrosoft_VSSDK_BuildTools)\build" />
+  </Target>
   <!-- VSSDK suppresses Debugger.Interop by default because most VS installs
        provide a newer SDK variant. This extension uses the v8 interface and
        must ship that exact managed interop assembly for VS 2017+ hosts. -->

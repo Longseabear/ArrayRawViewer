@@ -315,7 +315,12 @@ namespace ArrayImageViewer.UI
         {
             TextBox target = null;
             var lower = message == null ? String.Empty : message.ToLowerInvariant();
-            if (lower.Contains("profile set") || lower.Contains("enter a name")) target = profileSetName;
+            if (lower.Contains("structure template class name")) target = structureTemplateName;
+            else if (lower.Contains("structure template root")) target = structureTemplateRoot;
+            else if (lower.Contains("structure template raw data")) target = structureTemplateData;
+            else if (lower.Contains("structure template width")) target = structureTemplateWidth;
+            else if (lower.Contains("structure template height")) target = structureTemplateHeight;
+            else if (lower.Contains("profile set") || lower.Contains("enter a name")) target = profileSetName;
             else if (lower.Contains("view height")) target = renderHeight;
             else if (lower.Contains("view width") || lower.Contains("view")) target = renderWidth;
             else if (lower.Contains("kernel height") || lower.Contains("roi h")) target = roiHeight;

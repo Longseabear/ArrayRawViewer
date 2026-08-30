@@ -10,6 +10,7 @@ namespace ArrayImageViewer
     [InstalledProductRegistration("Sensor RAW Array Viewer", "View pointer-backed sensor RAW arrays.", "0.1")]
     [ProvideMenuResource("Menus.ctmenu", 1)]
     [ProvideToolWindow(typeof(SensorImageToolWindow), Width = 1000, Height = 780)]
+    [ProvideOptionPage(typeof(Options.StructureTemplateOptionsPage), "Array RAW Viewer", "Structure Templates", 0, 0, true)]
     public sealed class SensorImageViewerPackage : Package, IVsDebuggerEvents
     {
         private uint debuggerEventsCookie;

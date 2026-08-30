@@ -18,6 +18,8 @@ namespace ArrayImageViewer.Tests
                 SourceElementCodecDecodesSignedAndUnsignedValues();
                 DataWatchExpressionUsesFrameStride();
                 PointerAddressParsingSupportsFunctionWatchSnapshots();
+                StructureTemplateExpressionsComposeSafely();
+                StructureSearchPolicySkipsRawStorage();
                 StrideAndOriginRemainFullFrameRelative();
                 StatisticsRespectScopeAndBayerSites();
                 RoiGeometryClampsAndPreservesDragSelection();
@@ -69,10 +71,10 @@ namespace ArrayImageViewer.Tests
                 "Native data watch uses the full-frame y * stride + x offset.");
             Assert(DataWatchExpression.Build("data->GetPointer()", 672, 5, 2) == "((data->GetPointer()) + 1349)",
                 "A complex pointer expression is parenthesized before indexing.");
-            Assert(DataWatchExpression.BuildViewerOwned("A", 4096, 1978, 369, 17) == "(((A) + 1513402) + (0 * 17))",
-                "Viewer data watches carry a no-op ownership tag and retain the exact address.");
+            Assert(DataWatchExpression.BuildByteAddress(0x10000000UL, 4, 4096, 1978, 369) == "0x105C5EE8",
+                "Viewer data watches resolve y * stride + x to the exact literal byte address.");
             ExpectArgumentException(delegate { DataWatchExpression.Build("A", 0, 0, 0); }, "Invalid stride is rejected for data watches.");
-            ExpectArgumentException(delegate { DataWatchExpression.BuildViewerOwned("A", 1, 0, 0, 0); }, "Missing data-watch ownership tag is rejected.");
+            ExpectArgumentException(delegate { DataWatchExpression.BuildByteAddress(0, 4, 1, 0, 0); }, "Null data-watch addresses are rejected.");
         }
 
         private static void PointerAddressParsingSupportsFunctionWatchSnapshots()
@@ -82,6 +84,36 @@ namespace ArrayImageViewer.Tests
                 address == 0x00007FF612340000UL, "Pointer address parsing preserves a 64-bit debugger address.");
             Assert(!DataWatchExpression.TryParsePointerAddress("not a pointer", out address),
                 "Non-pointer debugger values are rejected for function watches.");
+        }
+
+        private static void StructureTemplateExpressionsComposeSafely()
+        {
+            Assert(StructureTemplateExpressions.Compose("this", "D") == "(this)->D", "Member-path binding uses pointer member access.");
+            Assert(StructureTemplateExpressions.Compose("frame", ".Width") == "(frame).Width", "Explicit value-member suffix is preserved.");
+            Assert(StructureTemplateExpressions.Compose("ctx->image", "{root}->GetPointer()") == "(ctx->image)->GetPointer()", "Root placeholder supports function access.");
+            ExpectArgumentException(delegate { StructureTemplateExpressions.Compose("", "D"); }, "Live Viewer root is required when binding, not when saving a template.");
+        }
+
+        private static void StructureSearchPolicySkipsRawStorage()
+        {
+            var templates = new string[] { "ImageStream" };
+            Assert(StructureSearchPolicy.FindInterestedTypeName("struct ImageStream *", templates) == "ImageStream",
+                "Pointer form of a registered structure is discovered.");
+            Assert(StructureSearchPolicy.GetExpansion("ImageStream", templates) == StructureSearchExpansion.None,
+                "A matched structure is captured without opening its raw members.");
+            Assert(StructureSearchPolicy.GetExpansion("unsigned int *", templates) == StructureSearchExpansion.None,
+                "Primitive raw pointers are never expanded.");
+            Assert(StructureSearchPolicy.GetExpansion("std::vector<unsigned int>", templates) == StructureSearchExpansion.None,
+                "RAW storage vectors are never expanded.");
+            Assert(StructureSearchPolicy.GetExpansion("std::vector<ImageStream,std::allocator<ImageStream> >", templates) == StructureSearchExpansion.InterestedContainerElements,
+                "A vector of registered structures exposes only its elements.");
+            Assert(StructureSearchPolicy.GetExpansion("ImageStream [2]", templates) == StructureSearchExpansion.ObjectMembers,
+                "A fixed array of registered structures is expanded to its elements.");
+            Assert(StructureSearchPolicy.IsContainerElementName("[0]") && !StructureSearchPolicy.IsContainerElementName("_Mypair"),
+                "Container traversal accepts debugger index children only.");
+            Assert(StructureSearchPolicy.CreateCacheKey(" this ", new string[] { "B", "ImageStream" }) ==
+                StructureSearchPolicy.CreateCacheKey("this", new string[] { "ImageStream", "B" }),
+                "Search cache key ignores template ordering and root whitespace.");
         }
 
         private static void StatisticsRespectScopeAndBayerSites()

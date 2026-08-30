@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <intrin.h>
 #include <iostream>
+#include "ImageSimulator.h"
 
 namespace
 {
@@ -124,6 +125,11 @@ int main()
     // 5. A small unsigned 8-bit Gray map for Element-type verification.
     uint8_t* defectMask = new uint8_t[static_cast<size_t>(smallWidth) * smallHeight];
 
+    // 6. Object-graph capture sample. Its breakpoint lives inside
+    // ImageSimulator::ProcessAndBreakForCapture, where the debugger expression "this"
+    // denotes this ImageSimulator instance.
+    ImageSimulator imageSimulator;
+
     for (int y = 0; y < imageHeight; ++y)
     {
         for (int x = 0; x < imageWidth; ++x)
@@ -164,6 +170,10 @@ int main()
     // Keep a normal pointer local (for example cachedSensorPointer) instead.
     uint32_t* cachedSensorPointer = inputBuffer;
 
+    // Break inside a non-static class method so the debugger expression
+    // "this" denotes the ImageSimulator instance for structure capture.
+    imageSimulator.ProcessAndBreakForCapture();
+
     std::cout << "Break now. Useful viewer expressions:\n"
               << "  B, inputBuffer or sensorRaw: 4096x3072, stride 4096, UInt32, 13.0b, GRBG BayerRaw\n"
               << "  outputBuffer: processed 4096x3072, UInt16, 14.0b, GRBG BayerRaw\n"
@@ -171,7 +181,9 @@ int main()
               << "  A or scoreMap: 320x240, stride 320, Int32, signed 8.8b, Gray\n"
               << "  tetraRaw: 320x240, UInt16, 12.0b, GRBG Tetra, BayerRaw\n"
               << "  tetraSquareRaw: 320x240, UInt16, 12.0b, GRBG TetraSquare, BayerRaw\n"
-              << "  defectMask: 320x240, UInt8, 8.0b, Gray\n";
+              << "  defectMask: 320x240, UInt8, 8.0b, Gray\n"
+              << "  Structure capture: at the earlier ImageSimulator breakpoint, create template ImageStream\n"
+              << "    RAW=m_data, Width=m_width, Height=m_height; root=this; Capture structures.\n";
     __debugbreak();
 
     // Keep every allocation and alias alive after the breakpoint, including
@@ -181,7 +193,8 @@ int main()
         paddedWidth + paddedHeight + paddedStride + paddedCenterX + paddedCenterY + smallWidth + smallHeight + smallStride;
     const unsigned int checksum = B[0] + sensorRaw[1] + cachedSensorPointer[1] + outputBuffer[2] + paddedRaw[2] +
         static_cast<unsigned int>(A[3]) + tetraRaw[4] + tetraSquareRaw[5] + defectMask[6] +
-        static_cast<unsigned int>(localValueChecksum);
+        imageSimulator.output.m_data[3] + imageSimulator.input_aux_stream[1].m_data[4] +
+        imageSimulator.output_aux_stream[0].m_data[5] + static_cast<unsigned int>(localValueChecksum);
     std::cout << "Checksum: " << checksum << std::endl;
 
     delete[] defectMask;

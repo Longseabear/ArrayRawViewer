@@ -17,7 +17,6 @@ namespace ArrayImageViewer.UI
         private int hardwareWatchY = -1;
         private int hardwareWatchHitCount = -1;
         private bool hardwareWatchRunning;
-        private int nextHardwareWatchTag;
         private readonly List<object> retiredHardwareWatchBreakpoints = new List<object>();
         private DispatcherTimer hardwareWatchReleaseTimer;
         private FrameConfiguration pendingHardwareWatchConfiguration;
@@ -109,11 +108,19 @@ namespace ArrayImageViewer.UI
             {
                 throw new InvalidOperationException("Choose a pointer expression before starting a hardware watch.");
             }
-            var isResolvedFunctionPointer = sourceExpression.IndexOf('(') >= 0;
-            var breakpointBaseExpression = isResolvedFunctionPointer
-                ? DebugExpressionFrameReader.ResolvePointerExpressionToAddress(sourceExpression)
-                : sourceExpression;
-            var addressExpression = DataWatchExpression.Build(breakpointBaseExpression, configuration.Stride, x, y);
+            // Do not give a native data breakpoint a stack-frame expression
+            // such as (&((this)->output))->m_data. The native engine can bind
+            // it lazily after Continue, when that expression may no longer be
+            // evaluated in the capture frame. Resolve the base exactly once
+            // while stopped and register a literal byte address instead.
+            var breakpointBaseAddress = DebugExpressionFrameReader.ResolvePointerExpressionToAddress(sourceExpression);
+            ulong parsedBaseAddress;
+            if (!DataWatchExpression.TryParsePointerAddress(breakpointBaseAddress, out parsedBaseAddress))
+            {
+                throw new InvalidOperationException("The debugger did not return a usable pointer address for the selected RAW expression.");
+            }
+            var addressExpression = DataWatchExpression.BuildByteAddress(parsedBaseAddress,
+                configuration.ElementSizeInBytes, configuration.Stride, x, y);
             var isSameWatch = hardwareWatchBreakpoint != null &&
                 String.Equals(hardwareWatchAddressExpression, addressExpression, StringComparison.Ordinal) &&
                 hardwareWatchX == x && hardwareWatchY == y;
@@ -128,9 +135,9 @@ namespace ArrayImageViewer.UI
                     QueueHardwareWatchAfterRelease(configuration, x, y, advanceLabel);
                     return false;
                 }
-                var dataExpression = DataWatchExpression.BuildViewerOwned(
-                    breakpointBaseExpression, configuration.Stride, x, y, NextHardwareWatchTag());
-                hardwareWatchBreakpoint = DebugExpressionFrameReader.AddNativeDataBreakpoint(dataExpression);
+                var dataExpression = addressExpression;
+                hardwareWatchBreakpoint = DebugExpressionFrameReader.AddNativeDataBreakpoint(dataExpression,
+                    configuration.ElementSizeInBytes);
                 hardwareWatchExpression = dataExpression;
                 hardwareWatchAddressExpression = addressExpression;
                 hardwareWatchX = x;
@@ -138,9 +145,9 @@ namespace ArrayImageViewer.UI
                 int hitCount;
                 hardwareWatchHitCount = DebugExpressionFrameReader.TryGetBreakpointHitCount(hardwareWatchBreakpoint, out hitCount) ? hitCount : -1;
                 hardwareWatchInfo.Text = "Watching pixel (" + x.ToString(CultureInfo.InvariantCulture) + ", " +
-                    y.ToString(CultureInfo.InvariantCulture) + ") x " + configuration.ElementSizeInBytes.ToString(CultureInfo.InvariantCulture) +
-                    (isResolvedFunctionPointer ? " byte native data breakpoint armed at the current resolved pointer address." :
-                    " byte native data breakpoint armed.");
+                    y.ToString(CultureInfo.InvariantCulture) + ") at " + addressExpression + " x " +
+                    configuration.ElementSizeInBytes.ToString(CultureInfo.InvariantCulture) +
+                    " byte native data breakpoint armed.";
             }
 
             hardwareWatchRunning = true;
@@ -310,16 +317,6 @@ namespace ArrayImageViewer.UI
             UpdateNavigator();
         }
 
-        private int NextHardwareWatchTag()
-        {
-            if (nextHardwareWatchTag == Int32.MaxValue)
-            {
-                nextHardwareWatchTag = 0;
-            }
-            nextHardwareWatchTag++;
-            return nextHardwareWatchTag;
-        }
-
         // Uses the debugger's last-hit breakpoint rather than a generic break
         // notification. Other source breakpoints must leave this one-shot watch
         // armed, while its own hit can be removed safely.
@@ -382,6 +379,7 @@ namespace ArrayImageViewer.UI
                 return;
             }
             CancelPendingHardwareWatch();
+            InvalidateStructureSearchCache();
             ClearHardwareWatch(false);
             // Ending the debug session discards all native data breakpoints,
             // including references that were waiting for publication.

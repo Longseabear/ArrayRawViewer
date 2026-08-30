@@ -157,35 +157,48 @@ namespace ArrayImageViewer.UI
                 var pointers = DebugExpressionFrameReader.GetCurrentFramePointers();
                 pointerCandidates.Clear();
                 pointerCandidates.AddRange(pointers);
+                var currentExpression = expression.Text == null ? String.Empty : expression.Text.Trim();
+                isApplyingProfile = true;
                 availablePointers.ItemsSource = pointers;
+                availablePointers.SelectedItem = null;
+                isApplyingProfile = false;
                 if (pointers.Count == 0)
                 {
                     SetStatus("No pointer locals found. Pause in the function that owns A or B, then refresh.");
                     return;
                 }
 
-                // Make the common A/B workflow one click: Refresh discovers
-                // candidates and immediately activates the first one.  The
-                // user can still choose another entry from the list, and an
-                // existing expression is preserved when it remains valid.
+                // A member expression such as this->D is not itself a local
+                // list item when the debugger exposes only `this`. Refresh
+                // must never overwrite such an expression with the first
+                // pointer candidate.
                 var hasActiveCandidate = false;
                 for (var index = 0; index < pointers.Count; index++)
                 {
-                    if (String.Equals(pointers[index].Name, expression.Text == null ? String.Empty : expression.Text.Trim(), StringComparison.OrdinalIgnoreCase))
+                    if (String.Equals(pointers[index].Name, currentExpression, StringComparison.OrdinalIgnoreCase))
                     {
                         hasActiveCandidate = true;
                         break;
                     }
                 }
 
-                if (!hasActiveCandidate)
+                if (hasActiveCandidate)
                 {
-                    availablePointers.SelectedItem = pointers[0];
+                    isApplyingProfile = true;
+                    for (var index = 0; index < pointers.Count; index++)
+                    {
+                        if (String.Equals(pointers[index].Name, currentExpression, StringComparison.OrdinalIgnoreCase))
+                        {
+                            availablePointers.SelectedItem = pointers[index];
+                            break;
+                        }
+                    }
+                    isApplyingProfile = false;
                 }
 
                 UpdateExpressionSuggestions();
                 SetStatus("Found " + pointers.Count.ToString(CultureInfo.InvariantCulture) + " pointer variable(s). " +
-                    (hasActiveCandidate ? "The current pointer remains selected." : "Selected " + pointers[0].Name + "; choose A/B from the list to change it."));
+                    (hasActiveCandidate ? "The current pointer remains selected." : "Your current expression was preserved; choose a pointer from the list to replace it."));
             }
             catch (Exception exception)
             {
@@ -195,6 +208,11 @@ namespace ArrayImageViewer.UI
 
         private void AvailablePointerChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (isApplyingProfile)
+            {
+                return;
+            }
+
             var pointer = availablePointers.SelectedItem as DebugExpressionFrameReader.PointerExpression;
             if (pointer == null)
             {
@@ -241,6 +259,19 @@ namespace ArrayImageViewer.UI
                 expressionSuggestions.IsOpen = false;
                 e.Handled = true;
             }
+            else if (e.Key == Key.Enter)
+            {
+                var pointer = expressionSuggestionList.SelectedItem as DebugExpressionFrameReader.PointerExpression;
+                if (pointer != null)
+                {
+                    ActivatePointer(pointer);
+                }
+                else
+                {
+                    expressionSuggestions.IsOpen = false;
+                }
+                e.Handled = true;
+            }
         }
 
         private void UpdateExpressionSuggestions()
@@ -262,14 +293,18 @@ namespace ArrayImageViewer.UI
 
         private void ExpressionSuggestionSelected(object sender, SelectionChangedEventArgs e)
         {
-            var pointer = expressionSuggestionList.SelectedItem as DebugExpressionFrameReader.PointerExpression;
-            if (pointer == null)
-            {
-                return;
-            }
+            // The popup reselects items while its source is rebuilt. Applying
+            // a profile here used to overwrite a typed member expression with
+            // the first local, commonly `this`. Activation is explicit.
+        }
 
-            ActivatePointer(pointer);
-            expressionSuggestions.IsOpen = false;
+        private void ExpressionSuggestionDoubleClicked(object sender, MouseButtonEventArgs e)
+        {
+            var pointer = expressionSuggestionList.SelectedItem as DebugExpressionFrameReader.PointerExpression;
+            if (pointer != null)
+            {
+                ActivatePointer(pointer);
+            }
         }
 
         private void ActivatePointer(DebugExpressionFrameReader.PointerExpression pointer)
@@ -531,6 +566,7 @@ namespace ArrayImageViewer.UI
                 return;
             }
 
+            InvalidateStructureSearchCache();
             var hardwareWatchHit = HardwareWatchReturnedToBreakMode();
             if (autoUpdate.IsChecked != true || String.IsNullOrWhiteSpace(expression.Text))
             {
@@ -859,6 +895,7 @@ namespace ArrayImageViewer.UI
 
             try
             {
+                RestoreStructureTemplates();
                 var solutionIdentity = DebugExpressionFrameReader.GetActiveSolutionIdentity();
                 var profileSetPrefix = solutionIdentity + "\nprofile-set\n";
                 var profileSetRecords = ReadPersistedRecords(PersistedProfileSetsPath);

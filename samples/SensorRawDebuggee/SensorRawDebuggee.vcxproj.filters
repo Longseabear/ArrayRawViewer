@@ -5,10 +5,22 @@
       <UniqueIdentifier>{A7A21B93-AC44-4126-BAA2-07280544887A}</UniqueIdentifier>
       <Extensions>cpp;cxx;c;cc</Extensions>
     </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{F9462BA7-3227-4D44-96F0-6CB37EDC39CB}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;inl;inc</Extensions>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="ImageSimulator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="SensorRawDebuggee.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ImageSimulator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

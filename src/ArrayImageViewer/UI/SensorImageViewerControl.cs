@@ -36,6 +36,13 @@ namespace ArrayImageViewer.UI
         private readonly TextBox profileSetName = CreateTextBox("", 120);
         private readonly ComboBox profileSetPicker = CreateComboBox(200);
         private readonly CheckBox rememberForSolution = new CheckBox { Content = "Remember for this solution", Foreground = TextBrush, IsChecked = true, Height = 27, VerticalAlignment = VerticalAlignment.Center };
+        private readonly ComboBox structureTemplatePicker = CreateComboBox(190);
+        private readonly TextBox structureTemplateName = CreateTextBox("MyStructure", 130);
+        private readonly TextBox structureTemplateRoot = CreateTextBox("this", 150);
+        private readonly TextBox structureTemplateData = CreateTextBox("D", 150);
+        private readonly TextBox structureTemplateWidth = CreateTextBox("W", 105);
+        private readonly TextBox structureTemplateHeight = CreateTextBox("H", 105);
+        private readonly ComboBox capturedStructurePicker = CreateComboBox(360);
         private readonly Popup expressionSuggestions = new Popup { AllowsTransparency = true, Placement = PlacementMode.Bottom, StaysOpen = false };
         private readonly ListBox expressionSuggestionList = new ListBox { Background = ControlBrush, Foreground = TextBrush, BorderThickness = new Thickness(0), MaxHeight = 220, MinWidth = 240 };
         private readonly ComboBox widthValueSource = CreateComboBox(145);
@@ -130,6 +137,10 @@ namespace ArrayImageViewer.UI
         private int mouseRoiEndY;
         private readonly Dictionary<string, ViewerProfile> profiles = new Dictionary<string, ViewerProfile>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, NamedProfileSet> profileSets = new Dictionary<string, NamedProfileSet>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, StructureTemplate> structureTemplates = new Dictionary<string, StructureTemplate>(StringComparer.OrdinalIgnoreCase);
+        private readonly List<DebugExpressionFrameReader.StructureCandidate> capturedStructureCandidates = new List<DebugExpressionFrameReader.StructureCandidate>();
+        private readonly List<DebugExpressionFrameReader.StructureCandidate> cachedStructureCandidates = new List<DebugExpressionFrameReader.StructureCandidate>();
+        private string structureSearchCacheKey;
         private readonly List<DebugExpressionFrameReader.PointerExpression> pointerCandidates = new List<DebugExpressionFrameReader.PointerExpression>();
         private bool isApplyingProfile;
         private string activeProfileExpression;
@@ -183,10 +194,13 @@ namespace ArrayImageViewer.UI
             availablePointers.SelectionChanged += AvailablePointerChanged;
             profilePicker.SelectionChanged += ProfilePickerChanged;
             profileSetPicker.SelectionChanged += ProfileSetPickerChanged;
+            structureTemplatePicker.SelectionChanged += StructureTemplatePickerChanged;
+            capturedStructurePicker.SelectionChanged += CapturedStructurePickerChanged;
             expression.TextChanged += ExpressionTextChanged;
             expression.GotKeyboardFocus += ExpressionGotKeyboardFocus;
             expression.PreviewKeyDown += ExpressionPreviewKeyDown;
             expressionSuggestionList.SelectionChanged += ExpressionSuggestionSelected;
+            expressionSuggestionList.MouseDoubleClick += ExpressionSuggestionDoubleClicked;
             ConfigureExpressionSuggestions();
             profilePicker.ItemsSource = new object[] { "No session profiles yet" };
             profilePicker.SelectedIndex = 0;
@@ -363,6 +377,8 @@ namespace ArrayImageViewer.UI
             sourceContent.Children.Add(profileRow);
             panel.Children.Add(CreateSection("SOURCE", "Choose a pointer, or use the selected editor expression. ROI + context is the normal first view; Exact ROI is for close-up values.", sourceContent));
 
+            panel.Children.Add(CreateStructureTemplateSection());
+
             var formatRow = CreateRow();
             formatRow.Children.Add(CreateField("WIDTH", width));
             formatRow.Children.Add(CreateField("HEIGHT", height));
@@ -404,6 +420,45 @@ namespace ArrayImageViewer.UI
             panel.Children.Add(CreateInspectionSection());
             panel.Children.Add(CreateNavigatorSection());
             return panel;
+        }
+
+        private UIElement CreateStructureTemplateSection()
+        {
+            var content = new StackPanel();
+            var bindingRow = CreateRow();
+            bindingRow.Children.Add(CreateField("STRUCTURE TEMPLATE", structureTemplatePicker));
+            bindingRow.Children.Add(CreateAction("", CreateButton("Reload templates", ReloadStructureTemplates, false)));
+            bindingRow.Children.Add(CreateAction("", CreateButton("Bind current root", BindStructureTemplate, true)));
+            content.Children.Add(bindingRow);
+
+            var captureRow = CreateRow();
+            captureRow.Children.Add(CreateField("SEARCH ROOT", structureTemplateRoot));
+            captureRow.Children.Add(CreateAction("", CreateButton("Search objects", CaptureStructureObjects, false)));
+            captureRow.Children.Add(CreateField("FOUND INTEREST TYPES", capturedStructurePicker));
+            captureRow.Children.Add(CreateAction("", CreateButton("Use captured object", UseCapturedStructure, true)));
+            content.Children.Add(captureRow);
+
+            content.Children.Add(new TextBlock
+            {
+                Text = "Search expands only the root entered here (for example this or a local variable); it does not scan the full stack. Candidates are limited to types registered in Tools > Options > Array RAW Viewer > Structure Templates.",
+                Foreground = MutedBrush,
+                FontSize = 10,
+                TextWrapping = TextWrapping.Wrap,
+                Width = 790,
+                Margin = new Thickness(12, 7, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = "Manage class mappings in Tools > Options > Array RAW Viewer > Structure Templates. The root is never saved in a mapping: select a template, search from the current root, then bind a discovered object.",
+                Foreground = MutedBrush,
+                FontSize = 10,
+                TextWrapping = TextWrapping.Wrap,
+                Width = 790,
+                Margin = new Thickness(12, 4, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            return CreateSection("STRUCTURE TEMPLATE", "Use the standard Visual Studio Options page to create and distribute templates; bind a selected template here.", content);
         }
 
         // This surface intentionally uses independently wrapping command

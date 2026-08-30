@@ -28,19 +28,34 @@ namespace ArrayImageViewer.Core
                 offset.ToString(CultureInfo.InvariantCulture) + ")";
         }
 
-        // A native data breakpoint has no supported user-data field in the
-        // EnvDTE API. Add an algebraic no-op so a Viewer-created breakpoint
-        // has a distinct Data expression from a manually created breakpoint
-        // watching the same address.
-        public static string BuildViewerOwned(string pointerExpression, int stride, int x, int y, int tag)
+        // The native debugger may bind a data breakpoint only after execution
+        // resumes. Resolve the frame-dependent pointer while paused, then pass
+        // the debugger a literal byte address. This keeps a watch on
+        // this->output.m_data valid after the capture frame resumes.
+        public static string BuildByteAddress(ulong baseAddress, int elementSizeInBytes, int stride, int x, int y)
         {
-            if (tag <= 0)
+            if (baseAddress == 0)
             {
-                throw new ArgumentOutOfRangeException("tag");
+                throw new ArgumentOutOfRangeException("baseAddress");
+            }
+            if (elementSizeInBytes <= 0)
+            {
+                throw new ArgumentOutOfRangeException("elementSizeInBytes");
             }
 
-            return "(" + Build(pointerExpression, stride, x, y) + " + (0 * " +
-                tag.ToString(CultureInfo.InvariantCulture) + "))";
+            var sampleOffset = checked((long)y * stride + x);
+            if (stride <= 0 || x < 0 || y < 0 || sampleOffset < 0)
+            {
+                throw new ArgumentOutOfRangeException("stride");
+            }
+
+            var byteOffset = checked((ulong)sampleOffset * (ulong)elementSizeInBytes);
+            if (byteOffset > UInt64.MaxValue - baseAddress)
+            {
+                throw new OverflowException("The data breakpoint address overflowed.");
+            }
+
+            return "0x" + (baseAddress + byteOffset).ToString("X", CultureInfo.InvariantCulture);
         }
 
         public static bool TryParsePointerAddress(string value, out ulong address)

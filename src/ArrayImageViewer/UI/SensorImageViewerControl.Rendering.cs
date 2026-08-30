@@ -200,6 +200,12 @@ namespace ArrayImageViewer.UI
         {
             CancelPendingMemoryRead();
             renderGeneration++;
+            // The frame-map preview is a decimated debugger-memory read. Its
+            // old key described only the pointer expression and geometry, so
+            // a reused buffer address could keep showing a previous frame.
+            // Every user/debugger-triggered data reread therefore requests a
+            // fresh map after the main ROI has completed.
+            navigatorPreviewKey = null;
         }
 
         private void CancelRead(object sender, RoutedEventArgs e)
