@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">구조체 템플릿 설정 화면 교체용 자리표시자</title>
+  <desc id="desc">Tools Options의 Structure Templates와 Viewer의 Search objects를 함께 보이는 스크린샷이 들어갈 자리</desc>
+  <rect width="1280" height="720" fill="#111c2d"/>
+  <rect x="52" y="48" width="1176" height="624" rx="18" fill="#18283d" stroke="#4d6382" stroke-width="3"/>
+  <text x="100" y="155" fill="#50ddc0" font-family="Segoe UI, Arial" font-size="36" font-weight="700">SCREENSHOT 04 · Structure template &amp; Search objects</text>
+  <text x="100" y="222" fill="#d7e5f8" font-family="Segoe UI, Arial" font-size="27">Replace with: Tools &gt; Options &gt; Array RAW Viewer &gt; Structure Templates</text>
+  <text x="100" y="268" fill="#d7e5f8" font-family="Segoe UI, Arial" font-size="27">and the Viewer showing SEARCH ROOT=this, Search objects, and captured ImageStream rows.</text>
+  <rect x="100" y="342" width="505" height="224" rx="12" fill="#101927" stroke="#5487ba" stroke-width="2"/>
+  <rect x="675" y="342" width="453" height="224" rx="12" fill="#101927" stroke="#5487ba" stroke-width="2"/>
+  <text x="128" y="405" fill="#a8bed8" font-family="Segoe UI, Arial" font-size="25">Options: mapping fields</text>
+  <text x="128" y="451" fill="#ffffff" font-family="Consolas, monospace" font-size="23">ImageStream | m_data | m_width | m_height</text>
+  <text x="703" y="405" fill="#a8bed8" font-family="Segoe UI, Arial" font-size="25">Viewer: live root</text>
+  <text x="703" y="451" fill="#ffffff" font-family="Consolas, monospace" font-size="23">this → Search objects → Bind</text>
+  <text x="100" y="620" fill="#f4c96b" font-family="Segoe UI, Arial" font-size="23">This is intentionally a placeholder. Replace this SVG with a real 16:9 capture using the same filename.</text>
+</svg>
