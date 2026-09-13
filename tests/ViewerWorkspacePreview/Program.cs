@@ -97,6 +97,7 @@ internal static class Program
         {
             window.Width = size;
             window.UpdateLayout();
+            if (((ScrollViewer)Get("scrollViewer")).ActualHeight < 230) throw new Exception("Image has insufficient height in single-window viewer.");
             foreach (string name in new[] { "selectedX", "selectedY", "roiWidth", "roiHeight", "visualizeChannel" })
             {
                 var field = (FrameworkElement)Get(name);
@@ -104,12 +105,18 @@ internal static class Program
                 if (!field.IsVisible || point.X < 0 || point.X + field.ActualWidth > ((FrameworkElement)viewer).ActualWidth + 1)
                     throw new Exception("Clipped inspection control: " + name + " at " + size);
             }
-            Button("Settings").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
-            window.UpdateLayout();
-            if (((ScrollViewer)Get("configurationScrollViewer")).IsVisible) throw new Exception("Settings failed to close.");
-            if (((ScrollViewer)Get("scrollViewer")).ActualHeight < 80) throw new Exception("Settings displaced the viewer.");
-            Button("Settings").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
-            if (!((ScrollViewer)Get("configurationScrollViewer")).IsVisible) throw new Exception("Settings must be visible.");
+            double imageHeight = ((ScrollViewer)Get("scrollViewer")).ActualHeight;
+            string originalExpression = ((TextBox)Get("expression")).Text;
+            string originalWidth = ((TextBox)Get("width")).Text;
+            foreach (string tabName in new[] { "Structure", "Profiles", "Frame" })
+            {
+                Button(tabName).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                window.UpdateLayout();
+                if (Math.Abs(((ScrollViewer)Get("scrollViewer")).ActualHeight - imageHeight) > 1)
+                    throw new Exception("Settings tab changed image height.");
+            }
+            if (((TextBox)Get("expression")).Text != originalExpression || ((TextBox)Get("width")).Text != originalWidth)
+                throw new Exception("Settings tab switching changed capture settings.");
             if (!((Canvas)Get("navigatorCanvas")).IsVisible) throw new Exception("Map must be visible by default.");
             Button("Frame map").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
             window.UpdateLayout();
@@ -120,5 +127,44 @@ internal static class Program
         Button("Stats").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         if (((StackPanel)Get("statisticsPanel")).Visibility != Visibility.Visible) throw new Exception("Statistics failed to open.");
         Button("Hide stats").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        VerifyWatchNavigation(window);
+    }
+
+    private static void VerifyWatchNavigation(Window window)
+    {
+        var timer = (System.Windows.Threading.DispatcherTimer)Get("coordinateUpdateTimer");
+        var update = viewerType.GetMethod("UpdateWatchSelectionWithoutChangingView", Private);
+        var resolve = viewerType.GetMethod("ResolveWatchNextSelection", Private);
+        var config = viewerType.GetMethod("ReadConfiguration", Private).Invoke(viewer, null);
+        var x = (TextBox)Get("selectedX");
+        var y = (TextBox)Get("selectedY");
+        x.Text = "5"; y.Text = "5";
+        timer.Stop();
+        Set("isApplyingProfile", false);
+        update.Invoke(viewer, new object[] { 6, 5 });
+        if (timer.IsEnabled) throw new Exception("Watch selection scheduled a redundant coordinate read.");
+        Set("isApplyingProfile", true);
+        x.Text = "centerX"; y.Text = "centerY";
+        for (int next = 7; next <= 10; next++)
+        {
+            var selection = resolve.Invoke(viewer, new object[] { config });
+            int selected = (int)selection.GetType().GetField("X").GetValue(selection);
+            if (selected != next - 1) throw new Exception("Next watch did not use the advanced cursor.");
+            update.Invoke(viewer, new object[] { next, 5 });
+        }
+        if (x.Text != "centerX" || y.Text != "centerY") throw new Exception("Watch replaced coordinate expressions.");
+        viewerType.GetMethod("ApplyZoom", Private).Invoke(viewer, new object[] { 24.0 });
+        window.UpdateLayout();
+        viewerType.GetMethod("CenterHardwareWatchTarget", Private).Invoke(viewer, new object[] { 5, 5 });
+        window.UpdateLayout();
+        if ((int)Get("currentX") != 5 || (int)Get("kernelCenterX") != 5 || (int)Get("viewCenterX") != 5 ||
+            (int)Get("currentY") != 5 || (int)Get("kernelCenterY") != 5 || (int)Get("viewCenterY") != 5)
+            throw new Exception("Watch cursor, kernel and view centers diverged.");
+        if ((double)Get("zoom") != 24.0) throw new Exception("Watch changed zoom.");
+        var scroll = (ScrollViewer)Get("scrollViewer");
+        double centerX = (scroll.HorizontalOffset + scroll.ViewportWidth / 2) / 24.0 - Convert.ToDouble(Get("virtualCanvasPaddingX")) - 0.5;
+        double centerY = (scroll.VerticalOffset + scroll.ViewportHeight / 2) / 24.0 - Convert.ToDouble(Get("virtualCanvasPaddingY")) - 0.5;
+        if (Math.Abs(centerX - 5) > 0.1 || Math.Abs(centerY - 5) > 0.1) throw new Exception("Watched pixel is not at the viewport center.");
+        Console.WriteLine("Watch cursor/expression/timer/centering regression checks passed.");
     }
 }

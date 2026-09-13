@@ -299,6 +299,8 @@ namespace ArrayImageViewer.UI
             profileRow.Children.Add(new TextBlock
             {
                 Text = "Profile sets and the last state are local to this solution; RAW samples are never saved.",
+                Width = 250,
+                TextWrapping = TextWrapping.Wrap,
                 Foreground = MutedBrush,
                 FontSize = 10,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -321,13 +323,11 @@ namespace ArrayImageViewer.UI
             normalizationRow.Children.Add(CreateField("MIN RAW", normalizationMinimum));
             normalizationRow.Children.Add(CreateField("MAX RAW", normalizationMaximum));
             normalizationRow.Children.Add(CreateAction("", CreateButton("Apply display range", ApplyNormalization, false)));
-            normalizationRow.Children.Add(new TextBlock { Text = "Q-format range is the default. Apply changes recolors cached samples without a debugger read.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+            normalizationRow.ToolTip = "Q-format range is the default. Changing the range recolors cached samples without a debugger read.";
             var formatContent = new StackPanel();
             formatContent.Children.Add(formatRow);
             panel.Children.Add(formatContent);
-            panel.Children.Add(CreateStructureTemplateSection());
             panel.Children.Add(CreateDisclosure("Display range", normalizationRow, false));
-            panel.Children.Add(CreateDisclosure("Profiles · saved per solution", profileRow, false));
 
             var localValuesRow = CreateRow();
             localValuesRow.Children.Add(CreateAction("", CreateButton("Refresh numeric locals", RefreshScalarValues, false)));
@@ -345,7 +345,41 @@ namespace ArrayImageViewer.UI
                 Content = new Border { Background = PanelBrush, BorderBrush = PanelBorderBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Padding = new Thickness(9, 8, 9, 8), Margin = new Thickness(0, 5, 0, 0), Child = localValuesRow }
             });
 
-            return panel;
+            var pages = new Grid();
+            var structurePage = CreateStructureTemplateSection();
+            pages.Children.Add(panel);
+            pages.Children.Add(structurePage);
+            pages.Children.Add(profileRow);
+            structurePage.Visibility = Visibility.Collapsed;
+            profileRow.Visibility = Visibility.Collapsed;
+            var tabs = CreateRow();
+            var buttons = new List<Button>();
+            UIElement[] contents = { panel, structurePage, profileRow };
+            string[] titles = { "Frame", "Structure", "Profiles" };
+            for (int index = 0; index < titles.Length; index++)
+            {
+                int target = index;
+                var button = CreateButton(titles[index], delegate
+                {
+                    for (int page = 0; page < contents.Length; page++)
+                    {
+                        contents[page].Visibility = page == target ? Visibility.Visible : Visibility.Collapsed;
+                        buttons[page].Background = page == target ? AccentBrush : ControlBrush;
+                        buttons[page].Foreground = page == target ? RootBrush : TextBrush;
+                    }
+                    configurationScrollViewer.ScrollToTop();
+                }, index == 0);
+                button.Margin = new Thickness(4, 3, 4, 3);
+                buttons.Add(button);
+                tabs.Children.Add(button);
+            }
+            configurationScrollViewer = new ScrollViewer { Content = pages, Background = RootBrush,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            var settings = new DockPanel();
+            DockPanel.SetDock(tabs, Dock.Top);
+            settings.Children.Add(tabs);
+            settings.Children.Add(configurationScrollViewer);
+            return settings;
         }
 
         private UIElement CreateStructureTemplateSection()

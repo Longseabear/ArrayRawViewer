@@ -460,6 +460,7 @@ namespace ArrayImageViewer.UI
 
         private void ProfileInputChanged(object sender, TextChangedEventArgs e)
         {
+            if (isUpdatingWatchSelection) return;
             var changed = sender as TextBox;
             ClearInputError(changed);
             if (isNavigatorSelecting && (changed == renderWidth || changed == renderHeight))
@@ -525,6 +526,7 @@ namespace ArrayImageViewer.UI
 
         private void InputFieldLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         {
+            if (isUpdatingWatchSelection) return;
             var field = sender as TextBox;
             if (field == selectedX || field == selectedY)
             {
@@ -568,7 +570,7 @@ namespace ArrayImageViewer.UI
 
             InvalidateStructureSearchCache();
             var hardwareWatchHit = HardwareWatchReturnedToBreakMode();
-            if (autoUpdate.IsChecked != true || String.IsNullOrWhiteSpace(expression.Text))
+            if ((!hardwareWatchHit && autoUpdate.IsChecked != true) || String.IsNullOrWhiteSpace(expression.Text))
             {
                 return;
             }
@@ -583,7 +585,7 @@ namespace ArrayImageViewer.UI
         private void DebuggerBreakRefreshTimerTick(object sender, EventArgs e)
         {
             debuggerBreakRefreshTimer.Stop();
-            if (autoUpdate.IsChecked == true && !String.IsNullOrWhiteSpace(expression.Text))
+            if ((autoUpdate.IsChecked == true || centerViewAfterHardwareWatch) && !String.IsNullOrWhiteSpace(expression.Text))
             {
                 // Full previews are intentionally not reread after each F10/F11.
                 // This keeps automatic updates bounded to the current View ROI.
@@ -606,7 +608,8 @@ namespace ArrayImageViewer.UI
                     ? currentX : ResolveCurrentSelection(configuration).X;
                 var selectedGlobalY = currentY >= 0 && currentY < configuration.Height
                     ? currentY : ResolveCurrentSelection(configuration).Y;
-                preserveViewportOnNextRender = true;
+                preserveViewportOnNextRender = !centerViewAfterHardwareWatch;
+                centerViewAfterHardwareWatch = false;
                 LoadContextPreviewAt(configuration, selectedGlobalX, selectedGlobalY);
             }
             catch (Exception exception)

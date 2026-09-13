@@ -65,6 +65,10 @@ namespace ArrayImageViewer
                     viewer.DebuggerReturnedToBreakMode();
                 }
             }
+            else if (debuggerMode == DBGMODE.DBGMODE_Run && viewer != null)
+            {
+                viewer.DebuggerStartedRunning();
+            }
             else if (debuggerMode == DBGMODE.DBGMODE_Design && viewer != null)
             {
                 // Native data breakpoint addresses are session-specific. Do

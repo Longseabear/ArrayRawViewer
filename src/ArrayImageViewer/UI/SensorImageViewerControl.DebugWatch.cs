@@ -26,12 +26,46 @@ namespace ArrayImageViewer.UI
         private string pendingHardwareWatchAdvanceLabel;
         private int pendingHardwareWatchReleaseAttempts;
         private string lastHardwareWatchReleaseError;
+        private bool isUpdatingWatchSelection;
+        private DispatcherTimer hardwareWatchContinueTimer;
+        private bool centerViewAfterHardwareWatch;
+        private bool preserveZoomAfterHardwareWatch;
+
+        private bool CanStartHardwareWatch()
+        {
+            if (pendingHardwareWatchConfiguration != null ||
+                (hardwareWatchContinueTimer != null && hardwareWatchContinueTimer.IsEnabled))
+            {
+                SetStatus("A hardware watch request is still pending; wait for it to finish before advancing again.");
+                return false;
+            }
+            if (!DebugExpressionFrameReader.IsDebuggerInBreakMode())
+            {
+                SetStatus("Pause the debugger before starting another watch. The existing watch has not been changed.");
+                return false;
+            }
+            autoRefreshTimer.Stop();
+            debuggerBreakRefreshTimer.Stop();
+            BeginNewReadRequest();
+            return true;
+        }
+
+        private RoiBounds ResolveWatchNextSelection(FrameConfiguration configuration)
+        {
+            // Typed edits take priority; otherwise advance the real cursor, not
+            // a retained expression which may still evaluate to the old point.
+            if (!coordinateUpdateTimer.IsEnabled && currentX >= 0 && currentY >= 0 &&
+                currentX < configuration.Width && currentY < configuration.Height)
+                return new RoiBounds(currentX, currentY, 1, 1, currentX, currentY);
+            return ResolveCurrentSelection(configuration);
+        }
 
         private void WatchSelectedPixelAndContinue(object sender, RoutedEventArgs e)
         {
             Dispatcher.VerifyAccess();
             try
             {
+                if (!CanStartHardwareWatch()) return;
                 var configuration = ReadConfiguration();
                 var selection = ResolveCurrentSelection(configuration);
                 StartHardwareWatchAndContinue(configuration, selection.X, selection.Y, null);
@@ -48,8 +82,9 @@ namespace ArrayImageViewer.UI
             Dispatcher.VerifyAccess();
             try
             {
+                if (!CanStartHardwareWatch()) return;
                 var configuration = ReadConfiguration();
-                var selection = ResolveCurrentSelection(configuration);
+                var selection = ResolveWatchNextSelection(configuration);
                 var nextX = selection.X + 1;
                 var nextY = selection.Y;
                 if (nextX >= configuration.Width)
@@ -62,10 +97,7 @@ namespace ArrayImageViewer.UI
                     throw new InvalidOperationException("The selected pixel is the last sample in the frame; there is no next pixel to watch.");
                 }
 
-                if (StartHardwareWatchAndContinue(configuration, nextX, nextY, "X"))
-                {
-                    UpdateWatchSelectionWithoutChangingView(nextX, nextY);
-                }
+                StartHardwareWatchAndContinue(configuration, nextX, nextY, "X");
             }
             catch (Exception exception)
             {
@@ -79,8 +111,9 @@ namespace ArrayImageViewer.UI
             Dispatcher.VerifyAccess();
             try
             {
+                if (!CanStartHardwareWatch()) return;
                 var configuration = ReadConfiguration();
-                var selection = ResolveCurrentSelection(configuration);
+                var selection = ResolveWatchNextSelection(configuration);
                 var nextX = selection.X;
                 var nextY = selection.Y + 1;
                 if (nextY >= configuration.Height)
@@ -88,10 +121,7 @@ namespace ArrayImageViewer.UI
                     throw new InvalidOperationException("The selected pixel is on the final image row; there is no next Y sample to watch.");
                 }
 
-                if (StartHardwareWatchAndContinue(configuration, nextX, nextY, "Y"))
-                {
-                    UpdateWatchSelectionWithoutChangingView(nextX, nextY);
-                }
+                StartHardwareWatchAndContinue(configuration, nextX, nextY, "Y");
             }
             catch (Exception exception)
             {
@@ -104,6 +134,9 @@ namespace ArrayImageViewer.UI
         {
             Dispatcher.VerifyAccess();
             CancelPendingHardwareWatch();
+            coordinateUpdateTimer.Stop();
+            autoRefreshTimer.Stop();
+            debuggerBreakRefreshTimer.Stop();
             configuration.GetSampleIndex(x, y);
             var isNextPixel = !String.IsNullOrEmpty(advanceLabel);
             var sourceExpression = expression.Text == null ? String.Empty : expression.Text.Trim();
@@ -155,12 +188,27 @@ namespace ArrayImageViewer.UI
             }
 
             hardwareWatchRunning = true;
+            UpdateWatchSelectionWithoutChangingView(x, y);
             try
             {
+                if (hardwareWatchContinueTimer == null)
+                {
+                    hardwareWatchContinueTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher);
+                    hardwareWatchContinueTimer.Interval = TimeSpan.FromSeconds(3);
+                    hardwareWatchContinueTimer.Tick += delegate
+                    {
+                        hardwareWatchContinueTimer.Stop();
+                        if (!DebugExpressionFrameReader.IsDebuggerInBreakMode()) return;
+                        hardwareWatchRunning = false;
+                        SetInputError("The watch is armed, but Visual Studio did not resume. Press Watch again or F5; no extra breakpoint is needed.");
+                    };
+                }
+                hardwareWatchContinueTimer.Start();
                 DebugExpressionFrameReader.ContinueDebuggee();
             }
             catch
             {
+                hardwareWatchContinueTimer.Stop();
                 // Do not leave a new data breakpoint behind if Continue could
                 // not start the debuggee after arming it.
                 if (!isSameWatch)
@@ -172,7 +220,7 @@ namespace ArrayImageViewer.UI
             SetStatus(isSameWatch
                 ? "Hardware watch is already armed for pixel (" + x.ToString(CultureInfo.InvariantCulture) + ", " + y.ToString(CultureInfo.InvariantCulture) + "). Continuing until its next write."
                 : (isNextPixel ? "Watch Next " + advanceLabel + " armed for pixel (" : "Watch armed for pixel (") +
-                    x.ToString(CultureInfo.InvariantCulture) + ", " + y.ToString(CultureInfo.InvariantCulture) + "). Running until that sample is written.");
+                    x.ToString(CultureInfo.InvariantCulture) + ", " + y.ToString(CultureInfo.InvariantCulture) + "). Continue requested; waiting for the debugger.");
             return true;
         }
 
@@ -185,6 +233,7 @@ namespace ArrayImageViewer.UI
         private void ClearHardwareWatch(bool reportStatus)
         {
             Dispatcher.VerifyAccess();
+            if (hardwareWatchContinueTimer != null) hardwareWatchContinueTimer.Stop();
             CancelPendingHardwareWatch();
             string failureReason = null;
             var removed = hardwareWatchBreakpoint == null || DebugExpressionFrameReader.DeleteBreakpoint(hardwareWatchBreakpoint, out failureReason);
@@ -275,10 +324,7 @@ namespace ArrayImageViewer.UI
             CancelPendingHardwareWatch();
             try
             {
-                if (StartHardwareWatchAndContinue(configuration, x, y, advanceLabel) && !String.IsNullOrEmpty(advanceLabel))
-                {
-                    UpdateWatchSelectionWithoutChangingView(x, y);
-                }
+                StartHardwareWatchAndContinue(configuration, x, y, advanceLabel);
             }
             catch (Exception exception)
             {
@@ -304,6 +350,9 @@ namespace ArrayImageViewer.UI
         // can make a large zoomed view appear to pan when its layout updates.
         private void UpdateWatchSelectionWithoutChangingView(int x, int y)
         {
+            isUpdatingWatchSelection = true;
+            try
+            {
             currentX = x;
             currentY = y;
             kernelCenterX = x;
@@ -321,6 +370,27 @@ namespace ArrayImageViewer.UI
                 selectedY.Text = y.ToString(CultureInfo.InvariantCulture);
             }
             UpdateNavigator();
+            }
+            finally { isUpdatingWatchSelection = false; }
+        }
+
+        internal void DebuggerStartedRunning()
+        {
+            if (hardwareWatchContinueTimer == null || !hardwareWatchContinueTimer.IsEnabled) return;
+            hardwareWatchContinueTimer.Stop();
+            SetStatus("Running until watched pixel (" + hardwareWatchX + ", " + hardwareWatchY + ") is written.");
+        }
+
+        private void CenterHardwareWatchTarget(int x, int y)
+        {
+            coordinateUpdateTimer.Stop();
+            UpdateWatchSelectionWithoutChangingView(x, y);
+            viewCenterX = x;
+            viewCenterY = y;
+            UpdateNavigator();
+            centerViewAfterHardwareWatch = true;
+            preserveZoomAfterHardwareWatch = true;
+            CenterOnSelection();
         }
 
         // Uses the debugger's last-hit breakpoint rather than a generic break
@@ -329,6 +399,7 @@ namespace ArrayImageViewer.UI
         private bool HardwareWatchReturnedToBreakMode()
         {
             Dispatcher.VerifyAccess();
+            if (hardwareWatchContinueTimer != null) hardwareWatchContinueTimer.Stop();
             if (hardwareWatchBreakpoint == null)
             {
                 return false;
@@ -358,6 +429,7 @@ namespace ArrayImageViewer.UI
             {
                 var watchedX = hardwareWatchX;
                 var watchedY = hardwareWatchY;
+                CenterHardwareWatchTarget(watchedX, watchedY);
                 if (keepHardwareWatchArmed.IsChecked == true)
                 {
                     hardwareWatchInfo.Text = "Stopped: pixel (" + watchedX.ToString(CultureInfo.InvariantCulture) + ", " +
@@ -386,6 +458,8 @@ namespace ArrayImageViewer.UI
             }
             CancelPendingHardwareWatch();
             InvalidateStructureSearchCache();
+            centerViewAfterHardwareWatch = false;
+            preserveZoomAfterHardwareWatch = false;
             ClearHardwareWatch(false);
             // Ending the debug session discards all native data breakpoints,
             // including references that were waiting for publication.

@@ -289,7 +289,8 @@ namespace ArrayImageViewer.UI
             var configurationScrollOffset = configurationScrollViewer == null ? 0 : configurationScrollViewer.VerticalOffset;
             var preserveViewport = preserveViewportOnNextRender;
             preserveViewportOnNextRender = false;
-            var preserveContextZoom = showFullFrameContext && showsFullFrameContext && frame != null;
+            var preserveContextZoom = preserveZoomAfterHardwareWatch || (showFullFrameContext && showsFullFrameContext && frame != null);
+            preserveZoomAfterHardwareWatch = false;
             lastReadPath = readPath;
             activeNormalization = normalization;
             ApplyFrame(source, bitmap, sourceWidth, sourceHeight, selectedGlobalX, selectedGlobalY, showFullFrameContext);

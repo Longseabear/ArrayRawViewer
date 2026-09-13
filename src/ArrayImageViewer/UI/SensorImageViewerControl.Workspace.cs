@@ -10,122 +10,118 @@ namespace ArrayImageViewer.UI
     // in their existing partials so layout changes cannot change sample semantics.
     internal sealed partial class SensorImageViewerControl
     {
+
         private UIElement CreateWorkspace()
         {
             var root = new Grid { Background = RootBrush };
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var settingsRow = new RowDefinition { Height = new GridLength(210), MaxHeight = 350 };
-            root.RowDefinitions.Add(settingsRow);
-            var dividerRow = new RowDefinition { Height = new GridLength(5) };
-            root.RowDefinitions.Add(dividerRow);
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            configurationScrollViewer = new ScrollViewer
-            {
-                Content = CreateHeader(), Background = RootBrush,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Visibility = Visibility.Visible
-            };
-            AddWorkspaceCell(root, configurationScrollViewer, 1);
-            var splitter = new GridSplitter
-            {
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalAlignment = VerticalAlignment.Stretch,
-                Background = PanelBorderBrush, ResizeDirection = GridResizeDirection.Rows,
-                ResizeBehavior = GridResizeBehavior.PreviousAndNext, ShowsPreview = true,
-                Visibility = Visibility.Visible
-            };
-            AddWorkspaceCell(root, splitter, 2);
-            double lastSettingsHeight = 210;
             var source = CreateRow();
-            expression.Width = 260;
-            source.Children.Add(CreateField("BUFFER EXPRESSION", expression));
-            source.Children.Add(CreateAction("", CreateButton("Capture", LoadContextPreview, true)));
-            source.Children.Add(CreateAction("", CreateCommandMenu("Source", new[] { "Refresh pointers", "Use editor selection" }, new RoutedEventHandler[] { RefreshPointers, CaptureSelection })));
-            source.Children.Add(CreateField("POINTERS", availablePointers));
-            source.Children.Add(CreateField("", autoUpdate));
-            var settingsButton = CreateButton("Settings", delegate
-            {
-                bool open = configurationScrollViewer.Visibility != Visibility.Visible;
-                if (!open) lastSettingsHeight = Math.Max(120, settingsRow.ActualHeight);
-                configurationScrollViewer.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-                splitter.Visibility = configurationScrollViewer.Visibility;
-                settingsRow.Height = new GridLength(open ? lastSettingsHeight : 0);
-                dividerRow.Height = new GridLength(open ? 5 : 0);
-            }, false);
-            settingsButton.ToolTip = "Image dimensions, Q-format, Bayer layout, objects and saved profiles";
-            source.Children.Add(CreateAction("", settingsButton));
-            source.Children.Add(CreateAction("", CreateCommandMenu("Read options", new[] { "Read exact kernel area", "Full-frame preview", "Refresh exact cells", "Cancel read" }, new RoutedEventHandler[] { LoadExpression, LoadFullPreview, InspectCells, CancelRead })));
+            expression.Width = 220;
+            source.Children.Add(WorkspaceField("BUFFER EXPRESSION", expression));
+            source.Children.Add(WorkspaceAction("", CreateButton("Capture", LoadContextPreview, true)));
+            source.Children.Add(WorkspaceAction("", CreateCommandMenu("Source", new[] { "Refresh pointers", "Use editor selection" }, new RoutedEventHandler[] { RefreshPointers, CaptureSelection })));
+            source.Children.Add(WorkspaceField("POINTERS", availablePointers));
+            source.Children.Add(WorkspaceField("", autoUpdate));
+            source.Children.Add(WorkspaceAction("", CreateCommandMenu("Read options", new[] { "Read exact kernel area", "Full-frame preview", "Refresh exact cells", "Cancel read" }, new RoutedEventHandler[] { LoadExpression, LoadFullPreview, InspectCells, CancelRead })));
             AddWorkspaceCell(root, WorkspaceBand(source), 0);
+            root.RowDefinitions.Insert(1, new RowDefinition { Height = new GridLength(145), MinHeight = 70, MaxHeight = 300 });
+            root.RowDefinitions.Insert(2, new RowDefinition { Height = new GridLength(5) });
+            AddWorkspaceCell(root, CreateHeader(), 1);
+            AddWorkspaceCell(root, new GridSplitter { Background = PanelBorderBrush,
+                HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch,
+                ResizeDirection = GridResizeDirection.Rows, ResizeBehavior = GridResizeBehavior.PreviousAndNext,
+                ShowsPreview = true, ToolTip = "Drag to resize settings; image uses the remaining space." }, 2);
 
             var inspection = new Grid();
             inspection.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             inspection.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            inspection.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             inspection.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            inspection.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             AddWorkspaceCell(inspection, CreateViewerTabStrip(), 0);
 
             var tools = CreateRow();
-            tools.Children.Add(CreateField("GO TO X", selectedX));
-            tools.Children.Add(CreateField("GO TO Y", selectedY));
-            tools.Children.Add(CreateAction("COORDINATES", CreateButton("Go To", GoToEnteredCoordinate, false)));
-            tools.Children.Add(CreateAction("SELECTED PIXEL", CreateButton("Center", JumpToCoordinate, false)));
-            tools.Children.Add(CreateField("KERNEL W", roiWidth));
-            tools.Children.Add(CreateField("KERNEL H", roiHeight));
-            tools.Children.Add(CreateField("DISPLAY", visualizeChannel));
-            tools.Children.Add(CreateAction("", CreateCommandMenu("Zoom", new[] { "Fit loaded view", "100%", "Zoom in", "Zoom out" }, new RoutedEventHandler[] {
+            tools.Children.Add(WorkspaceField("GO TO X", selectedX));
+            tools.Children.Add(WorkspaceField("GO TO Y", selectedY));
+            tools.Children.Add(WorkspaceAction("COORDINATES", CreateButton("Go To", GoToEnteredCoordinate, false)));
+            tools.Children.Add(WorkspaceAction("SELECTED PIXEL", CreateButton("Center", JumpToCoordinate, false)));
+            tools.Children.Add(WorkspaceField("KERNEL W", roiWidth));
+            tools.Children.Add(WorkspaceField("KERNEL H", roiHeight));
+            tools.Children.Add(WorkspaceField("DISPLAY", visualizeChannel));
+            tools.Children.Add(WorkspaceAction("", CreateCommandMenu("Zoom", new[] { "Fit loaded view", "100%", "Zoom in", "Zoom out" }, new RoutedEventHandler[] {
                 FitLoadedView, delegate { SetWorkspaceZoom(1); },
                 delegate { ZoomAroundSelection(1.25); }, delegate { ZoomAroundSelection(0.8); } })));
-            tools.Children.Add(CreateAction("", CreateCommandMenu("Export", new[] { "Copy kernel text  ·  Ctrl+C", "Save full RAW…", "Save View RAW…", "Save Kernel RAW…" }, new RoutedEventHandler[] { CopyKernelToClipboard, SaveFullRaw, SaveViewRaw, SaveKernelRaw })));
-            tools.Children.Add(CreateAction("", statisticsToggle));
+            tools.Children.Add(WorkspaceAction("", CreateCommandMenu("Export", new[] { "Copy kernel text  ·  Ctrl+C", "Save full RAW…", "Save View RAW…", "Save Kernel RAW…" }, new RoutedEventHandler[] { CopyKernelToClipboard, SaveFullRaw, SaveViewRaw, SaveKernelRaw })));
+            tools.Children.Add(WorkspaceAction("", statisticsToggle));
 
-            var map = new StackPanel { Width = 246, Margin = new Thickness(8), Visibility = Visibility.Visible };
-            map.Children.Add(new TextBlock { Text = "FRAME MAP", Foreground = MutedBrush, Margin = new Thickness(0, 0, 0, 8) });
-            map.Children.Add(navigatorCanvas);
-            map.Children.Add(new TextBlock { Text = "Drag to set View ROI\nOrange rectangle = Kernel", Foreground = MutedBrush, FontSize = 11, Margin = new Thickness(0, 8, 0, 8) });
-            map.Children.Add(navigatorInfo);
+            navigatorCanvas.Width = 174;
+            navigatorCanvas.Height = 118;
+            var mapContents = new StackPanel { Width = 174, Margin = new Thickness(8) };
+            var map = new ScrollViewer { Content = mapContents, Width = 194, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+            mapContents.Children.Add(new TextBlock { Text = "FRAME MAP", Foreground = MutedBrush, Margin = new Thickness(0, 0, 0, 8) });
+            mapContents.Children.Add(navigatorCanvas);
+            navigatorCanvas.ToolTip = "Drag to set View ROI. Orange rectangle = Kernel.";
+            mapContents.Children.Add(navigatorInfo);
             var viewSize = CreateRow();
             viewSize.Margin = new Thickness(0, 12, 0, 0);
-            viewSize.Children.Add(CreateField("VIEW W", renderWidth));
-            viewSize.Children.Add(CreateField("VIEW H", renderHeight));
-            map.Children.Add(viewSize);
+            viewSize.Children.Add(WorkspaceField("VIEW W", renderWidth));
+            viewSize.Children.Add(WorkspaceField("VIEW H", renderHeight));
+            mapContents.Children.Add(viewSize);
             var movement = CreateRow();
-            movement.Children.Add(CreateAction("MOVE VIEW", CreateButton("Left", PanLeft, false)));
-            movement.Children.Add(CreateAction("", CreateButton("Right", PanRight, false)));
-            movement.Children.Add(CreateAction("", CreateButton("Up", PanUp, false)));
-            movement.Children.Add(CreateAction("", CreateButton("Down", PanDown, false)));
-            map.Children.Add(movement);
-            tools.Children.Add(CreateAction("", CreateButton("Frame map", delegate { map.Visibility = map.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; }, false)));
+            movement.Children.Add(WorkspaceAction("MOVE VIEW", CreateButton("Left", PanLeft, false)));
+            movement.Children.Add(WorkspaceAction("", CreateButton("Right", PanRight, false)));
+            movement.Children.Add(WorkspaceAction("", CreateButton("Up", PanUp, false)));
+            movement.Children.Add(WorkspaceAction("", CreateButton("Down", PanDown, false)));
+            mapContents.Children.Add(movement);
+            tools.Children.Add(WorkspaceAction("", CreateButton("Frame map", delegate { map.Visibility = map.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; }, false)));
             AddWorkspaceCell(inspection, WorkspaceBand(tools), 1);
 
             var auxiliary = new StackPanel();
             var watch = CreateRow();
-            watch.Children.Add(CreateAction("RESUME UNTIL WRITE", CreateButton("Watch Go To X/Y", WatchSelectedPixelAndContinue, false)));
-            watch.Children.Add(CreateAction("", CreateButton("Watch Next X", WatchNextPixelAndContinue, false)));
-            watch.Children.Add(CreateAction("", CreateButton("Watch Next Y", WatchNextLineAndContinue, false)));
-            watch.Children.Add(CreateField("", keepHardwareWatchArmed));
-            watch.Children.Add(CreateAction("", CreateButton("Clear", ClearHardwareWatch, false)));
+            watch.Children.Add(WorkspaceAction("RESUME UNTIL WRITE", CreateButton("Watch Go To X/Y", WatchSelectedPixelAndContinue, false)));
+            watch.Children.Add(WorkspaceAction("", CreateButton("Watch Next X", WatchNextPixelAndContinue, false)));
+            watch.Children.Add(WorkspaceAction("", CreateButton("Watch Next Y", WatchNextLineAndContinue, false)));
+            watch.Children.Add(WorkspaceField("", keepHardwareWatchArmed));
+            watch.Children.Add(WorkspaceAction("", CreateButton("Clear", ClearHardwareWatch, false)));
             var watchPanel = new StackPanel();
             watchPanel.Children.Add(watch);
             watchPanel.Children.Add(hardwareWatchInfo);
-            auxiliary.Children.Add(CreateDisclosure("Hardware watch · resumes debugger execution", watchPanel, true));
+            watchPanel.ToolTip = "Hardware watch resumes the debugger until the target sample is written.";
+            hardwareWatchInfo.Margin = new Thickness(0, 2, 0, 4);
+            hardwareWatchInfo.MaxHeight = 36;
+            hardwareWatchInfo.SetBinding(TextBlock.ToolTipProperty, new System.Windows.Data.Binding("Text") { Source = hardwareWatchInfo });
+            auxiliary.Children.Add(WorkspaceBand(watchPanel));
             var stats = new StackPanel { Margin = new Thickness(8) };
-            stats.Children.Add(CreateField("STATISTICS SCOPE", statisticsScope));
+            stats.Children.Add(WorkspaceField("STATISTICS SCOPE", statisticsScope));
             stats.Children.Add(statisticsSummary);
             stats.Children.Add(statisticsChannels);
             statisticsPanel.Children.Add(stats);
             auxiliary.Children.Add(new ScrollViewer { Content = statisticsPanel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 160 });
-            AddWorkspaceCell(inspection, auxiliary, 2);
+            AddWorkspaceCell(inspection, auxiliary, 3);
             var stage = new DockPanel();
             DockPanel.SetDock(map, Dock.Right);
             stage.Children.Add(map);
             stage.Children.Add(scrollViewer);
-            AddWorkspaceCell(inspection, stage, 3);
+            AddWorkspaceCell(inspection, stage, 2);
             AddWorkspaceCell(root, inspection, 3);
             AddWorkspaceCell(root, CreateFooter(), 4);
             return root;
+        }
+
+        private static FrameworkElement WorkspaceAction(string label, Button button)
+        {
+            if (!String.IsNullOrEmpty(label) && button.ToolTip == null) button.ToolTip = label;
+            return new Border { Child = button, Margin = new Thickness(0, 0, 8, 6) };
+        }
+
+        private static FrameworkElement WorkspaceField(string label, UIElement control)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 10, 6) };
+            if (!String.IsNullOrEmpty(label)) row.Children.Add(new TextBlock { Text = label, Foreground = MutedBrush,
+                FontSize = 10, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 5, 0) });
+            row.Children.Add(control);
+            return row;
         }
 
         private static void AddWorkspaceCell(Grid grid, UIElement child, int row)

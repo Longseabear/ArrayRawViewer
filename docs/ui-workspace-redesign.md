@@ -1,9 +1,33 @@
 # Viewer workspace redesign
 
+## Current: single-window tabbed settings
+
+Everything stays inside `Sensor RAW Array Viewer`; no separate settings window.
+Expression/Capture and pointer selection stay at the top. Frame, Structure and
+Profiles share one settings area, initially 145 device-independent pixels tall.
+Drag the divider underneath to resize it (70–300 pixels). The settings tab strip
+stays outside its scrolling content. Switching settings tabs does not resize the
+image, rebuild controls, copy buffers or add debugger subscriptions.
+
+Go To/Center/Kernel stay above the image and Watch stays below it. Frame map is
+visible by default beside the image. The standalone preview hosts the real control
+in one window. Its 600/900/1200-pixel checks require at least 230 pixels of image
+height at a 780-pixel window height and verify settings-tab switching leaves that
+height unchanged. Actual VS docking and debugger integration still need an
+installed-extension manual test.
+
+## Previous in-window layout (superseded)
+
 Restore point: `backup/pre-ui-redesign-20260913` (commit `4ab86d3`).
 Work branch: `codex/viewer-workspace-redesign`.
 
 The image is the workspace, not the last section of a configuration form.
+
+Responsive layout: at 1100 device-independent pixels and wider, settings occupy a
+resizable left column. Narrower windows retain a resizable 170-pixel top settings
+panel. The open/closed choice is retained when switching layouts. Inspection and
+Watch use compact inline controls, while the frame-map sidebar is 194 pixels wide
+and scrolls independently. Core commands remain exposed; no debugger behavior changed.
 
 - Source: expression, Capture, pointer choices, editor selection, auto-update.
 - Settings: open by default, collapsible and vertically resizable; frame interpretation, structure binding,

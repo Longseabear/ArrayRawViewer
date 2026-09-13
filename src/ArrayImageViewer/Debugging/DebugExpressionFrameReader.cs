@@ -771,6 +771,14 @@ namespace ArrayImageViewer.Debugging
             }
         }
 
+        internal static bool IsDebuggerInBreakMode()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            var debugger = Package.GetGlobalService(typeof(SVsShellDebugger)) as IVsDebugger;
+            var modes = new DBGMODE[1];
+            return debugger != null && debugger.GetMode(modes) >= 0 && modes[0] == DBGMODE.DBGMODE_Break;
+        }
+
         internal static void ContinueDebuggee()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
