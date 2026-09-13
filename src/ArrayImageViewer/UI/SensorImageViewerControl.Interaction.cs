@@ -452,6 +452,12 @@ namespace ArrayImageViewer.UI
 
         private void JumpToCoordinate(object sender, RoutedEventArgs e)
         {
+            // Centering already-cached pixels is a camera operation, not a read.
+            if (frame != null && IsLoadedCoordinate(currentX, currentY))
+            {
+                CenterOnSelection();
+                return;
+            }
             try
             {
                 var configuration = ReadConfiguration();

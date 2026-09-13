@@ -10,9 +10,12 @@ The image is the workspace, not the last section of a configuration form.
   solution-local profiles, numeric-local bindings. Existing persistence format is unchanged.
 - Tabs: immediately above the image tools; short member paths with full expression tooltips.
 - Inspection: X/Y, Center, Kernel W/H, channel, Zoom, Export and Stats stay outside settings scrolling.
-- Hardware watch: explicit, collapsed group documenting that it resumes execution.
-- Frame map: toggle beside the image; drag sets View ROI. View dimensions and directional
+- Hardware watch: visible by default, with Go To X/Y and Watch Next X/Y commands.
+- Frame map: visible by default, toggle beside the image; drag sets View ROI. View dimensions and directional
   movement are grouped here. It does not change Kernel dimensions.
+- Oversized View ROIs shrink proportionally to the 262,144-sample interactive budget.
+  Drag commits the rectangle midpoint, not the release corner. Center on a cached
+  pixel moves only the camera and does not request debugger memory.
 - Export: kernel text copy plus full/View/Kernel RAW save, retaining existing semantics.
 
 Read options retain the advanced acquisition paths. Capture still uses the existing

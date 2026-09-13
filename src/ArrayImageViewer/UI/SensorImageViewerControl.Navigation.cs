@@ -77,7 +77,7 @@ namespace ArrayImageViewer.UI
             navigatorCanvas.ReleaseMouseCapture();
             if (hasCoordinate && HasNavigatorDragDistance(point))
             {
-                MoveViewTo(x, y, false);
+                MoveViewTo(viewCenterX, viewCenterY, false);
             }
             e.Handled = true;
         }
@@ -143,6 +143,7 @@ namespace ArrayImageViewer.UI
         private void PreviewNavigatorView(int endX, int endY)
         {
             var view = RoiGeometry.FromDrag(fullFrameWidth, fullFrameHeight, navigatorStartX, navigatorStartY, endX, endY);
+            view = RoiGeometry.LimitView(fullFrameWidth, fullFrameHeight, view.CenterX, view.CenterY, view.Width, view.Height);
             viewCenterX = view.CenterX;
             viewCenterY = view.CenterY;
             // Suppress the debounced debugger read while the mouse is still
@@ -217,7 +218,7 @@ namespace ArrayImageViewer.UI
 
             var viewWidth = Math.Max(1, ParseNavigatorValue(renderWidth.Text, 1));
             var viewHeight = Math.Max(1, ParseNavigatorValue(renderHeight.Text, 1));
-            var view = RoiGeometry.ClampCentered(frameWidth, frameHeight,
+            var view = RoiGeometry.LimitView(frameWidth, frameHeight,
                 viewCenterX >= 0 ? viewCenterX : currentX, viewCenterY >= 0 ? viewCenterY : currentY, viewWidth, viewHeight);
             navigatorRoi.Width = Math.Max(2, view.Width * scale);
             navigatorRoi.Height = Math.Max(2, view.Height * scale);

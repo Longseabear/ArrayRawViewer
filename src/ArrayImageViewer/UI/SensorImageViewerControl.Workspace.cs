@@ -68,8 +68,8 @@ namespace ArrayImageViewer.UI
             AddWorkspaceCell(inspection, CreateViewerTabStrip(), 0);
 
             var tools = CreateRow();
-            tools.Children.Add(CreateField("X", selectedX));
-            tools.Children.Add(CreateField("Y", selectedY));
+            tools.Children.Add(CreateField("GO TO X", selectedX));
+            tools.Children.Add(CreateField("GO TO Y", selectedY));
             tools.Children.Add(CreateAction("SELECTED PIXEL", CreateButton("Center", JumpToCoordinate, false)));
             tools.Children.Add(CreateField("KERNEL W", roiWidth));
             tools.Children.Add(CreateField("KERNEL H", roiHeight));
@@ -80,7 +80,7 @@ namespace ArrayImageViewer.UI
             tools.Children.Add(CreateAction("", CreateCommandMenu("Export", new[] { "Copy kernel text  ·  Ctrl+C", "Save full RAW…", "Save View RAW…", "Save Kernel RAW…" }, new RoutedEventHandler[] { CopyKernelToClipboard, SaveFullRaw, SaveViewRaw, SaveKernelRaw })));
             tools.Children.Add(CreateAction("", statisticsToggle));
 
-            var map = new StackPanel { Width = 246, Margin = new Thickness(8), Visibility = Visibility.Collapsed };
+            var map = new StackPanel { Width = 246, Margin = new Thickness(8), Visibility = Visibility.Visible };
             map.Children.Add(new TextBlock { Text = "FRAME MAP", Foreground = MutedBrush, Margin = new Thickness(0, 0, 0, 8) });
             map.Children.Add(navigatorCanvas);
             map.Children.Add(new TextBlock { Text = "Drag to set View ROI\nOrange rectangle = Kernel", Foreground = MutedBrush, FontSize = 11, Margin = new Thickness(0, 8, 0, 8) });
@@ -96,15 +96,15 @@ namespace ArrayImageViewer.UI
 
             var auxiliary = new StackPanel();
             var watch = CreateRow();
-            watch.Children.Add(CreateAction("RESUME UNTIL WRITE", CreateButton("Watch", WatchSelectedPixelAndContinue, false)));
-            watch.Children.Add(CreateAction("", CreateButton("Next X", WatchNextPixelAndContinue, false)));
-            watch.Children.Add(CreateAction("", CreateButton("Next Y", WatchNextLineAndContinue, false)));
+            watch.Children.Add(CreateAction("RESUME UNTIL WRITE", CreateButton("Watch Go To X/Y", WatchSelectedPixelAndContinue, false)));
+            watch.Children.Add(CreateAction("", CreateButton("Watch Next X", WatchNextPixelAndContinue, false)));
+            watch.Children.Add(CreateAction("", CreateButton("Watch Next Y", WatchNextLineAndContinue, false)));
             watch.Children.Add(CreateField("", keepHardwareWatchArmed));
             watch.Children.Add(CreateAction("", CreateButton("Clear", ClearHardwareWatch, false)));
             var watchPanel = new StackPanel();
             watchPanel.Children.Add(watch);
             watchPanel.Children.Add(hardwareWatchInfo);
-            auxiliary.Children.Add(CreateDisclosure("Hardware watch · resumes debugger execution", watchPanel, false));
+            auxiliary.Children.Add(CreateDisclosure("Hardware watch · resumes debugger execution", watchPanel, true));
             var stats = new StackPanel { Margin = new Thickness(8) };
             stats.Children.Add(CreateField("STATISTICS SCOPE", statisticsScope));
             stats.Children.Add(statisticsSummary);

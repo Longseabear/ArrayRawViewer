@@ -121,6 +121,25 @@ namespace ArrayImageViewer.Core
 
     internal static class RoiGeometry
     {
+        public const int InteractiveSampleLimit = 262144;
+
+        public static RoiRectangle LimitView(int frameWidth, int frameHeight, int centerX, int centerY, int width, int height)
+        {
+            if (width <= 0 || height <= 0 || frameWidth <= 0 || frameHeight <= 0)
+                throw new ArgumentException("Frame and view dimensions must be positive.");
+            width = Math.Min(width, frameWidth);
+            height = Math.Min(height, frameHeight);
+            if ((long)width * height > InteractiveSampleLimit)
+            {
+                double scale = Math.Sqrt(InteractiveSampleLimit / ((double)width * height));
+                width = Math.Max(1, (int)Math.Floor(width * scale));
+                height = Math.Max(1, (int)Math.Floor(height * scale));
+                width = Math.Min(width, InteractiveSampleLimit);
+                height = Math.Min(height, InteractiveSampleLimit / width);
+            }
+            return ClampCentered(frameWidth, frameHeight, centerX, centerY, width, height);
+        }
+
         public static RoiRectangle CreateContext(int frameWidth, int frameHeight, int requestedCenterX, int requestedCenterY,
             int minimumWidth, int minimumHeight, int sampleLimit)
         {

@@ -83,6 +83,13 @@ internal static class Program
     }
     private static void Verify(Window window)
     {
+        ((TextBox)Get("renderWidth")).Text = "4096";
+        ((TextBox)Get("renderHeight")).Text = "3072";
+        var generation = Get("renderGeneration");
+        Button("Center").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        if (!Equals(generation, Get("renderGeneration"))) throw new Exception("Center must not start a read/render.");
+        if (((TextBox)Get("status")).Text.Contains("Cannot")) throw new Exception("Center failed with oversized View dimensions.");
+        if (!Button("Watch Go To X/Y").IsVisible) throw new Exception("Watch must be visible by default.");
         var caption = viewerType.GetMethod("CompactTabCaption", BindingFlags.Static | BindingFlags.NonPublic);
         if ((string)caption.Invoke(null, new object[] { "(&(((imageSimulator).input_aux_stream)[0]))->m_data" }) != "input_aux_stream[0].m_data")
             throw new Exception("Array index lost from tab caption.");
@@ -102,9 +109,10 @@ internal static class Program
             if (!((ScrollViewer)Get("configurationScrollViewer")).IsVisible) throw new Exception("Settings failed to open.");
             if (((ScrollViewer)Get("scrollViewer")).ActualHeight < 80) throw new Exception("Settings displaced the viewer.");
             Button("Settings").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            if (!((Canvas)Get("navigatorCanvas")).IsVisible) throw new Exception("Map must be visible by default.");
             Button("Frame map").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
             window.UpdateLayout();
-            if (!((Canvas)Get("navigatorCanvas")).IsVisible) throw new Exception("Map failed to open.");
+            if (((Canvas)Get("navigatorCanvas")).IsVisible) throw new Exception("Map failed to hide.");
             Button("Frame map").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         }
         if (Button("Export ▾").ContextMenu.Items.Count != 4) throw new Exception("Export scopes missing.");

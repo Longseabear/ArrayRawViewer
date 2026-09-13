@@ -539,19 +539,23 @@ namespace ArrayImageViewer.UI
                 throw new ArgumentException("View height must be positive.");
             }
 
-            var samples = checked((long)requestedWidth * requestedHeight);
-            if (samples > 262144)
-            {
-                throw new ArgumentException("View W x H is limited to 262,144 samples. Use Full preview for the entire frame.");
-            }
-
             if (viewCenterX < 0 || viewCenterY < 0)
             {
                 viewCenterX = currentX >= 0 ? currentX : kernel.CenterX;
                 viewCenterY = currentY >= 0 ? currentY : kernel.CenterY;
             }
 
-            var view = RoiGeometry.ClampCentered(configuration.Width, configuration.Height, viewCenterX, viewCenterY, requestedWidth, requestedHeight);
+            var view = RoiGeometry.LimitView(configuration.Width, configuration.Height, viewCenterX, viewCenterY, requestedWidth, requestedHeight);
+            // Retain local-variable expressions; only normalize literal dimensions.
+            var applying = isApplyingProfile;
+            isApplyingProfile = true;
+            try
+            {
+                int literal;
+                if (Int32.TryParse(renderWidth.Text, out literal)) renderWidth.Text = view.Width.ToString(CultureInfo.InvariantCulture);
+                if (Int32.TryParse(renderHeight.Text, out literal)) renderHeight.Text = view.Height.ToString(CultureInfo.InvariantCulture);
+            }
+            finally { isApplyingProfile = applying; }
             return new RoiBounds(view.X, view.Y, view.Width, view.Height, view.CenterX, view.CenterY);
         }
     }

@@ -23,6 +23,7 @@ namespace ArrayImageViewer.Tests
                 StrideAndOriginRemainFullFrameRelative();
                 StatisticsRespectScopeAndBayerSites();
                 RoiGeometryClampsAndPreservesDragSelection();
+                OversizeViewsRespectInteractiveLimit();
                 BayerLayoutsRepeatAtExpectedBlockSizes();
                 RendererWritesExpectedGrayPixels();
                 RendererWritesExpectedBayerMosaicPixels();
@@ -37,6 +38,21 @@ namespace ArrayImageViewer.Tests
             {
                 Console.Error.WriteLine(exception);
                 return 1;
+            }
+        }
+
+        private static void OversizeViewsRespectInteractiveLimit()
+        {
+            var normal = RoiGeometry.LimitView(4096, 3072, 500, 500, 39, 38);
+            Assert(normal.Width == 39 && normal.Height == 38, "Small view remains unchanged.");
+            var full = RoiGeometry.LimitView(4096, 3072, 2048, 1536, 4096, 3072);
+            Assert((long)full.Width * full.Height <= 262144, "Large drag is limited instead of rejected.");
+            Assert(full.CenterX == 2048 && full.CenterY == 1536, "Drag midpoint is preserved.");
+            Assert(Math.Abs(full.Width / (double)full.Height - 4.0 / 3) < 0.01, "Aspect ratio is retained.");
+            foreach (var pair in new[] { new[] { Int32.MaxValue, 1 }, new[] { 1, Int32.MaxValue }, new[] { Int32.MaxValue, Int32.MaxValue } })
+            {
+                var view = RoiGeometry.LimitView(pair[0], pair[1], 0, 0, pair[0], pair[1]);
+                Assert(view.Width > 0 && view.Height > 0 && (long)view.Width * view.Height <= 262144, "Extreme aspect/overflow is bounded.");
             }
         }
 
