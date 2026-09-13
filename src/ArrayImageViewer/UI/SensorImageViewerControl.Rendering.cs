@@ -53,7 +53,7 @@ namespace ArrayImageViewer.UI
             }
             catch (Exception exception)
             {
-                SetInputError("Cannot show ROI + context: " + exception.Message);
+                SetInputError("Cannot show Capture: " + exception.Message);
             }
         }
 
@@ -101,7 +101,7 @@ namespace ArrayImageViewer.UI
                 DebugMemoryFrameReader.RoiReadSession memoryRead;
                 if (!DebugExpressionFrameReader.TryStartMemoryRoiRead(expression.Text, configuration, 0, 0, configuration.Width, configuration.Height, out memoryRead))
                 {
-                    throw new InvalidOperationException("Full preview requires the native debugger-memory reader. Use ROI + context on this debug engine.");
+                    throw new InvalidOperationException("Full preview requires the native debugger-memory reader. Use Capture on this debug engine.");
                 }
 
                 var selection = ResolveCurrentSelection(configuration);

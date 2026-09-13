@@ -50,7 +50,7 @@ namespace ArrayImageViewer.UI
             }
             else
             {
-                SetStatus("Pixel (" + x + ", " + y + ") is outside the loaded context. Select ROI + context to inspect it.");
+                SetStatus("Pixel (" + x + ", " + y + ") is outside the loaded context. Select Capture to inspect it.");
             }
         }
 

@@ -79,6 +79,7 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="UI\SensorImageViewerControl.cs" />
+    <Compile Include="UI\SensorImageViewerControl.Workspace.cs" />
     <Compile Include="UI\SensorImageViewerControl.Profiles.cs" />
     <Compile Include="UI\SensorImageViewerControl.Rendering.cs" />
     <Compile Include="UI\SensorImageViewerControl.Navigation.cs" />

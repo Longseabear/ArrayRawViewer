@@ -260,51 +260,13 @@ namespace ArrayImageViewer.UI
             navigatorCanvas.MouseMove += NavigatorMouseMove;
             navigatorCanvas.MouseLeftButtonUp += NavigatorMouseLeftButtonUp;
 
-            var root = new Grid { Background = RootBrush };
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(260), MinHeight = 118 });
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(7) });
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 180 });
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var header = CreateHeader();
-            configurationScrollViewer = new ScrollViewer
-            {
-                Content = header,
-                Background = RootBrush,
-                BorderThickness = new Thickness(0, 0, 0, 1),
-                BorderBrush = PanelBorderBrush,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
-            };
-            Grid.SetRow(configurationScrollViewer, 0);
-            root.Children.Add(configurationScrollViewer);
-            var splitter = new GridSplitter
-            {
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalAlignment = VerticalAlignment.Stretch,
-                Background = PanelBorderBrush,
-                ResizeDirection = GridResizeDirection.Rows,
-                ResizeBehavior = GridResizeBehavior.PreviousAndNext,
-                ShowsPreview = true,
-                Cursor = Cursors.SizeNS
-            };
-            Grid.SetRow(splitter, 1);
-            root.Children.Add(splitter);
-            var tabStrip = CreateViewerTabStrip();
-            Grid.SetRow(tabStrip, 2);
-            root.Children.Add(tabStrip);
-            var footer = CreateFooter();
-            Grid.SetRow(footer, 4);
-            root.Children.Add(footer);
-            Grid.SetRow(scrollViewer, 3);
-            root.Children.Add(scrollViewer);
-            Content = root;
+            Content = CreateWorkspace();
             RestorePersistentWorkspaceState();
             InitializeViewerTabs();
             UpdateNavigator();
             if (String.IsNullOrWhiteSpace(expression.Text) || activeProfileExpression == null)
             {
-                SetStatus("Pause the debuggee, choose a pointer or editor selection, then show ROI + context around X/Y.");
+                SetStatus("Pause the debuggee, choose a pointer or editor selection, then show Capture around X/Y.");
             }
         }
 
@@ -324,37 +286,7 @@ namespace ArrayImageViewer.UI
 
         private UIElement CreateHeader()
         {
-            var panel = new StackPanel { Margin = new Thickness(14, 12, 14, 10) };
-            panel.Children.Add(new TextBlock
-            {
-                Text = "ARRAY RAW VIEWER",
-                Foreground = TextBrush,
-                FontSize = 19,
-                FontWeight = FontWeights.SemiBold
-            });
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Pointer buffer inspector  |  Bayer phase follows full-frame coordinates",
-                Foreground = MutedBrush,
-                FontSize = 11,
-                Margin = new Thickness(0, 3, 0, 11)
-            });
-
-            // Keep the actual inspection flow together: choose/capture a
-            // pointer, then immediately read it. Profiles are supporting
-            // state, so they live on a quieter second line instead of forcing
-            // the primary actions to wrap on ordinary tool-window widths.
-            var sourceRow = CreateRow();
-            sourceRow.Children.Add(CreateField("POINTER", availablePointers));
-            sourceRow.Children.Add(CreateAction("LOCALS", CreateButton("Refresh", RefreshPointers, false)));
-            sourceRow.Children.Add(CreateField("EXPRESSION", expression));
-            sourceRow.Children.Add(CreateAction("EDITOR", CreateButton("Use selection", CaptureSelection, false)));
-            sourceRow.Children.Add(CreateAction("SHOW", CreateButton("ROI + context", LoadContextPreview, true)));
-            sourceRow.Children.Add(CreateAction("PIXELS", CreateButton("Exact ROI", LoadExpression, false)));
-            sourceRow.Children.Add(CreateAction("", CreateButton("Full preview", LoadFullPreview, false)));
-            sourceRow.Children.Add(CreateAction("RAW", CreateButton("Save full", SaveFullRaw, false)));
-            sourceRow.Children.Add(CreateAction("", CreateButton("Cancel read", CancelRead, false)));
-            sourceRow.Children.Add(CreateField("UPDATE", autoUpdate));
+            var panel = new StackPanel { Margin = new Thickness(8) };
             var profileRow = CreateRow();
             profileRow.Margin = new Thickness(0, 8, 0, 0);
             profileRow.Children.Add(CreateField("SESSION PROFILE", profilePicker));
@@ -372,12 +304,8 @@ namespace ArrayImageViewer.UI
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(6, 20, 0, 0)
             });
-            var sourceContent = new StackPanel();
-            sourceContent.Children.Add(sourceRow);
-            sourceContent.Children.Add(profileRow);
-            panel.Children.Add(CreateSection("SOURCE", "Choose a pointer, or use the selected editor expression. ROI + context is the normal first view; Exact ROI is for close-up values.", sourceContent));
-
-            panel.Children.Add(CreateStructureTemplateSection());
+            panel.Children.Add(CreateDisclosure("Profiles · saved per solution", profileRow, false));
+            panel.Children.Add(CreateDisclosure("Objects · structure binding", CreateStructureTemplateSection(), false));
 
             var formatRow = CreateRow();
             formatRow.Children.Add(CreateField("WIDTH", width));
@@ -388,7 +316,7 @@ namespace ArrayImageViewer.UI
             formatRow.Children.Add(CreateField("VALUE TYPE", signed));
             formatRow.Children.Add(CreateField("PIXEL ORDER", pixelOrder));
             formatRow.Children.Add(CreateField("PIXEL TYPE", pixelType));
-            formatRow.Children.Add(CreateField("VISUALIZE", visualizeChannel));
+
             formatRow.Children.Add(CreateAction("LOCAL STACK", CreateButton("Auto-fill", RefreshScalarValues, false)));
             var normalizationRow = CreateRow();
             normalizationRow.Children.Add(CreateField("NORMALIZE", normalizationMode));
@@ -417,8 +345,6 @@ namespace ArrayImageViewer.UI
                 Content = new Border { Background = PanelBrush, BorderBrush = PanelBorderBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Padding = new Thickness(9, 8, 9, 8), Margin = new Thickness(0, 5, 0, 0), Child = localValuesRow }
             });
 
-            panel.Children.Add(CreateInspectionSection());
-            panel.Children.Add(CreateNavigatorSection());
             return panel;
         }
 
@@ -444,7 +370,6 @@ namespace ArrayImageViewer.UI
                 Foreground = MutedBrush,
                 FontSize = 10,
                 TextWrapping = TextWrapping.Wrap,
-                Width = 790,
                 Margin = new Thickness(12, 7, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center
             });
@@ -454,129 +379,10 @@ namespace ArrayImageViewer.UI
                 Foreground = MutedBrush,
                 FontSize = 10,
                 TextWrapping = TextWrapping.Wrap,
-                Width = 790,
                 Margin = new Thickness(12, 4, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center
             });
             return CreateSection("STRUCTURE TEMPLATE", "Use the standard Visual Studio Options page to create and distribute templates; bind a selected template here.", content);
-        }
-
-        // This surface intentionally uses independently wrapping command
-        // groups. A single WrapPanel for every inspection control caused
-        // labels such as RAW/STATS/WATCH to become separated from their
-        // buttons when a tool window was narrowed.
-        private UIElement CreateInspectionSection()
-        {
-            var content = new StackPanel();
-
-            var positionRow = CreateRow();
-            positionRow.Children.Add(CreateField("GO TO X", selectedX));
-            positionRow.Children.Add(CreateField("GO TO Y", selectedY));
-            positionRow.Children.Add(CreateField("VIEW W", renderWidth));
-            positionRow.Children.Add(CreateField("VIEW H", renderHeight));
-            positionRow.Children.Add(CreateField("KERNEL W", roiWidth));
-            positionRow.Children.Add(CreateField("KERNEL H", roiHeight));
-            positionRow.Children.Add(CreateAction("FOCUS", CreateButton("Center cursor", JumpToCoordinate, false)));
-            content.Children.Add(CreateCommandGroup("POSITION", positionRow));
-
-            var pixelActions = CreateRow();
-            pixelActions.Children.Add(CreateCompactAction(CreateButton("Read exact cells", InspectCells, true)));
-            pixelActions.Children.Add(CreateCompactAction(CreateButton("Copy kernel (Ctrl+C)", CopyKernelToClipboard, false)));
-            pixelActions.Children.Add(CreateCompactAction(CreateButton("Save View", SaveViewRaw, false)));
-            pixelActions.Children.Add(CreateCompactAction(CreateButton("Save Kernel", SaveKernelRaw, false)));
-            pixelActions.Children.Add(CreateCompactAction(statisticsToggle));
-            content.Children.Add(CreateCommandGroup("PIXEL · RAW · STATS", pixelActions));
-
-            var statisticsRow = CreateRow();
-            statisticsRow.Children.Add(CreateField("SCOPE", statisticsScope));
-            statisticsRow.Children.Add(statisticsSummary);
-            statisticsRow.Children.Add(statisticsChannels);
-            statisticsPanel.Children.Clear();
-            statisticsPanel.Children.Add(statisticsRow);
-            content.Children.Add(statisticsPanel);
-
-            var watchContent = new StackPanel();
-            var watchActions = CreateRow();
-            watchActions.Children.Add(CreateCompactAction(CreateButton("Watch (Go To X/Y)", WatchSelectedPixelAndContinue, true)));
-            watchActions.Children.Add(CreateCompactAction(CreateButton("Watch Next X", WatchNextPixelAndContinue, false)));
-            watchActions.Children.Add(CreateCompactAction(CreateButton("Watch Next Y", WatchNextLineAndContinue, false)));
-            watchActions.Children.Add(new Border { Child = keepHardwareWatchArmed, Margin = new Thickness(2, 0, 12, 0), Padding = new Thickness(2, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
-            watchActions.Children.Add(CreateCompactAction(CreateButton("Clear watch", ClearHardwareWatch, false)));
-            watchContent.Children.Add(watchActions);
-            watchContent.Children.Add(hardwareWatchInfo);
-            watchContent.Children.Add(new TextBlock
-            {
-                Text = "Watch uses the current Go To X/Y sample. Watch Next X advances one sample in row-major order; Watch Next Y keeps X and advances Y by one. Each one-shot watch is removed after it stops. Enable Keep armed only for repeated changes at the same sample.",
-                Foreground = MutedBrush,
-                FontSize = 10,
-                LineHeight = 15,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 5, 0, 0)
-            });
-            content.Children.Add(CreateCommandGroup("HARDWARE WATCH", watchContent));
-
-            var viewActions = new UniformGrid { Columns = 4, Rows = 1, HorizontalAlignment = HorizontalAlignment.Left };
-            viewActions.Children.Add(CreateButton("Left", PanLeft, false));
-            viewActions.Children.Add(CreateButton("Right", PanRight, false));
-            viewActions.Children.Add(CreateButton("Up", PanUp, false));
-            viewActions.Children.Add(CreateButton("Down", PanDown, false));
-            content.Children.Add(CreateCommandGroup("MOVE VIEW", viewActions));
-
-            return CreateSection("VIEW + KERNEL", "View is the loaded display range; Kernel is the orange analysis rectangle. Frame overview moves View, and right-drag on the image changes Kernel.", content);
-        }
-
-        private static Border CreateCommandGroup(string label, UIElement contents)
-        {
-            var group = new Border
-            {
-                Background = ControlBrush,
-                BorderBrush = PanelBorderBrush,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(8, 6, 8, 7),
-                Margin = new Thickness(0, 0, 0, 6)
-            };
-            var stack = new StackPanel();
-            stack.Children.Add(new TextBlock
-            {
-                Text = label,
-                Foreground = AccentBrush,
-                FontSize = 9,
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 0, 0, 5)
-            });
-            stack.Children.Add(contents);
-            group.Child = stack;
-            return group;
-        }
-
-        private static Border CreateCompactAction(Button button)
-        {
-            return new Border { Child = button, Margin = new Thickness(0, 0, 8, 0) };
-        }
-
-        private UIElement CreateNavigatorSection()
-        {
-            var content = new Grid();
-            content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var navigatorBorder = new Border
-            {
-                Background = CanvasBrush,
-                BorderBrush = PanelBorderBrush,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(4),
-                Child = navigatorCanvas
-            };
-            content.Children.Add(navigatorBorder);
-            var detail = new StackPanel { Margin = new Thickness(14, 2, 4, 2), VerticalAlignment = VerticalAlignment.Center };
-            detail.Children.Add(new TextBlock { Text = "OPTIONAL FRAME MAP", Foreground = AccentBrush, FontSize = 11, FontWeight = FontWeights.SemiBold });
-            detail.Children.Add(new TextBlock { Text = "This is a position overview, not the primary selector. Use the image click-hold or Ctrl+drag interaction for pixel-accurate ROI selection.", Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, FontSize = 11, LineHeight = 17, Margin = new Thickness(0, 5, 0, 8) });
-            detail.Children.Add(navigatorInfo);
-            Grid.SetColumn(detail, 1);
-            content.Children.Add(detail);
-            return CreateSection("FRAME OVERVIEW", "Optional full-frame kernel-position map; image selection is the primary workflow", content);
         }
 
         private UIElement CreateFooter()
@@ -724,7 +530,7 @@ namespace ArrayImageViewer.UI
 
         private static StackPanel CreateField(string label, UIElement input)
         {
-            var field = new StackPanel { Margin = new Thickness(0, 0, 9, 0) };
+            var field = new StackPanel { Margin = new Thickness(0, 0, 9, 6) };
             field.Children.Add(new TextBlock { Text = label, Foreground = MutedBrush, FontSize = 9, FontWeight = FontWeights.SemiBold, Margin = new Thickness(1, 0, 0, 4) });
             field.Children.Add(input);
             return field;
@@ -732,7 +538,7 @@ namespace ArrayImageViewer.UI
 
         private static StackPanel CreateAction(string label, Button button)
         {
-            var action = new StackPanel { Margin = new Thickness(0, 0, 7, 0) };
+            var action = new StackPanel { Margin = new Thickness(0, 0, 7, 6) };
             action.Children.Add(new TextBlock { Text = label, Foreground = MutedBrush, FontSize = 9, FontWeight = FontWeights.SemiBold, Margin = new Thickness(1, 0, 0, 4), Height = 11 });
             action.Children.Add(button);
             return action;
@@ -749,7 +555,7 @@ namespace ArrayImageViewer.UI
         {
             var text = new TextBlock
             {
-                Text = "NO ROI LOADED\n\nChoose a pointer, enter full-frame dimensions and ROI W/H,\nthen load the requested debugger ROI.",
+                Text = "READY TO INSPECT\n\nPause at a breakpoint, choose a pointer,\ncheck image dimensions in Settings, then Capture.\n\nWheel: zoom  ·  Drag: move  ·  Right-drag: kernel",
                 Foreground = MutedBrush,
                 FontSize = 13,
                 TextAlignment = TextAlignment.Center,

@@ -107,7 +107,7 @@ namespace ArrayImageViewer.UI
                 RebuildProfilePicker(dataExpression);
                 PersistCurrentSessionIfRequested();
                 SetStatus("Bound '" + template.ClassName + "': RAW=" + dataExpression + ", W=" + boundWidth.ToString(CultureInfo.InvariantCulture) +
-                    ", H=" + boundHeight.ToString(CultureInfo.InvariantCulture) + ", stride=W. Select ROI + context to read the current object.");
+                    ", H=" + boundHeight.ToString(CultureInfo.InvariantCulture) + ", stride=W. Select Capture to read the current object.");
                 ScheduleAutoRefresh();
             }
             catch (Exception exception)

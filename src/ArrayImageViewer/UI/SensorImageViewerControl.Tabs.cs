@@ -46,6 +46,7 @@ namespace ArrayImageViewer.UI
                 var tab = viewerTabs[index];
                 var select = CreateButton(tab.Caption, SelectViewerTab, tab == activeViewerTab);
                 select.Tag = tab;
+                select.ToolTip = tab.Profile == null ? tab.Caption : tab.Profile.Expression;
                 select.Margin = new Thickness(0, 0, 2, 0);
                 select.MinWidth = 105;
                 select.MaxWidth = 210;
@@ -223,10 +224,18 @@ namespace ArrayImageViewer.UI
                     {
                         return "Array " + Id.ToString(CultureInfo.InvariantCulture);
                     }
-                    expression = expression.Trim();
-                    return expression.Length > 24 ? expression.Substring(0, 23) + "…" : expression;
+                    return CompactTabCaption(expression);
                 }
             }
+        }
+
+        // Display-only shortening. Never feed this back into the debugger expression.
+        private static string CompactTabCaption(string expression)
+        {
+            var text = expression.Trim().Replace("->", ".").Replace("(", "").Replace(")", "").Replace("&", "");
+            var parts = text.Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length > 1) text = parts[parts.Length - 2] + "." + parts[parts.Length - 1];
+            return text.Length > 32 ? "…" + text.Substring(text.Length - 31) : text;
         }
     }
 }

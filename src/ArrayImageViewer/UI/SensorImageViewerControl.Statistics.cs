@@ -19,7 +19,7 @@ namespace ArrayImageViewer.UI
         {
             var show = statisticsPanel.Visibility != Visibility.Visible;
             statisticsPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-            statisticsToggle.Content = show ? "Stats hide" : "Stats";
+            statisticsToggle.Content = show ? "Hide stats" : "Stats";
             if (show)
             {
                 UpdateStatistics();

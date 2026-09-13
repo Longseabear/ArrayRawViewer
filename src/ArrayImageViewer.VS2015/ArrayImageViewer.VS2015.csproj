@@ -121,6 +121,9 @@
     <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.cs">
       <Link>UI\SensorImageViewerControl.cs</Link>
     </Compile>
+    <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Workspace.cs">
+      <Link>UI\SensorImageViewerControl.Workspace.cs</Link>
+    </Compile>
     <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.Profiles.cs">
       <Link>UI\SensorImageViewerControl.Profiles.cs</Link>
     </Compile>

@@ -136,7 +136,7 @@ namespace ArrayImageViewer.UI
                 EnsureProfile(expression.Text);
                 activeProfileExpression = expression.Text.Trim();
                 RebuildProfilePicker(expression.Text);
-                SetStatus("Expression set from the editor selection: " + expression.Text + ". Select ROI + context to inspect it.");
+                SetStatus("Expression set from the editor selection: " + expression.Text + ". Select Capture to inspect it.");
                 ScheduleAutoRefresh();
             }
             catch (Exception exception)
@@ -348,7 +348,7 @@ namespace ArrayImageViewer.UI
 
             SaveCurrentProfile();
             ApplyProfile(profile);
-            SetStatus("Restored profile for " + profile.Expression + ". Select ROI + context to read its current debugger values.");
+            SetStatus("Restored profile for " + profile.Expression + ". Select Capture to read its current debugger values.");
         }
 
         private void SaveProfileSettings(object sender, RoutedEventArgs e)
