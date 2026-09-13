@@ -131,7 +131,6 @@ namespace ArrayImageViewer.UI
 
             if (!isSameWatch)
             {
-                CleanupRetiredHardwareWatches();
                 ClearHardwareWatch(false);
                 CleanupRetiredHardwareWatches();
                 if (retiredHardwareWatchBreakpoints.Count > 0)

@@ -304,8 +304,6 @@ namespace ArrayImageViewer.UI
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(6, 20, 0, 0)
             });
-            panel.Children.Add(CreateDisclosure("Profiles · saved per solution", profileRow, false));
-            panel.Children.Add(CreateDisclosure("Objects · structure binding", CreateStructureTemplateSection(), false));
 
             var formatRow = CreateRow();
             formatRow.Children.Add(CreateField("WIDTH", width));
@@ -326,8 +324,10 @@ namespace ArrayImageViewer.UI
             normalizationRow.Children.Add(new TextBlock { Text = "Q-format range is the default. Apply changes recolors cached samples without a debugger read.", Foreground = MutedBrush, Margin = new Thickness(12, 23, 0, 0), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
             var formatContent = new StackPanel();
             formatContent.Children.Add(formatRow);
-            formatContent.Children.Add(normalizationRow);
-            panel.Children.Add(CreateSection("FRAME", "Full-frame dimensions; Composite is a lightweight nearest-site Bayer preview, while pixel inspection always shows the original sample", formatContent));
+            panel.Children.Add(formatContent);
+            panel.Children.Add(CreateStructureTemplateSection());
+            panel.Children.Add(CreateDisclosure("Display range", normalizationRow, false));
+            panel.Children.Add(CreateDisclosure("Profiles · saved per solution", profileRow, false));
 
             var localValuesRow = CreateRow();
             localValuesRow.Children.Add(CreateAction("", CreateButton("Refresh numeric locals", RefreshScalarValues, false)));
@@ -351,38 +351,20 @@ namespace ArrayImageViewer.UI
         private UIElement CreateStructureTemplateSection()
         {
             var content = new StackPanel();
-            var bindingRow = CreateRow();
-            bindingRow.Children.Add(CreateField("STRUCTURE TEMPLATE", structureTemplatePicker));
-            bindingRow.Children.Add(CreateAction("", CreateButton("Reload templates", ReloadStructureTemplates, false)));
-            bindingRow.Children.Add(CreateAction("", CreateButton("Bind current root", BindStructureTemplate, true)));
-            content.Children.Add(bindingRow);
-
-            var captureRow = CreateRow();
-            captureRow.Children.Add(CreateField("SEARCH ROOT", structureTemplateRoot));
-            captureRow.Children.Add(CreateAction("", CreateButton("Search objects", CaptureStructureObjects, false)));
-            captureRow.Children.Add(CreateField("FOUND INTEREST TYPES", capturedStructurePicker));
-            captureRow.Children.Add(CreateAction("", CreateButton("Use captured object", UseCapturedStructure, true)));
-            content.Children.Add(captureRow);
-
-            content.Children.Add(new TextBlock
-            {
-                Text = "Search expands only the root entered here (for example this or a local variable); it does not scan the full stack. Candidates are limited to types registered in Tools > Options > Array RAW Viewer > Structure Templates.",
-                Foreground = MutedBrush,
-                FontSize = 10,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(12, 7, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center
-            });
-            content.Children.Add(new TextBlock
-            {
-                Text = "Manage class mappings in Tools > Options > Array RAW Viewer > Structure Templates. The root is never saved in a mapping: select a template, search from the current root, then bind a discovered object.",
-                Foreground = MutedBrush,
-                FontSize = 10,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(12, 4, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center
-            });
-            return CreateSection("STRUCTURE TEMPLATE", "Use the standard Visual Studio Options page to create and distribute templates; bind a selected template here.", content);
+            var rootRow = CreateRow();
+            rootRow.Children.Add(CreateField("SEARCH ROOT", structureTemplateRoot));
+            rootRow.Children.Add(CreateAction("", CreateButton("Search objects", CaptureStructureObjects, false)));
+            rootRow.Children.Add(CreateField("STRUCTURE TEMPLATE", structureTemplatePicker));
+            rootRow.Children.Add(CreateAction("", CreateButton("Bind current root", BindStructureTemplate, false)));
+            content.Children.Add(rootRow);
+            var resultRow = CreateRow();
+            capturedStructurePicker.Width = 220;
+            resultRow.Children.Add(CreateField("FOUND OBJECTS", capturedStructurePicker));
+            resultRow.Children.Add(CreateAction("", CreateButton("Use captured object", UseCapturedStructure, false)));
+            resultRow.Children.Add(CreateAction("", CreateButton("Reload templates", ReloadStructureTemplates, false)));
+            content.Children.Add(resultRow);
+            content.ToolTip = "Search inside this or another root expression. Define types in Tools > Options > Array RAW Viewer > Structure Templates.";
+            return content;
         }
 
         private UIElement CreateFooter()

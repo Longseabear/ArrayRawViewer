@@ -474,6 +474,18 @@ namespace ArrayImageViewer.UI
             }
         }
 
+        private void GoToEnteredCoordinate(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var configuration = ReadConfiguration();
+                var target = ResolveCurrentSelection(configuration);
+                UpdateSelection(target.X, target.Y, true);
+                if (frame == null || !IsLoadedCoordinate(target.X, target.Y)) MoveViewTo(target.X, target.Y, true);
+            }
+            catch (Exception exception) { SetInputError("Cannot go to coordinate: " + exception.Message); }
+        }
+
         private void InspectCells(object sender, RoutedEventArgs e)
         {
             LoadExpression(sender, e);

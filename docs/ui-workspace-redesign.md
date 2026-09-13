@@ -6,10 +6,19 @@ Work branch: `codex/viewer-workspace-redesign`.
 The image is the workspace, not the last section of a configuration form.
 
 - Source: expression, Capture, pointer choices, editor selection, auto-update.
-- Settings: collapsible, vertically resizable; frame interpretation, structure binding,
+- Settings: open by default, collapsible and vertically resizable; frame interpretation, structure binding,
   solution-local profiles, numeric-local bindings. Existing persistence format is unchanged.
 - Tabs: immediately above the image tools; short member paths with full expression tooltips.
 - Inspection: X/Y, Center, Kernel W/H, channel, Zoom, Export and Stats stay outside settings scrolling.
+- Go To resolves the entered X/Y; Center follows the actual selected pixel. Watch
+  Go To X/Y and Watch Next X/Y are visible, distinct from ordinary map movement.
+
+Hardware-watch review: the base address is resolved at arm time and one native
+data breakpoint is used, with no sample polling while running. Hit handling is
+event driven; one-shot removal is the default. The release retry timer is active
+only for queued replacement (100 ms, at most 30 attempts). Removed a redundant
+retired-breakpoint cleanup pass before arming. Native debugger latency and function
+expression evaluation remain engine-dependent; no hardware latency benchmark was run.
 - Hardware watch: visible by default, with Go To X/Y and Watch Next X/Y commands.
 - Frame map: visible by default, toggle beside the image; drag sets View ROI. View dimensions and directional
   movement are grouped here. It does not change Kernel dimensions.

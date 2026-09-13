@@ -106,9 +106,10 @@ internal static class Program
             }
             Button("Settings").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
             window.UpdateLayout();
-            if (!((ScrollViewer)Get("configurationScrollViewer")).IsVisible) throw new Exception("Settings failed to open.");
+            if (((ScrollViewer)Get("configurationScrollViewer")).IsVisible) throw new Exception("Settings failed to close.");
             if (((ScrollViewer)Get("scrollViewer")).ActualHeight < 80) throw new Exception("Settings displaced the viewer.");
             Button("Settings").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            if (!((ScrollViewer)Get("configurationScrollViewer")).IsVisible) throw new Exception("Settings must be visible.");
             if (!((Canvas)Get("navigatorCanvas")).IsVisible) throw new Exception("Map must be visible by default.");
             Button("Frame map").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
             window.UpdateLayout();

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
   <Metadata>
-    <Identity Id="ArrayImageViewer.6b770c22-4f19-45d6-b254-67903f8c8f11" Version="0.11.53" Language="en-US" Publisher="ArrayImageViewer" />
+    <Identity Id="ArrayImageViewer.6b770c22-4f19-45d6-b254-67903f8c8f11" Version="0.11.54" Language="en-US" Publisher="ArrayImageViewer" />
     <DisplayName>Sensor RAW Array Image Viewer</DisplayName>
     <Description xml:space="preserve">Visualize pointer-backed sensor RAW arrays while debugging.</Description>
   </Metadata>

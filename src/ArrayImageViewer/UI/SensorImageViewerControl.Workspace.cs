@@ -14,9 +14,9 @@ namespace ArrayImageViewer.UI
         {
             var root = new Grid { Background = RootBrush };
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var settingsRow = new RowDefinition { Height = new GridLength(0), MaxHeight = 350 };
+            var settingsRow = new RowDefinition { Height = new GridLength(210), MaxHeight = 350 };
             root.RowDefinitions.Add(settingsRow);
-            var dividerRow = new RowDefinition { Height = new GridLength(0) };
+            var dividerRow = new RowDefinition { Height = new GridLength(5) };
             root.RowDefinitions.Add(dividerRow);
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -26,7 +26,7 @@ namespace ArrayImageViewer.UI
                 Content = CreateHeader(), Background = RootBrush,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Visibility = Visibility.Collapsed
+                Visibility = Visibility.Visible
             };
             AddWorkspaceCell(root, configurationScrollViewer, 1);
             var splitter = new GridSplitter
@@ -35,7 +35,7 @@ namespace ArrayImageViewer.UI
                 VerticalAlignment = VerticalAlignment.Stretch,
                 Background = PanelBorderBrush, ResizeDirection = GridResizeDirection.Rows,
                 ResizeBehavior = GridResizeBehavior.PreviousAndNext, ShowsPreview = true,
-                Visibility = Visibility.Collapsed
+                Visibility = Visibility.Visible
             };
             AddWorkspaceCell(root, splitter, 2);
             double lastSettingsHeight = 210;
@@ -70,6 +70,7 @@ namespace ArrayImageViewer.UI
             var tools = CreateRow();
             tools.Children.Add(CreateField("GO TO X", selectedX));
             tools.Children.Add(CreateField("GO TO Y", selectedY));
+            tools.Children.Add(CreateAction("COORDINATES", CreateButton("Go To", GoToEnteredCoordinate, false)));
             tools.Children.Add(CreateAction("SELECTED PIXEL", CreateButton("Center", JumpToCoordinate, false)));
             tools.Children.Add(CreateField("KERNEL W", roiWidth));
             tools.Children.Add(CreateField("KERNEL H", roiHeight));
@@ -90,7 +91,12 @@ namespace ArrayImageViewer.UI
             viewSize.Children.Add(CreateField("VIEW W", renderWidth));
             viewSize.Children.Add(CreateField("VIEW H", renderHeight));
             map.Children.Add(viewSize);
-            map.Children.Add(CreateCommandMenu("Move view", new[] { "Left", "Right", "Up", "Down" }, new RoutedEventHandler[] { PanLeft, PanRight, PanUp, PanDown }));
+            var movement = CreateRow();
+            movement.Children.Add(CreateAction("MOVE VIEW", CreateButton("Left", PanLeft, false)));
+            movement.Children.Add(CreateAction("", CreateButton("Right", PanRight, false)));
+            movement.Children.Add(CreateAction("", CreateButton("Up", PanUp, false)));
+            movement.Children.Add(CreateAction("", CreateButton("Down", PanDown, false)));
+            map.Children.Add(movement);
             tools.Children.Add(CreateAction("", CreateButton("Frame map", delegate { map.Visibility = map.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; }, false)));
             AddWorkspaceCell(inspection, WorkspaceBand(tools), 1);
 
