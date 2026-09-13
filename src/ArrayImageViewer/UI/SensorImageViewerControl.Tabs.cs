@@ -137,6 +137,8 @@ namespace ArrayImageViewer.UI
             }
 
             activeViewerTab.Profile = CreateCurrentProfile();
+            activeViewerTab.SelectedX = currentX;
+            activeViewerTab.SelectedY = currentY;
             activeViewerTab.Frame = frame;
             activeViewerTab.Bitmap = image.Source;
             activeViewerTab.Normalization = activeNormalization;
@@ -163,7 +165,7 @@ namespace ArrayImageViewer.UI
             if (tab.Frame != null && tab.Bitmap != null)
             {
                 ApplyFrame(tab.Frame, tab.Bitmap, tab.FullFrameWidth, tab.FullFrameHeight,
-                    ParseTabCoordinate(tab.Profile.SelectedX, currentX), ParseTabCoordinate(tab.Profile.SelectedY, currentY), tab.ShowsFullFrameContext);
+                    tab.SelectedX, tab.SelectedY, tab.ShowsFullFrameContext);
                 Dispatcher.BeginInvoke(new Action(delegate
                 {
                     scrollViewer.ScrollToHorizontalOffset(tab.HorizontalOffset);
@@ -185,12 +187,6 @@ namespace ArrayImageViewer.UI
             UpdateNavigator();
         }
 
-        private static int ParseTabCoordinate(string text, int fallback)
-        {
-            int value;
-            return Int32.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value) ? value : fallback;
-        }
-
         private sealed class ViewerTab
         {
             public ViewerTab(int idValue, ViewerProfile profileValue)
@@ -204,6 +200,8 @@ namespace ArrayImageViewer.UI
             public int Id { get; private set; }
             public ViewerProfile Profile { get; set; }
             public FrameBuffer Frame { get; set; }
+            public int SelectedX { get; set; }
+            public int SelectedY { get; set; }
             public ImageSource Bitmap { get; set; }
             public NormalizationRange Normalization { get; set; }
             public int FullFrameWidth { get; set; }

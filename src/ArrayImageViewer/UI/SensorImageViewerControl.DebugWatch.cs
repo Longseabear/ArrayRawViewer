@@ -15,6 +15,7 @@ namespace ArrayImageViewer.UI
         private string hardwareWatchAddressExpression;
         private int hardwareWatchX = -1;
         private int hardwareWatchY = -1;
+        private int hardwareWatchByteCount;
         private int hardwareWatchHitCount = -1;
         private bool hardwareWatchRunning;
         private readonly List<object> retiredHardwareWatchBreakpoints = new List<object>();
@@ -102,6 +103,8 @@ namespace ArrayImageViewer.UI
         private bool StartHardwareWatchAndContinue(FrameConfiguration configuration, int x, int y, string advanceLabel)
         {
             Dispatcher.VerifyAccess();
+            CancelPendingHardwareWatch();
+            configuration.GetSampleIndex(x, y);
             var isNextPixel = !String.IsNullOrEmpty(advanceLabel);
             var sourceExpression = expression.Text == null ? String.Empty : expression.Text.Trim();
             if (String.IsNullOrWhiteSpace(sourceExpression))
@@ -123,6 +126,7 @@ namespace ArrayImageViewer.UI
                 configuration.ElementSizeInBytes, configuration.Stride, x, y);
             var isSameWatch = hardwareWatchBreakpoint != null &&
                 String.Equals(hardwareWatchAddressExpression, addressExpression, StringComparison.Ordinal) &&
+                hardwareWatchByteCount == configuration.ElementSizeInBytes &&
                 hardwareWatchX == x && hardwareWatchY == y;
 
             if (!isSameWatch)
@@ -142,6 +146,7 @@ namespace ArrayImageViewer.UI
                 hardwareWatchAddressExpression = addressExpression;
                 hardwareWatchX = x;
                 hardwareWatchY = y;
+                hardwareWatchByteCount = configuration.ElementSizeInBytes;
                 int hitCount;
                 hardwareWatchHitCount = DebugExpressionFrameReader.TryGetBreakpointHitCount(hardwareWatchBreakpoint, out hitCount) ? hitCount : -1;
                 hardwareWatchInfo.Text = "Watching pixel (" + x.ToString(CultureInfo.InvariantCulture) + ", " +
@@ -181,6 +186,7 @@ namespace ArrayImageViewer.UI
         private void ClearHardwareWatch(bool reportStatus)
         {
             Dispatcher.VerifyAccess();
+            CancelPendingHardwareWatch();
             string failureReason = null;
             var removed = hardwareWatchBreakpoint == null || DebugExpressionFrameReader.DeleteBreakpoint(hardwareWatchBreakpoint, out failureReason);
             if (!removed)
@@ -199,6 +205,7 @@ namespace ArrayImageViewer.UI
             hardwareWatchAddressExpression = null;
             hardwareWatchX = -1;
             hardwareWatchY = -1;
+            hardwareWatchByteCount = 0;
             hardwareWatchHitCount = -1;
             hardwareWatchRunning = false;
             hardwareWatchInfo.Text = "No hardware watch armed.";

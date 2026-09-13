@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 
 namespace ArrayImageViewer.Core
 {
@@ -49,6 +50,11 @@ namespace ArrayImageViewer.Core
     {
         public static FrameStatistics Calculate(FrameBuffer frame, int x, int y, int width, int height, VisualizeChannel visibleFilter)
         {
+            return Calculate(frame, x, y, width, height, visibleFilter, CancellationToken.None);
+        }
+
+        public static FrameStatistics Calculate(FrameBuffer frame, int x, int y, int width, int height, VisualizeChannel visibleFilter, CancellationToken cancellationToken)
+        {
             if (frame == null)
             {
                 throw new ArgumentNullException("frame");
@@ -63,6 +69,7 @@ namespace ArrayImageViewer.Core
             {
                 for (var localX = x; localX < x + width; localX++)
                 {
+                    if (((localX - x) & 1023) == 0) cancellationToken.ThrowIfCancellationRequested();
                     var value = frame.GetRaw(localX, localY);
                     var site = frame.Configuration.GetBayerSite(localX, localY);
                     if (BayerLayout.IsVisible(visibleFilter, site))

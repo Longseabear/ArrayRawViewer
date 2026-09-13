@@ -148,6 +148,8 @@ namespace ArrayImageViewer.Core
 
         private static bool IsPrimitiveOrPrimitivePointer(string type)
         {
+            var arrayStart = type.IndexOf('[');
+            if (arrayStart >= 0) type = type.Substring(0, arrayStart);
             var normalized = type.Trim().TrimEnd('*', '&', ' ');
             return normalized == "char" || normalized == "signed char" || normalized == "unsigned char" ||
                 normalized == "short" || normalized == "unsigned short" || normalized == "int" || normalized == "unsigned int" ||

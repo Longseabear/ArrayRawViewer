@@ -13,6 +13,7 @@ namespace ArrayImageViewer.UI
         // contain tens of millions of samples, so their statistics must never
         // hold the Visual Studio UI thread while panning or stepping.
         private const long BackgroundStatisticsSampleLimit = 262144;
+        private CancellationTokenSource statisticsCancellation;
 
         private void ToggleStatistics(object sender, RoutedEventArgs e)
         {
@@ -23,6 +24,7 @@ namespace ArrayImageViewer.UI
             {
                 UpdateStatistics();
             }
+            else CancelStatisticsRequest();
         }
 
         private void StatisticsScopeChanged(object sender, SelectionChangedEventArgs e)
@@ -41,7 +43,7 @@ namespace ArrayImageViewer.UI
         private void UpdateStatistics()
         {
             Dispatcher.VerifyAccess();
-            statisticsGeneration++;
+            CancelStatisticsRequest();
             if (statisticsPanel.Visibility != Visibility.Visible)
             {
                 return;
@@ -79,11 +81,13 @@ namespace ArrayImageViewer.UI
 
                 statisticsSummary.Text = "Calculating raw statistics for " + sampleCount.ToString("N0", CultureInfo.InvariantCulture) + " cached samples...";
                 statisticsChannels.Text = "The viewer remains interactive; a newer scope or frame cancels this result.";
+                var cancellation = new CancellationTokenSource();
+                statisticsCancellation = cancellation;
                 var worker = new Thread(delegate()
                 {
                     try
                     {
-                        var result = FrameStatisticsCalculator.Calculate(source, x, y, widthInSamples, heightInSamples, filter);
+                        var result = FrameStatisticsCalculator.Calculate(source, x, y, widthInSamples, heightInSamples, filter, cancellation.Token);
                         Dispatcher.BeginInvoke(new Action(delegate
                         {
                             if (generation == statisticsGeneration && Object.ReferenceEquals(frame, source) && statisticsPanel.Visibility == Visibility.Visible)
@@ -92,6 +96,7 @@ namespace ArrayImageViewer.UI
                             }
                         }));
                     }
+                    catch (OperationCanceledException) { }
                     catch (Exception exception)
                     {
                         Dispatcher.BeginInvoke(new Action(delegate
@@ -117,6 +122,11 @@ namespace ArrayImageViewer.UI
         private void CancelStatisticsRequest()
         {
             statisticsGeneration++;
+            if (statisticsCancellation != null)
+            {
+                statisticsCancellation.Cancel();
+                statisticsCancellation = null;
+            }
         }
 
         private void DisplayStatistics(FrameStatistics statistics)

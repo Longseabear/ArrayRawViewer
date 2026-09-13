@@ -75,6 +75,13 @@ namespace ArrayImageViewer.Tests
                 "Viewer data watches resolve y * stride + x to the exact literal byte address.");
             ExpectArgumentException(delegate { DataWatchExpression.Build("A", 0, 0, 0); }, "Invalid stride is rejected for data watches.");
             ExpectArgumentException(delegate { DataWatchExpression.BuildByteAddress(0, 4, 1, 0, 0); }, "Null data-watch addresses are rejected.");
+            Assert(DataWatchExpression.BuildByteAddress(0x1000UL, 4, 96, 5, 5) == "0x1794", "ImageSimulator (5,5) watches base plus 1940 bytes, not 485 bytes.");
+            ExpectArgumentException(delegate { DataWatchExpression.BuildByteAddress(0x1000, 3, 96, 5, 5); }, "Unsupported watch widths are rejected.");
+            ExpectArgumentException(delegate { DataWatchExpression.BuildByteAddress(0x1000, 4, 96, 96, 0); }, "A sample cannot cross the row stride.");
+            var overflowRejected = false;
+            try { DataWatchExpression.BuildByteAddress(UInt64.MaxValue - 1, 4, 1, 0, 0); }
+            catch (OverflowException) { overflowRejected = true; }
+            Assert(overflowRejected, "The entire watched byte range must fit the address space.");
         }
 
         private static void PointerAddressParsingSupportsFunctionWatchSnapshots()
@@ -103,6 +110,8 @@ namespace ArrayImageViewer.Tests
                 "A matched structure is captured without opening its raw members.");
             Assert(StructureSearchPolicy.GetExpansion("unsigned int *", templates) == StructureSearchExpansion.None,
                 "Primitive raw pointers are never expanded.");
+            Assert(StructureSearchPolicy.GetExpansion("unsigned int [4096][3072]", templates) == StructureSearchExpansion.None,
+                "Primitive fixed arrays must not consume the object search budget.");
             Assert(StructureSearchPolicy.GetExpansion("std::vector<unsigned int>", templates) == StructureSearchExpansion.None,
                 "RAW storage vectors are never expanded.");
             Assert(StructureSearchPolicy.GetExpansion("std::vector<ImageStream,std::allocator<ImageStream> >", templates) == StructureSearchExpansion.InterestedContainerElements,
@@ -128,6 +137,14 @@ namespace ArrayImageViewer.Tests
                 "Bayer channel statistics retain full-frame GRBG phase.");
             var redOnly = FrameStatisticsCalculator.Calculate(frame, 0, 0, 2, 2, VisualizeChannel.R);
             Assert(redOnly.Visible.Count == 1 && redOnly.Visible.Mean == 20, "Filter scope uses the selected display channel.");
+            using (var cancellation = new CancellationTokenSource())
+            {
+                cancellation.Cancel();
+                var cancelled = false;
+                try { FrameStatisticsCalculator.Calculate(frame, 0, 0, 2, 2, VisualizeChannel.Gray, cancellation.Token); }
+                catch (OperationCanceledException) { cancelled = true; }
+                Assert(cancelled, "Obsolete statistics work stops instead of computing a discarded result.");
+            }
         }
 
         private static void SourceElementTypesPreserveStorageShape()

@@ -38,19 +38,20 @@ namespace ArrayImageViewer.Core
             {
                 throw new ArgumentOutOfRangeException("baseAddress");
             }
-            if (elementSizeInBytes <= 0)
+            if (elementSizeInBytes != 1 && elementSizeInBytes != 2 && elementSizeInBytes != 4)
             {
                 throw new ArgumentOutOfRangeException("elementSizeInBytes");
             }
 
             var sampleOffset = checked((long)y * stride + x);
-            if (stride <= 0 || x < 0 || y < 0 || sampleOffset < 0)
+            if (stride <= 0 || x < 0 || x >= stride || y < 0 || sampleOffset < 0)
             {
                 throw new ArgumentOutOfRangeException("stride");
             }
 
             var byteOffset = checked((ulong)sampleOffset * (ulong)elementSizeInBytes);
-            if (byteOffset > UInt64.MaxValue - baseAddress)
+            var maximumOffset = UInt64.MaxValue - baseAddress;
+            if (byteOffset > maximumOffset || (ulong)(elementSizeInBytes - 1) > maximumOffset - byteOffset)
             {
                 throw new OverflowException("The data breakpoint address overflowed.");
             }

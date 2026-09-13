@@ -63,10 +63,16 @@ namespace ArrayImageViewer.UI
 
         private void BindStructureTemplate(object sender, RoutedEventArgs e)
         {
+            BindStructureTemplate(null);
+        }
+
+        private void BindStructureTemplate(string bindingRoot)
+        {
             try
             {
                 ClearAllInputErrors();
                 var template = ReadStructureTemplateFields(true);
+                if (bindingRoot != null) template.RootExpression = bindingRoot;
                 var dataExpression = StructureTemplateExpressions.Compose(template.RootExpression, template.DataAccess);
                 var widthExpression = StructureTemplateExpressions.Compose(template.RootExpression, template.WidthAccess);
                 var heightExpression = StructureTemplateExpressions.Compose(template.RootExpression, template.HeightAccess);
@@ -227,7 +233,7 @@ namespace ArrayImageViewer.UI
             }
 
             ApplyCapturedStructure(candidate);
-            BindStructureTemplate(sender, e);
+            BindStructureTemplate(candidate.PointerRootExpression);
         }
 
         private void ApplyCapturedStructure(DebugExpressionFrameReader.StructureCandidate candidate)
@@ -253,7 +259,6 @@ namespace ArrayImageViewer.UI
                 structureTemplatePicker.SelectedItem = matchingTemplate;
                 ApplyStructureTemplateFields(matchingTemplate);
             }
-            structureTemplateRoot.Text = candidate.PointerRootExpression;
             isApplyingProfile = false;
         }
 
@@ -403,12 +408,16 @@ namespace ArrayImageViewer.UI
 
         private void ApplyStructureTemplateFields(StructureTemplate template)
         {
+            var wasApplyingProfile = isApplyingProfile;
             isApplyingProfile = true;
+            try
+            {
             structureTemplateName.Text = template.ClassName;
             structureTemplateData.Text = template.DataAccess;
             structureTemplateWidth.Text = template.WidthAccess;
             structureTemplateHeight.Text = template.HeightAccess;
-            isApplyingProfile = false;
+            }
+            finally { isApplyingProfile = wasApplyingProfile; }
         }
 
         private void RebuildStructureTemplatePicker(string selectedName)
