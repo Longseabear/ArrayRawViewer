@@ -77,19 +77,39 @@ internal static class Program
         foreach (var item in Descendants((DependencyObject)viewer))
         {
             var button = item as Button;
-            if (button != null && String.Equals(button.Content as string, caption)) return button;
+            if (button != null && (String.Equals(button.Content as string, caption) ||
+                String.Equals(System.Windows.Automation.AutomationProperties.GetName(button), caption))) return button;
         }
         throw new Exception("Missing command: " + caption);
     }
     private static void Verify(Window window)
     {
+        var mapImage = Button("Frame map").Content as Image;
+        if (mapImage == null || mapImage.Source == null)
+            throw new Exception("Generated Frame map image resource is missing.");
+        var iconBitmap = new System.Windows.Media.Imaging.FormatConvertedBitmap(
+            (System.Windows.Media.Imaging.BitmapSource)mapImage.Source, PixelFormats.Bgra32, null, 0);
+        var corner = new byte[4];
+        iconBitmap.CopyPixels(new Int32Rect(0, 0, 1, 1), corner, 4, 0);
+        if (corner[3] != 0) throw new Exception("Frame map icon background is not transparent.");
+        foreach (string name in new[] { "Center view", "Left", "Right", "Up", "Down", "Frame map", "Zoom ▾", "Export ▾" })
+        {
+            var icon = Button(name);
+            if (icon.Content is string || icon.ToolTip == null || String.IsNullOrEmpty(System.Windows.Automation.AutomationProperties.GetName(icon)))
+                throw new Exception("Icon command lacks visual, tooltip or accessible name: " + name);
+            if (icon.Width > 44 || !icon.Focusable) throw new Exception("Icon command must be compact and keyboard accessible.");
+        }
         ((TextBox)Get("renderWidth")).Text = "4096";
         ((TextBox)Get("renderHeight")).Text = "3072";
         var generation = Get("renderGeneration");
-        Button("Center").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        Button("Center view").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         if (!Equals(generation, Get("renderGeneration"))) throw new Exception("Center must not start a read/render.");
         if (((TextBox)Get("status")).Text.Contains("Cannot")) throw new Exception("Center failed with oversized View dimensions.");
-        if (!Button("Watch Go To X/Y").IsVisible) throw new Exception("Watch must be visible by default.");
+        if (!Button("Select X/Y").IsVisible || Button("Select X/Y").ToolTip == null)
+            throw new Exception("Pixel selection must remain visible and explained.");
+        foreach (string runName in new[] { "Run to write X/Y", "Run to next X", "Run to next Y" })
+            if (!Button(runName).IsVisible || !((string)Button(runName).Content).StartsWith("▶ ") || Button(runName).ToolTip == null)
+                throw new Exception("Debugger run command must be visible and clearly marked: " + runName);
         var caption = viewerType.GetMethod("CompactTabCaption", BindingFlags.Static | BindingFlags.NonPublic);
         if ((string)caption.Invoke(null, new object[] { "(&(((imageSimulator).input_aux_stream)[0]))->m_data" }) != "input_aux_stream[0].m_data")
             throw new Exception("Array index lost from tab caption.");
@@ -122,6 +142,19 @@ internal static class Program
             window.UpdateLayout();
             if (((Canvas)Get("navigatorCanvas")).IsVisible) throw new Exception("Map failed to hide.");
             Button("Frame map").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            window.UpdateLayout();
+            if (size == 900)
+            {
+                var surface = (FrameworkElement)viewer;
+                var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(surface.ActualWidth),
+                    (int)Math.Ceiling(surface.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(surface);
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+                string snapshot = Path.Combine(Path.GetTempPath(), "ArrayRawViewer-icon-preview.png");
+                using (var stream = File.Create(snapshot)) encoder.Save(stream);
+                Console.WriteLine("Synthetic layout snapshot: " + snapshot);
+            }
         }
         if (Button("Export ▾").ContextMenu.Items.Count != 4) throw new Exception("Export scopes missing.");
         Button("Stats").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
@@ -155,7 +188,7 @@ internal static class Program
         {
             RoutedEvent = System.Windows.Input.Mouse.PreviewMouseDownEvent
         };
-        Button("Watch Next X").RaiseEvent(mouseDown);
+        Button("Run to next X").RaiseEvent(mouseDown);
         if (mouseDown.Handled || popup.IsOpen) throw new Exception("Outside click must dismiss completion without consuming the button input.");
         Set("isApplyingProfile", true);
         Console.WriteLine("Completion focus, typing and non-consuming Watch mouse-down checks passed.");

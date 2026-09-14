@@ -186,4 +186,9 @@
       </VSIXSourceItem>
     </ItemGroup>
   </Target>
+  <ItemGroup>
+    <EmbeddedResource Include="..\ArrayImageViewer\UI\Assets\frame-map-generated.png">
+      <LogicalName>ArrayImageViewer.UI.Assets.FrameMap.png</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>
