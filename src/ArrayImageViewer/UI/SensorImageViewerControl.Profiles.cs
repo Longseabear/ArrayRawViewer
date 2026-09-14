@@ -124,7 +124,7 @@ namespace ArrayImageViewer.UI
             };
             expressionSuggestions.Child = popupBorder;
             expressionSuggestions.PlacementTarget = expression;
-            expressionSuggestions.Closed += delegate { expressionSuggestionList.SelectedItem = null; };
+            expressionSuggestions.Closed += delegate { expressionSuggestionList.SelectedItem = null; expressionSuggestionsRequested = false; };
         }
 
         private void CaptureSelection(object sender, RoutedEventArgs e)
@@ -222,20 +222,45 @@ namespace ArrayImageViewer.UI
             ActivatePointer(pointer);
         }
 
+        private bool expressionSuggestionsRequested;
+
+        private void DismissExpressionSuggestions()
+        {
+            expressionSuggestionsRequested = false;
+            expressionSuggestions.IsOpen = false;
+        }
+
         private void ExpressionGotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         {
-            if (pointerCandidates.Count == 0)
-            {
-                RefreshPointers(null, null);
-            }
+            // VS may restore focus here while activating the tool window.
+            // Focus alone is not an editing request and must not read locals.
+            DismissExpressionSuggestions();
+        }
 
-            UpdateExpressionSuggestions();
+        private void DismissExpressionSuggestionsOutside(object sender, MouseButtonEventArgs e)
+        {
+            var target = e.OriginalSource as DependencyObject;
+            if (target == null || (target != expression && !expression.IsAncestorOf(target) &&
+                target != expressionSuggestionList && !expressionSuggestionList.IsAncestorOf(target)))
+                DismissExpressionSuggestions();
+            // Intentionally leave e.Handled false so the original button acts.
+        }
+
+        private void ExpressionLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                if (!expression.IsKeyboardFocusWithin && !expressionSuggestionList.IsKeyboardFocusWithin)
+                    DismissExpressionSuggestions();
+            }));
         }
 
         private void ExpressionTextChanged(object sender, TextChangedEventArgs e)
         {
             if (!isApplyingProfile)
             {
+                expressionSuggestionsRequested = expression.IsKeyboardFocusWithin;
+                if (expressionSuggestionsRequested && pointerCandidates.Count == 0) RefreshPointers(null, null);
                 UpdateExpressionSuggestions();
                 PersistCurrentSessionIfRequested();
             }
@@ -243,6 +268,14 @@ namespace ArrayImageViewer.UI
 
         private void ExpressionPreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Space && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            {
+                expressionSuggestionsRequested = true;
+                if (pointerCandidates.Count == 0) RefreshPointers(null, null);
+                UpdateExpressionSuggestions();
+                e.Handled = true;
+                return;
+            }
             if (!expressionSuggestions.IsOpen)
             {
                 return;
@@ -256,7 +289,7 @@ namespace ArrayImageViewer.UI
             }
             else if (e.Key == Key.Escape)
             {
-                expressionSuggestions.IsOpen = false;
+                DismissExpressionSuggestions();
                 e.Handled = true;
             }
             else if (e.Key == Key.Enter)
@@ -288,7 +321,7 @@ namespace ArrayImageViewer.UI
             }
 
             expressionSuggestionList.ItemsSource = matches;
-            expressionSuggestions.IsOpen = expression.IsKeyboardFocusWithin && matches.Count > 0;
+            expressionSuggestions.IsOpen = expressionSuggestionsRequested && expression.IsKeyboardFocusWithin && matches.Count > 0;
         }
 
         private void ExpressionSuggestionSelected(object sender, SelectionChangedEventArgs e)

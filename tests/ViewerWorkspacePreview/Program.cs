@@ -128,6 +128,37 @@ internal static class Program
         if (((StackPanel)Get("statisticsPanel")).Visibility != Visibility.Visible) throw new Exception("Statistics failed to open.");
         Button("Hide stats").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         VerifyWatchNavigation(window);
+        VerifyCompletionFocus(window);
+    }
+
+    private static void VerifyCompletionFocus(Window window)
+    {
+        var field = (TextBox)Get("expression");
+        var popup = (System.Windows.Controls.Primitives.Popup)Get("expressionSuggestions");
+        var candidates = (System.Collections.IList)Get("pointerCandidates");
+        var pointerType = viewerType.Assembly.GetType("ArrayImageViewer.Debugging.DebugExpressionFrameReader+PointerExpression", true);
+        candidates.Clear();
+        candidates.Add(Activator.CreateInstance(pointerType, new object[] { "inputBuffer", "unsigned int *" }));
+        Set("isApplyingProfile", true);
+        field.Text = "input";
+        window.Activate();
+        field.Focus();
+        viewerType.GetMethod("UpdateExpressionSuggestions", Private).Invoke(viewer, null);
+        if (popup.IsOpen) throw new Exception("Focus restoration opened completion without typing.");
+        Set("isApplyingProfile", false);
+        field.Text = "inputB";
+        window.UpdateLayout();
+        if (!popup.IsOpen) throw new Exception("Typing failed to open completion.");
+        if (!popup.StaysOpen || System.Windows.Input.Mouse.Captured != null)
+            throw new Exception("Completion captures the mouse and can swallow the first Watch click.");
+        var mouseDown = new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left)
+        {
+            RoutedEvent = System.Windows.Input.Mouse.PreviewMouseDownEvent
+        };
+        Button("Watch Next X").RaiseEvent(mouseDown);
+        if (mouseDown.Handled || popup.IsOpen) throw new Exception("Outside click must dismiss completion without consuming the button input.");
+        Set("isApplyingProfile", true);
+        Console.WriteLine("Completion focus, typing and non-consuming Watch mouse-down checks passed.");
     }
 
     private static void VerifyWatchNavigation(Window window)

@@ -43,7 +43,9 @@ namespace ArrayImageViewer.UI
         private readonly TextBox structureTemplateWidth = CreateTextBox("W", 105);
         private readonly TextBox structureTemplateHeight = CreateTextBox("H", 105);
         private readonly ComboBox capturedStructurePicker = CreateComboBox(360);
-        private readonly Popup expressionSuggestions = new Popup { AllowsTransparency = true, Placement = PlacementMode.Bottom, StaysOpen = false };
+        // Do not capture the mouse: an outside click must reach Watch/Capture,
+        // not be consumed merely dismissing completion.
+        private readonly Popup expressionSuggestions = new Popup { AllowsTransparency = true, Placement = PlacementMode.Bottom, StaysOpen = true };
         private readonly ListBox expressionSuggestionList = new ListBox { Background = ControlBrush, Foreground = TextBrush, BorderThickness = new Thickness(0), MaxHeight = 220, MinWidth = 240 };
         private readonly ComboBox widthValueSource = CreateComboBox(145);
         private readonly ComboBox heightValueSource = CreateComboBox(145);
@@ -198,6 +200,9 @@ namespace ArrayImageViewer.UI
             capturedStructurePicker.SelectionChanged += CapturedStructurePickerChanged;
             expression.TextChanged += ExpressionTextChanged;
             expression.GotKeyboardFocus += ExpressionGotKeyboardFocus;
+            expression.LostKeyboardFocus += ExpressionLostKeyboardFocus;
+            expressionSuggestionList.LostKeyboardFocus += ExpressionLostKeyboardFocus;
+            PreviewMouseDown += DismissExpressionSuggestionsOutside;
             expression.PreviewKeyDown += ExpressionPreviewKeyDown;
             expressionSuggestionList.SelectionChanged += ExpressionSuggestionSelected;
             expressionSuggestionList.MouseDoubleClick += ExpressionSuggestionDoubleClicked;

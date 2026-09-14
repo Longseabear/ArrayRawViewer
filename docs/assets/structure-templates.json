@@ -1,0 +1,11 @@
+{
+  "FormatVersion": 1,
+  "Templates": [
+    {
+      "ClassName": "ImageStream",
+      "DataAccess": "m_data",
+      "WidthAccess": "m_width",
+      "HeightAccess": "m_height"
+    }
+  ]
+}
