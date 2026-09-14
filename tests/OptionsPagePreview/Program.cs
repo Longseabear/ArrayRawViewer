@@ -2,10 +2,46 @@ using System;
 using System.Reflection;
 using System.Windows.Forms;
 using System.IO;
+using System.Collections;
 using System.Runtime.InteropServices;
 
 internal static class Program
 {
+    private static void CheckTemplateSerialization(Assembly assembly)
+    {
+        var store = assembly.GetType("ArrayImageViewer.Options.StructureTemplateStore", true);
+        var itemType = assembly.GetType("ArrayImageViewer.Options.StructureTemplateItem", true);
+        var documentType = assembly.GetType("ArrayImageViewer.Options.StructureTemplateDocument", true);
+        const BindingFlags privateStatic = BindingFlags.NonPublic | BindingFlags.Static;
+        string fixture = "{\"FormatVersion\":1,\"Templates\":[{\"ClassName\":\"CInputStream<uint16>\",\"DataAccess\":\"m_data\",\"WidthAccess\":\"m_width\",\"HeightAccess\":\"m_height\"},{\"ClassName\":\"한글Stream\",\"DataAccess\":\"buffer.data\",\"WidthAccess\":\"W\",\"HeightAccess\":\"H\"}]}";
+        var deserialize = store.GetMethod("Deserialize", privateStatic);
+        var serialize = store.GetMethod("Serialize", privateStatic);
+        var document = deserialize.Invoke(null, new object[] { fixture });
+        var json = (string)serialize.Invoke(null, new object[] { document });
+        var roundtrip = deserialize.Invoke(null, new object[] { json });
+        var items = (IList)documentType.GetProperty("Templates").GetValue(roundtrip, null);
+        if ((int)documentType.GetProperty("FormatVersion").GetValue(roundtrip, null) != 1 || items.Count != 2)
+            throw new Exception("Template document version/count was lost.");
+        var originalItems = (IList)documentType.GetProperty("Templates").GetValue(document, null);
+        string file = Path.Combine(Path.GetTempPath(), "array-raw-template-test-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            store.GetMethod("Export").Invoke(null, new object[] { file, items });
+            var imported = (IList)store.GetMethod("Import").Invoke(null, new object[] { file });
+            if (imported.Count != originalItems.Count) throw new Exception("Imported template count differs.");
+            for (int i = 0; i < imported.Count; i++)
+                foreach (string name in new[] { "ClassName", "DataAccess", "WidthAccess", "HeightAccess" })
+                    if (!Object.Equals(itemType.GetProperty(name).GetValue(originalItems[i], null), itemType.GetProperty(name).GetValue(imported[i], null)))
+                        throw new Exception("Template roundtrip lost " + name);
+            // Empty documents are valid export/import containers too.
+            items.Clear();
+            store.GetMethod("Export").Invoke(null, new object[] { file, items });
+            if (((IList)store.GetMethod("Import").Invoke(null, new object[] { file })).Count != 0)
+                throw new Exception("Empty document roundtrip failed.");
+        }
+        finally { if (File.Exists(file)) File.Delete(file); }
+        Console.WriteLine("Template JSON serialization and file export/import passed; user settings untouched.");
+    }
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
     private static extern int GetWindowLong(IntPtr window, int index);
     private delegate IntPtr DialogProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
@@ -60,6 +96,7 @@ internal static class Program
                 return File.Exists(path) ? Assembly.LoadFrom(path) : null;
             };
             var assembly = Assembly.LoadFrom(Path.Combine(directory, "ArrayImageViewer.dll"));
+            CheckTemplateSerialization(assembly);
             var type = assembly.GetType("ArrayImageViewer.Options.StructureTemplateOptionsControl", true);
             const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
             // Isolated identity: never save or overwrite the user's templates.

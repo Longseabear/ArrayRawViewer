@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
+using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -271,17 +272,25 @@ namespace ArrayImageViewer.Options
         }
     }
 
+    [DataContract]
     internal sealed class StructureTemplateItem
     {
+        [DataMember(Name = "ClassName")]
         public string ClassName { get; set; }
+        [DataMember(Name = "DataAccess")]
         public string DataAccess { get; set; }
+        [DataMember(Name = "WidthAccess")]
         public string WidthAccess { get; set; }
+        [DataMember(Name = "HeightAccess")]
         public string HeightAccess { get; set; }
     }
 
+    [DataContract]
     internal sealed class StructureTemplateDocument
     {
+        [DataMember(Name = "FormatVersion")]
         public int FormatVersion { get; set; }
+        [DataMember(Name = "Templates")]
         public List<StructureTemplateItem> Templates { get; set; }
     }
 

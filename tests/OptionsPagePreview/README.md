@@ -6,6 +6,10 @@ solution identity, and never saves templates. It briefly displays a test window.
 
 Checks:
 
+- Actual store JSON serialization/deserialization and temporary-file export/import
+  retain version 1 and every template field (multiple templates, generic names,
+  Unicode names, and an empty list). The temporary file is deleted afterward;
+  the user's solution-template store is never modified.
 - Add template focuses the new class-name editor.
 - Every ancestor of the editing textbox has `WS_EX_CONTROLPARENT`.
 - A native dialog containing the real control can deactivate while the editor
