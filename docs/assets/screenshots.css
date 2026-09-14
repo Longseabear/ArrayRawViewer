@@ -1,0 +1,12 @@
+.hero-figure { max-width: 510px; justify-self: end; }
+.screenshot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; }
+.screenshot-card { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #fffef8; }
+.screenshot-card > a { display: block; background: #0d1420; }
+.screenshot-card img { display: block; width: 100%; height: auto; }
+.screenshot-card figcaption { padding: 28px; }
+.screenshot-card .eyebrow { display: block; margin-bottom: 12px; }
+.screenshot-card h3 { font-size: 23px; }
+.screenshot-card p { margin: 14px 0 18px; font-size: 16px; line-height: 1.8; }
+.screenshot-card figcaption > a { font-size: 14px; font-weight: 600; }
+@media (max-width: 900px) { .hero-figure { justify-self: start; } }
+@media (max-width: 720px) { .screenshot-grid { grid-template-columns: 1fr; gap: 24px; } .screenshot-card figcaption { padding: 22px; } }
