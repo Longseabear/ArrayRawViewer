@@ -22,16 +22,92 @@ namespace ArrayImageViewer.Options
     [Guid("2E986271-94F2-3739-AAB1-E514B88E8DD9")]
     public sealed class StructureTemplateOptionsPage : DialogPage
     {
+        private StructureTemplateOptionsControl control;
+        private bool refreshOnActivate = true;
+
         protected override IWin32Window Window
         {
-            get { return new StructureTemplateOptionsControl(DebugExpressionFrameReader.GetActiveSolutionIdentity()); }
+            get
+            {
+                // The shell requests this window for keyboard routing as well
+                // as activation. Never create/rebind controls during routing.
+                if (control == null || control.IsDisposed)
+                    control = new StructureTemplateOptionsControl(DebugExpressionFrameReader.GetActiveSolutionIdentity());
+                return control;
+            }
+        }
+
+        protected override void OnActivate(CancelEventArgs e)
+        {
+            base.OnActivate(e);
+            if (refreshOnActivate)
+            {
+                var pageControl = (StructureTemplateOptionsControl)Window;
+                pageControl.ReloadForSolution(DebugExpressionFrameReader.GetActiveSolutionIdentity());
+                refreshOnActivate = false;
+            }
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            // DialogPage/the shell retains the hosted window between openings.
+            // Closing Options is NOT disposal: destroying this HWND leaves the
+            // cached property-page host pointing at a dead control on reopen.
+            base.OnClosed(e);
+            refreshOnActivate = true;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && control != null)
+            {
+                control.Dispose();
+                control = null;
+            }
+            base.Dispose(disposing);
+        }
+    }
+
+    internal sealed class StructureTemplateGrid : DataGridView
+    {
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var parameters = base.CreateParams;
+                // Tools > Options is a native property sheet. Its focus/default-
+                // button traversal must be able to return to our nested editing
+                // textbox. Without this flag it skips the grid's children and
+                // can loop forever in USER32!xxxRemoveDefaultButton on deactivate.
+                parameters.ExStyle |= 0x00010000; // WS_EX_CONTROLPARENT
+                return parameters;
+            }
+        }
+
+        private bool CommitEnter(Keys keyData)
+        {
+            if ((keyData & Keys.KeyCode) != Keys.Enter) return false;
+            // Consume Enter even when validation fails. Do not let the host
+            // invoke its default button or re-enter the Add-template handler.
+            EndEdit();
+            return true;
+        }
+
+        protected override bool ProcessDialogKey(Keys keyData)
+        {
+            return CommitEnter(keyData) || base.ProcessDialogKey(keyData);
+        }
+
+        protected override bool ProcessDataGridViewKey(KeyEventArgs e)
+        {
+            return CommitEnter(e.KeyData) || base.ProcessDataGridViewKey(e);
         }
     }
 
     internal sealed class StructureTemplateOptionsControl : UserControl
     {
         private const int FormatVersion = 1;
-        private readonly string solutionIdentity;
+        private string solutionIdentity;
         private readonly DataGridView grid;
         private BindingList<StructureTemplateItem> templates;
 
@@ -64,7 +140,7 @@ namespace ArrayImageViewer.Options
             };
             layout.Controls.Add(help, 0, 0);
 
-            grid = new DataGridView
+            grid = new StructureTemplateGrid
             {
                 Dock = DockStyle.Fill,
                 AutoGenerateColumns = false,
@@ -118,10 +194,18 @@ namespace ArrayImageViewer.Options
             grid.DataSource = templates;
         }
 
+        internal void ReloadForSolution(string identity)
+        {
+            grid.CancelEdit();
+            solutionIdentity = String.IsNullOrWhiteSpace(identity) ? "<no-solution>" : identity;
+            LoadTemplates();
+        }
+
         private void AddTemplate(object sender, EventArgs e)
         {
             templates.Add(new StructureTemplateItem { ClassName = "MyStructure", DataAccess = "D", WidthAccess = "W", HeightAccess = "H" });
             grid.CurrentCell = grid.Rows[grid.Rows.Count - 1].Cells[0];
+            grid.Focus();
             grid.BeginEdit(true);
         }
 
@@ -240,6 +324,7 @@ namespace ArrayImageViewer.Options
         private static bool IsArrayImageViewerSampleSolution(string solutionIdentity)
         {
             return !String.IsNullOrWhiteSpace(solutionIdentity) &&
+                solutionIdentity.IndexOfAny(Path.GetInvalidPathChars()) < 0 &&
                 String.Equals(Path.GetFileName(solutionIdentity), "ArrayImageViewer.sln", StringComparison.OrdinalIgnoreCase);
         }
 
