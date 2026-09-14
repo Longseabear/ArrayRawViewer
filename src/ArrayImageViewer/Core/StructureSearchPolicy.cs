@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 
@@ -16,6 +17,29 @@ namespace ArrayImageViewer.Core
     // testable, so capture visits the object graph rather than RAW storage.
     internal static class StructureSearchPolicy
     {
+        // Count every debugger entry, including null/presentation entries.
+        // Checking before MoveNext avoids requesting one more expensive child.
+        public static IEnumerable<object> EnumerateBoundedChildren(IEnumerable children, int maximumChildren, Action checkBudget)
+        {
+            var enumerator = children.GetEnumerator();
+            try
+            {
+                for (int index = 0; index < maximumChildren; index++)
+                {
+                    checkBudget();
+                    if (!enumerator.MoveNext()) yield break;
+                    checkBudget();
+                    yield return enumerator.Current;
+                }
+                throw new InvalidOperationException("Structure search reached its child limit. Check the exact debugger type name or use a more specific root.");
+            }
+            finally
+            {
+                var disposable = enumerator as IDisposable;
+                if (disposable != null) disposable.Dispose();
+            }
+        }
+
         public static string FindInterestedTypeName(string type, IList<string> interestedTypeNames)
         {
             if (String.IsNullOrWhiteSpace(type) || interestedTypeNames == null)
@@ -151,6 +175,10 @@ namespace ArrayImageViewer.Core
             var arrayStart = type.IndexOf('[');
             if (arrayStart >= 0) type = type.Substring(0, arrayStart);
             var normalized = type.Trim().TrimEnd('*', '&', ' ');
+            if (normalized == "uint8" || normalized == "uint16" || normalized == "uint32" || normalized == "uint64" ||
+                normalized == "int8" || normalized == "int16" || normalized == "int32" || normalized == "int64" ||
+                normalized == "uint8_t" || normalized == "uint16_t" || normalized == "uint32_t" || normalized == "uint64_t" ||
+                normalized == "int8_t" || normalized == "int16_t" || normalized == "int32_t" || normalized == "int64_t") return true;
             return normalized == "char" || normalized == "signed char" || normalized == "unsigned char" ||
                 normalized == "short" || normalized == "unsigned short" || normalized == "int" || normalized == "unsigned int" ||
                 normalized == "long" || normalized == "unsigned long" || normalized == "long long" || normalized == "unsigned long long" ||

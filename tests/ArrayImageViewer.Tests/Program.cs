@@ -120,6 +120,26 @@ namespace ArrayImageViewer.Tests
         private static void StructureSearchPolicySkipsRawStorage()
         {
             var templates = new string[] { "ImageStream" };
+            Assert(StructureSearchPolicy.GetExpansion("uint16 *", new string[] { "WrongClass" }) == StructureSearchExpansion.None,
+                "A wrong template name must not expand uint16 RAW storage.");
+            Assert(StructureSearchPolicy.GetExpansion("uint16_t [4096]", templates) == StructureSearchExpansion.None,
+                "Fixed-width alias arrays are leaves.");
+            int enumerated = 0;
+            bool limited = false;
+            try
+            {
+                foreach (var child in StructureSearchPolicy.EnumerateBoundedChildren(InfiniteNullChildren(), 64, delegate { })) enumerated++;
+            }
+            catch (InvalidOperationException) { limited = true; }
+            Assert(limited && enumerated == 64, "Infinite/null child enumeration stops at the child budget.");
+            bool timedOut = false;
+            try
+            {
+                foreach (var child in StructureSearchPolicy.EnumerateBoundedChildren(InfiniteNullChildren(), 64,
+                    delegate { throw new TimeoutException(); })) enumerated++;
+            }
+            catch (TimeoutException) { timedOut = true; }
+            Assert(timedOut && enumerated == 64, "Deadline is checked before requesting another child.");
             Assert(StructureSearchPolicy.FindInterestedTypeName("struct ImageStream *", templates) == "ImageStream",
                 "Pointer form of a registered structure is discovered.");
             Assert(StructureSearchPolicy.GetExpansion("ImageStream", templates) == StructureSearchExpansion.None,
@@ -139,6 +159,11 @@ namespace ArrayImageViewer.Tests
             Assert(StructureSearchPolicy.CreateCacheKey(" this ", new string[] { "B", "ImageStream" }) ==
                 StructureSearchPolicy.CreateCacheKey("this", new string[] { "ImageStream", "B" }),
                 "Search cache key ignores template ordering and root whitespace.");
+        }
+
+        private static System.Collections.IEnumerable InfiniteNullChildren()
+        {
+            while (true) yield return null;
         }
 
         private static void StatisticsRespectScopeAndBayerSites()

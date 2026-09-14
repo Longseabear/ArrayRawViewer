@@ -290,13 +290,21 @@ namespace ArrayImageViewer.Debugging
 
             var debugger = GetDebugger();
             var results = new List<StructureCandidate>();
+            var searchClock = System.Diagnostics.Stopwatch.StartNew();
+            Action checkBudget = delegate
+            {
+                if (searchClock.ElapsedMilliseconds >= 3000)
+                    throw new InvalidOperationException("Structure search exceeded 3 seconds. Check the exact debugger type name (including template arguments) or use a more specific root.");
+            };
             var pending = new Queue<StructureCaptureNode>();
             var seenExpressions = new HashSet<string>(StringComparer.Ordinal);
             pending.Enqueue(new StructureCaptureNode(rootExpression.Trim(), 0));
 
             var visited = 0;
+            var scheduled = 1;
             while (pending.Count > 0 && visited < maximumNodes)
             {
+                checkBudget();
                 var node = pending.Dequeue();
                 if (!seenExpressions.Add(node.Expression))
                 {
@@ -309,7 +317,7 @@ namespace ArrayImageViewer.Debugging
                 {
                     try
                     {
-                        evaluated = Invoke(debugger, "GetExpression", node.Expression, true, 2000);
+                        evaluated = Invoke(debugger, "GetExpression", node.Expression, true, 500);
                     }
                     catch (Exception)
                     {
@@ -319,6 +327,7 @@ namespace ArrayImageViewer.Debugging
                     }
                 }
 
+                checkBudget();
                 var type = !String.IsNullOrWhiteSpace(node.Type)
                     ? node.Type
                     : Convert.ToString(GetOptionalMember(evaluated, "Type"), CultureInfo.InvariantCulture) ?? String.Empty;
@@ -344,8 +353,10 @@ namespace ArrayImageViewer.Debugging
                 }
 
                 var containerElements = 0;
-                foreach (var child in EnumerateExpressionChildren(evaluated))
+                foreach (var child in EnumerateExpressionChildren(evaluated, 64, checkBudget))
                 {
+                    checkBudget();
+                    if (child == null) continue;
                     var childName = Convert.ToString(GetOptionalMember(child, "Name"), CultureInfo.InvariantCulture);
                     if (String.IsNullOrWhiteSpace(childName) || IsDebuggerPresentationMember(childName))
                     {
@@ -362,6 +373,11 @@ namespace ArrayImageViewer.Debugging
                     }
 
                     var childType = Convert.ToString(GetOptionalMember(child, "Type"), CultureInfo.InvariantCulture);
+                    if (StructureSearchPolicy.GetExpansion(childType, interestedTypeNames) == StructureSearchExpansion.None &&
+                        StructureSearchPolicy.FindInterestedTypeName(childType, interestedTypeNames) == null) continue;
+                    if (scheduled >= maximumNodes)
+                        throw new InvalidOperationException("Structure search reached its node limit. Check the template type name or narrow the search root.");
+                    scheduled++;
                     pending.Enqueue(new StructureCaptureNode(ComposeChildExpression(node.Expression, type, childName.Trim()), node.Depth + 1, child, childType));
                 }
             }
@@ -1050,9 +1066,11 @@ namespace ArrayImageViewer.Debugging
             }
         }
 
-        private static IEnumerable<object> EnumerateExpressionChildren(object expression)
+        private static IEnumerable<object> EnumerateExpressionChildren(object expression, int maximumChildren, Action checkBudget)
         {
+            checkBudget();
             var children = GetOptionalMember(expression, "DataMembers");
+            checkBudget();
             if (children == null)
             {
                 yield break;
@@ -1061,12 +1079,9 @@ namespace ArrayImageViewer.Debugging
             var enumerable = children as IEnumerable;
             if (enumerable != null)
             {
-                foreach (var child in enumerable)
+                foreach (var child in StructureSearchPolicy.EnumerateBoundedChildren(enumerable, maximumChildren, checkBudget))
                 {
-                    if (child != null)
-                    {
-                        yield return child;
-                    }
+                    yield return child;
                 }
                 yield break;
             }
@@ -1075,6 +1090,9 @@ namespace ArrayImageViewer.Debugging
             var count = countObject == null ? 0 : Convert.ToInt32(countObject, CultureInfo.InvariantCulture);
             for (var index = 1; index <= count; index++)
             {
+                checkBudget();
+                if (index > maximumChildren)
+                    throw new InvalidOperationException("Structure search reached its child limit. Check the template type name or narrow the search root.");
                 object child;
                 try
                 {
@@ -1084,6 +1102,7 @@ namespace ArrayImageViewer.Debugging
                 {
                     continue;
                 }
+                checkBudget();
                 if (child != null)
                 {
                     yield return child;
