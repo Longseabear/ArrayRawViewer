@@ -156,6 +156,16 @@ never reread debugger memory.
 시간 제한은 디버거 호출 사이에서 확인하므로 단일 COM 호출이 지연되면
 실제 종료가 늦어질 수 있습니다.
 
+검색 지연을 진단하려면 같은 페이지에서 **Search debug dump**를 켜고 **Save**한 뒤
+Search objects를 실행하세요. 기본값은 꺼짐입니다. **Open debug folder**로
+`%LOCALAPPDATA%\ArrayImageViewer\debug-dump`를 열 수 있고, 검색 종료 상태에도 파일 경로가 표시됩니다.
+로그에는 검색 루트/멤버 경로, 타입명, 매칭 결과, 호출별 BEGIN/END 및 소요 시간,
+오류와 제한 사유가 기록됩니다. 마지막 BEGIN에 대응하는 END가 없으면 해당 호출이
+아직 반환되지 않았거나 실행이 중단된 것입니다. RAW 픽셀값은 기록하지 않습니다.
+표현식과 타입명은 프로젝트 정보를 포함할 수 있으니 공유 전에 확인하세요.
+로그는 검색별 파일로 남으며 자동 삭제되지 않습니다. 불필요한 파일은 직접 삭제하고
+진단이 끝나면 옵션을 꺼주세요. 기록 자체로 검색 시간이 늘어날 수 있습니다.
+
 **Tools > Options > Array RAW Viewer > Structure Templates**에서 **Open JSON**을
 누르면 현재 표를 JSON 편집본으로 만들어 메모장에서 엽니다. 수정하고 메모장에서
 저장한 뒤 **Load edited JSON**으로 표를 교체하고 **Save**로 현재 솔루션에 적용합니다.

@@ -113,6 +113,7 @@ namespace ArrayImageViewer.Options
         private BindingList<StructureTemplateItem> templates;
         private string jsonEditPath;
         private readonly NumericUpDown searchSeconds = new NumericUpDown { Minimum = 1, Maximum = 120, Width = 55 };
+        private readonly CheckBox searchDebug = new CheckBox { Text = "Search debug dump (logs expressions/types locally)", AutoSize = true };
 
         public StructureTemplateOptionsControl(string solutionIdentityValue)
         {
@@ -179,6 +180,9 @@ namespace ArrayImageViewer.Options
             buttons.Controls.Add(new Label { Text = "Search timeout (sec)", AutoSize = true, Padding = new Padding(0, 5, 0, 0) });
             searchSeconds.Value = StructureTemplateStore.LoadSearchSeconds();
             buttons.Controls.Add(searchSeconds);
+            searchDebug.Checked = StructureTemplateStore.LoadSearchDebug();
+            buttons.Controls.Add(searchDebug);
+            buttons.Controls.Add(CreateButton("Open debug folder", OpenDebugFolder));
             layout.Controls.Add(buttons, 0, 2);
 
             LoadTemplates();
@@ -233,6 +237,7 @@ namespace ArrayImageViewer.Options
                 grid.EndEdit();
                 StructureTemplateStore.Replace(solutionIdentity, new List<StructureTemplateItem>(templates));
                 StructureTemplateStore.SaveSearchSeconds((int)searchSeconds.Value);
+                StructureTemplateStore.SaveSearchDebug(searchDebug.Checked);
                 MessageBox.Show("Structure templates saved for the active solution.", "Array RAW Viewer", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception exception)
@@ -244,6 +249,22 @@ namespace ArrayImageViewer.Options
         private void ReloadTemplates(object sender, EventArgs e)
         {
             LoadTemplates();
+        }
+
+        private void OpenDebugFolder(object sender, EventArgs e)
+        {
+            try
+            {
+                Directory.CreateDirectory(StructureSearchTrace.DirectoryPath);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = StructureSearchTrace.DirectoryPath, UseShellExecute = true
+                });
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(exception.Message, "Cannot open debug folder", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void ImportTemplates(object sender, EventArgs e)
@@ -352,6 +373,19 @@ namespace ArrayImageViewer.Options
 
     internal static class StructureTemplateStore
     {
+        public static bool LoadSearchDebug()
+        {
+            string value;
+            return ReadRecords().TryGetValue("search-debug-enabled", out value) && value == "true";
+        }
+
+        public static void SaveSearchDebug(bool enabled)
+        {
+            var records = ReadRecords();
+            records["search-debug-enabled"] = enabled ? "true" : "false";
+            WriteRecords(records);
+        }
+
         public static int LoadSearchSeconds()
         {
             string value;

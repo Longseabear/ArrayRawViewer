@@ -128,8 +128,10 @@ namespace ArrayImageViewer.UI
             if (structureSearchRunning) return;
             structureSearchRunning = true;
             var wasEnabled = IsEnabled;
+            StructureSearchTrace trace = null;
             try
             {
+                trace = new StructureSearchTrace(StructureTemplateStore.LoadSearchDebug());
                 IsEnabled = false;
                 structureSearchProgress.Visibility = Visibility.Visible;
                 var timeoutSeconds = StructureTemplateStore.LoadSearchSeconds();
@@ -138,7 +140,8 @@ namespace ArrayImageViewer.UI
                 await System.Threading.Tasks.Task.Delay(30);
                 ClearAllInputErrors();
                 var root = (structureTemplateRoot.Text ?? String.Empty).Trim();
-                var addedSampleTemplate = EnsureImageSimulatorSampleTemplate(root);
+                trace.Write("ROOT " + root);
+                var addedSampleTemplate = trace.Call("EnsureImageSimulatorSampleTemplate", delegate { return EnsureImageSimulatorSampleTemplate(root); });
                 var interestTypes = new List<string>();
                 foreach (var template in structureTemplates.Values)
                 {
@@ -150,6 +153,7 @@ namespace ArrayImageViewer.UI
 
                 var cacheKey = StructureSearchPolicy.CreateCacheKey(root, interestTypes);
                 var usedCachedResult = String.Equals(structureSearchCacheKey, cacheKey, StringComparison.Ordinal);
+                trace.Write("CACHE HIT=" + usedCachedResult);
                 IList<DebugExpressionFrameReader.StructureCandidate> captured;
                 string searchWarning = null;
                 if (usedCachedResult)
@@ -160,7 +164,7 @@ namespace ArrayImageViewer.UI
                 {
                     captured = await DebugExpressionFrameReader.CaptureInterestedStructures(root, interestTypes, 12, 512,
                         timeoutSeconds, delegate(string warning) { searchWarning = warning; },
-                        delegate { return searchEpoch == structureSearchEpoch; });
+                        delegate { return searchEpoch == structureSearchEpoch; }, trace);
                     structureSearchCacheKey = searchWarning == null ? cacheKey : null;
                     cachedStructureCandidates.Clear();
                     foreach (var candidate in captured)
@@ -197,10 +201,17 @@ namespace ArrayImageViewer.UI
             }
             catch (Exception exception)
             {
+                if (trace != null) trace.Write("SEARCH ERROR " + exception.GetType().Name + " " + exception.Message);
                 SetInputError("Cannot capture structures: " + exception.Message);
             }
             finally
             {
+                if (trace != null)
+                {
+                    trace.Write("FINISH");
+                    trace.Dispose();
+                    if (trace.FilePath != null) status.Text += " Debug dump: " + trace.FilePath;
+                }
                 structureSearchProgress.Visibility = Visibility.Collapsed;
                 IsEnabled = wasEnabled;
                 structureSearchRunning = false;

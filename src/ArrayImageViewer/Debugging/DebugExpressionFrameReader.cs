@@ -12,6 +12,59 @@ using ArrayImageViewer.Core;
 
 namespace ArrayImageViewer.Debugging
 {
+    internal sealed class StructureSearchTrace : IDisposable
+    {
+        private System.IO.StreamWriter writer;
+        private readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+        private int lines;
+        public string FilePath { get; private set; }
+        public static string DirectoryPath { get { return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ArrayImageViewer", "debug-dump"); } }
+        public StructureSearchTrace(bool enabled)
+        {
+            if (!enabled) return;
+            System.IO.Directory.CreateDirectory(DirectoryPath);
+            FilePath = System.IO.Path.Combine(DirectoryPath, "search-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff") + "-" + Guid.NewGuid().ToString("N") + ".log");
+            writer = new System.IO.StreamWriter(new System.IO.FileStream(FilePath, System.IO.FileMode.CreateNew, System.IO.FileAccess.Write, System.IO.FileShare.ReadWrite), Encoding.UTF8);
+            writer.AutoFlush = true;
+            Write("START UTC=" + DateTime.UtcNow.ToString("o") + " (expressions/types only; no RAW sample values)");
+        }
+        public void Write(string message)
+        {
+            if (writer == null || lines >= 20000) return;
+            try
+            {
+                message = (message ?? "").Replace("\r", "\\r").Replace("\n", "\\n");
+                if (message.Length > 2000) message = message.Substring(0, 2000) + " [truncated]";
+                writer.WriteLine(clock.ElapsedMilliseconds + "ms " + message);
+                if (++lines == 20000) writer.WriteLine("LOG LINE LIMIT REACHED");
+            }
+            catch (System.IO.IOException) { Dispose(); }
+        }
+        public T Call<T>(string operation, Func<T> action)
+        {
+            if (writer == null) return action();
+            Write("BEGIN " + operation);
+            var start = clock.ElapsedMilliseconds;
+            try { var result = action(); Write("END " + operation + " duration=" + (clock.ElapsedMilliseconds - start) + "ms"); return result; }
+            catch (Exception ex) { Write("ERROR " + operation + " duration=" + (clock.ElapsedMilliseconds - start) + "ms " + ex.GetType().Name + " HRESULT=" + ex.HResult.ToString("X8") + " " + ex.Message); throw; }
+        }
+        public IEnumerable TraceChildren(IEnumerable children)
+        {
+            var iterator = Call("Children.GetEnumerator", delegate { return children.GetEnumerator(); });
+            try
+            {
+                while (Call("Children.MoveNext", delegate { return iterator.MoveNext(); }))
+                    yield return Call("Children.Current", delegate { return iterator.Current; });
+            }
+            finally { var disposable = iterator as IDisposable; if (disposable != null) disposable.Dispose(); }
+        }
+        public void Dispose()
+        {
+            var current = writer; writer = null;
+            if (current != null) { try { current.Dispose(); } catch (System.IO.IOException) { } }
+        }
+    }
+
     // The Visual Studio expression evaluator is intentionally kept behind this
     // small adapter. It is suitable for small ROI fallback reads; native debugger
     // memory reads are used whenever the active engine exposes memory contexts.
@@ -276,7 +329,7 @@ namespace ArrayImageViewer.Debugging
         // root and the two limits prevent a container or cyclic view from
         // making the tool window unresponsive.
         internal static async System.Threading.Tasks.Task<IList<StructureCandidate>> CaptureInterestedStructures(string rootExpression,
-            IList<string> interestedTypeNames, int maximumDepth, int maximumNodes, int timeoutSeconds, Action<string> reportWarning, Func<bool> isCurrentSearch)
+            IList<string> interestedTypeNames, int maximumDepth, int maximumNodes, int timeoutSeconds, Action<string> reportWarning, Func<bool> isCurrentSearch, StructureSearchTrace trace)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             if (String.IsNullOrWhiteSpace(rootExpression))
@@ -288,7 +341,9 @@ namespace ArrayImageViewer.Debugging
                 throw new ArgumentException("Create at least one structure template in Tools > Options before capture.");
             }
 
-            var debugger = GetDebugger();
+            var debugger = trace.Call("GetDebugger", GetDebugger);
+            trace.Write("LIMITS depth=" + maximumDepth + " nodes=" + maximumNodes + " seconds=" + timeoutSeconds);
+            foreach (var interest in interestedTypeNames) trace.Write("TEMPLATE " + interest);
             string searchWarning = null;
             var results = new List<StructureCandidate>();
             var searchClock = System.Diagnostics.Stopwatch.StartNew();
@@ -314,19 +369,22 @@ namespace ArrayImageViewer.Debugging
                 var node = pending.Dequeue();
                 if (!seenExpressions.Add(node.Expression))
                 {
+                    trace.Write("SKIP duplicate expression=" + node.Expression);
                     continue;
                 }
 
                 visited++;
+                trace.Write("NODE depth=" + node.Depth + " visited=" + visited + " queued=" + pending.Count + " expression=" + node.Expression);
                 var evaluated = node.EvaluatedExpression;
                 if (evaluated == null)
                 {
                     try
                     {
-                        evaluated = Invoke(debugger, "GetExpression", node.Expression, true, 500);
+                        evaluated = trace.Call("GetExpression " + node.Expression, delegate { return Invoke(debugger, "GetExpression", node.Expression, true, 500); });
                     }
                     catch (Exception)
                     {
+                        trace.Write("SKIP evaluation failed expression=" + node.Expression);
                         // A member can disappear in optimized native code. Keep
                         // capture useful for the remaining object graph.
                         continue;
@@ -336,10 +394,12 @@ namespace ArrayImageViewer.Debugging
                 checkBudget();
                 var type = !String.IsNullOrWhiteSpace(node.Type)
                     ? node.Type
-                    : Convert.ToString(GetOptionalMember(evaluated, "Type"), CultureInfo.InvariantCulture) ?? String.Empty;
+                    : Convert.ToString(GetSearchMember(evaluated, "Type", trace), CultureInfo.InvariantCulture) ?? String.Empty;
                 var matchedTemplate = StructureSearchPolicy.FindInterestedTypeName(type, interestedTypeNames);
+                trace.Write("TYPE " + type + " MATCH=" + (matchedTemplate ?? "none"));
                 if (matchedTemplate != null)
                 {
+                    trace.Write("FOUND expression=" + node.Expression + " template=" + matchedTemplate + " STOP descending into target");
                     results.Add(new StructureCandidate(node.Expression, GetPointerRootExpression(node.Expression, type), type, matchedTemplate));
                     // A template object has already been found. Its m_data
                     // pointer may expose thousands of raw elements, none of
@@ -350,27 +410,32 @@ namespace ArrayImageViewer.Debugging
                 if (node.Depth >= maximumDepth)
                 {
                     searchWarning = "Search depth limit reached.";
+                    trace.Write("SKIP depth limit expression=" + node.Expression);
                     continue;
                 }
 
                 var expansion = StructureSearchPolicy.GetExpansion(type, interestedTypeNames);
+                trace.Write("EXPANSION " + expansion);
                 if (expansion == StructureSearchExpansion.None)
                 {
+                    trace.Write("SKIP non-expandable type=" + type + " expression=" + node.Expression);
                     continue;
                 }
 
                 var containerElements = 0;
                 try
                 {
-                foreach (var child in EnumerateExpressionChildren(evaluated, 64, checkBudget))
+                foreach (var child in EnumerateExpressionChildren(evaluated, 64, checkBudget, trace))
                 {
                     await System.Threading.Tasks.Task.Delay(1);
                     ThreadHelper.ThrowIfNotOnUIThread();
                     checkBudget();
-                    if (child == null) continue;
-                    var childName = Convert.ToString(GetOptionalMember(child, "Name"), CultureInfo.InvariantCulture);
+                    if (child == null) { trace.Write("SKIP null child parent=" + node.Expression); continue; }
+                    var childName = Convert.ToString(GetSearchMember(child, "Name", trace), CultureInfo.InvariantCulture);
+                    trace.Write("CHILD parent=" + node.Expression + " name=" + childName);
                     if (String.IsNullOrWhiteSpace(childName) || IsDebuggerPresentationMember(childName))
                     {
+                        trace.Write("SKIP unnamed/presentation child");
                         continue;
                     }
 
@@ -378,33 +443,43 @@ namespace ArrayImageViewer.Debugging
                     {
                         if (!StructureSearchPolicy.IsContainerElementName(childName))
                         {
+                            trace.Write("SKIP container implementation member=" + childName);
                             continue;
                         }
                         if (containerElements >= 16)
                         {
                             searchWarning = "Container element limit reached.";
+                            trace.Write("LIMIT container parent=" + node.Expression);
                             break;
                         }
                         containerElements++;
                     }
 
-                    var childType = Convert.ToString(GetOptionalMember(child, "Type"), CultureInfo.InvariantCulture);
+                    var childType = Convert.ToString(GetSearchMember(child, "Type", trace), CultureInfo.InvariantCulture);
                     var childMatch = StructureSearchPolicy.FindInterestedTypeName(childType, interestedTypeNames);
+                    trace.Write("CHILD TYPE=" + childType + " MATCH=" + (childMatch ?? "none") + " EXPANSION=" + StructureSearchPolicy.GetExpansion(childType, interestedTypeNames));
                     if (childMatch != null)
                     {
                         var childExpression = ComposeChildExpression(node.Expression, type, childName.Trim());
+                        trace.Write("FOUND expression=" + childExpression + " template=" + childMatch + " STOP descending into target");
                         if (seenExpressions.Add(childExpression))
                             results.Add(new StructureCandidate(childExpression, GetPointerRootExpression(childExpression, childType), childType, childMatch));
                         continue;
                     }
                     if (StructureSearchPolicy.GetExpansion(childType, interestedTypeNames) == StructureSearchExpansion.None &&
-                        StructureSearchPolicy.FindInterestedTypeName(childType, interestedTypeNames) == null) continue;
+                        StructureSearchPolicy.FindInterestedTypeName(childType, interestedTypeNames) == null)
+                    {
+                        trace.Write("SKIP non-expandable child=" + childName + " type=" + childType);
+                        continue;
+                    }
                     if (scheduled >= maximumNodes)
                     {
                         searchWarning = "Search node limit reached.";
+                        trace.Write("LIMIT queue capacity parent=" + node.Expression);
                         break;
                     }
                     scheduled++;
+                    trace.Write("ENQUEUE depth=" + (node.Depth + 1) + " expression=" + ComposeChildExpression(node.Expression, type, childName.Trim()));
                     pending.Enqueue(new StructureCaptureNode(ComposeChildExpression(node.Expression, type, childName.Trim()), node.Depth + 1, child, childType));
                 }
                 }
@@ -422,6 +497,7 @@ namespace ArrayImageViewer.Debugging
 
             if (!isCurrentSearch()) throw new OperationCanceledException("Debugger or viewer context changed. Search again at the current break.");
             reportWarning(searchWarning);
+            trace.Write("RESULT matches=" + results.Count + " visited=" + visited + " queued=" + pending.Count + " warning=" + searchWarning);
             return results;
         }
 
@@ -1106,10 +1182,16 @@ namespace ArrayImageViewer.Debugging
             }
         }
 
-        private static IEnumerable<object> EnumerateExpressionChildren(object expression, int maximumChildren, Action checkBudget)
+        private static object GetSearchMember(object target, string name, StructureSearchTrace trace)
+        {
+            try { return trace.Call("GetMember " + name, delegate { return GetMember(target, name); }); }
+            catch (Exception) { return null; }
+        }
+
+        private static IEnumerable<object> EnumerateExpressionChildren(object expression, int maximumChildren, Action checkBudget, StructureSearchTrace trace)
         {
             checkBudget();
-            var children = GetOptionalMember(expression, "DataMembers");
+            var children = GetSearchMember(expression, "DataMembers", trace);
             checkBudget();
             if (children == null)
             {
@@ -1119,14 +1201,14 @@ namespace ArrayImageViewer.Debugging
             var enumerable = children as IEnumerable;
             if (enumerable != null)
             {
-                foreach (var child in StructureSearchPolicy.EnumerateBoundedChildren(enumerable, maximumChildren, checkBudget))
+                foreach (var child in StructureSearchPolicy.EnumerateBoundedChildren(trace.TraceChildren(enumerable), maximumChildren, checkBudget))
                 {
                     yield return child;
                 }
                 yield break;
             }
 
-            var countObject = GetOptionalMember(children, "Count");
+            var countObject = GetSearchMember(children, "Count", trace);
             var count = countObject == null ? 0 : Convert.ToInt32(countObject, CultureInfo.InvariantCulture);
             for (var index = 1; index <= count; index++)
             {
@@ -1136,7 +1218,7 @@ namespace ArrayImageViewer.Debugging
                 object child;
                 try
                 {
-                    child = GetItem(children, index);
+                    child = trace.Call("Children.Item " + index, delegate { return GetItem(children, index); });
                 }
                 catch (Exception)
                 {

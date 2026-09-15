@@ -97,6 +97,29 @@ internal static class Program
             };
             var assembly = Assembly.LoadFrom(Path.Combine(directory, "ArrayImageViewer.dll"));
             CheckTemplateSerialization(assembly);
+            var traceType = assembly.GetType("ArrayImageViewer.Debugging.StructureSearchTrace", true);
+            using (var disabledTrace = (IDisposable)Activator.CreateInstance(traceType, new object[] { false }))
+                if (traceType.GetProperty("FilePath").GetValue(disabledTrace, null) != null)
+                    throw new Exception("Disabled tracing must not create a dump.");
+            string testDump = null;
+            try
+            {
+                using (var trace = (IDisposable)Activator.CreateInstance(traceType, new object[] { true }))
+                {
+                    testDump = (string)traceType.GetProperty("FilePath").GetValue(trace, null);
+                    var call = traceType.GetMethod("Call").MakeGenericMethod(typeof(int));
+                    call.Invoke(trace, new object[] { "test-only-operation", new Func<int>(delegate { return 42; }) });
+                    try { call.Invoke(trace, new object[] { "test-only-failure", new Func<int>(delegate { throw new InvalidOperationException("synthetic failure"); }) }); }
+                    catch (TargetInvocationException) { }
+                    string log;
+                    using (var stream = new FileStream(testDump, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (var reader = new StreamReader(stream)) log = reader.ReadToEnd();
+                    if (!log.Contains("BEGIN test-only-operation") || !log.Contains("END test-only-operation duration=") || !log.Contains("ERROR test-only-failure"))
+                        throw new Exception("Trace must flush call timing and errors before disposal.");
+                }
+            }
+            finally { if (testDump != null) File.Delete(testDump); }
+            Console.WriteLine("Search trace disabled/timing/error/flush checks passed (synthetic dump removed).");
             var type = assembly.GetType("ArrayImageViewer.Options.StructureTemplateOptionsControl", true);
             const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
             // Isolated identity: never save or overwrite the user's templates.
