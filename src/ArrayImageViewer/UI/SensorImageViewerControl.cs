@@ -393,6 +393,7 @@ namespace ArrayImageViewer.UI
             var rootRow = CreateRow();
             rootRow.Children.Add(CreateField("SEARCH ROOT", structureTemplateRoot));
             rootRow.Children.Add(CreateAction("", CreateButton("Search objects", CaptureStructureObjects, false)));
+            rootRow.Children.Add(structureSearchProgress);
             rootRow.Children.Add(CreateField("STRUCTURE TEMPLATE", structureTemplatePicker));
             rootRow.Children.Add(CreateAction("", CreateButton("Bind current root", BindStructureTemplate, false)));
             content.Children.Add(rootRow);

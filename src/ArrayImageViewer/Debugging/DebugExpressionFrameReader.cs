@@ -275,8 +275,8 @@ namespace ArrayImageViewer.Debugging
         // native applications.  The debugger only expands children below that
         // root and the two limits prevent a container or cyclic view from
         // making the tool window unresponsive.
-        internal static IList<StructureCandidate> CaptureInterestedStructures(string rootExpression,
-            IList<string> interestedTypeNames, int maximumDepth, int maximumNodes, out string searchWarning)
+        internal static async System.Threading.Tasks.Task<IList<StructureCandidate>> CaptureInterestedStructures(string rootExpression,
+            IList<string> interestedTypeNames, int maximumDepth, int maximumNodes, int timeoutSeconds, Action<string> reportWarning, Func<bool> isCurrentSearch)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             if (String.IsNullOrWhiteSpace(rootExpression))
@@ -289,13 +289,14 @@ namespace ArrayImageViewer.Debugging
             }
 
             var debugger = GetDebugger();
-            searchWarning = null;
+            string searchWarning = null;
             var results = new List<StructureCandidate>();
             var searchClock = System.Diagnostics.Stopwatch.StartNew();
             Action checkBudget = delegate
             {
-                if (searchClock.ElapsedMilliseconds >= 3000)
-                    throw new StructureSearchLimitException("Search time limit (3 seconds) reached.");
+                if (!isCurrentSearch()) throw new OperationCanceledException("Debugger or viewer context changed. Search again at the current break.");
+                if (searchClock.ElapsedMilliseconds >= timeoutSeconds * 1000L)
+                    throw new StructureSearchLimitException("Search time limit (" + timeoutSeconds + " seconds) reached.");
             };
             var pending = new Queue<StructureCaptureNode>();
             var seenExpressions = new HashSet<string>(StringComparer.Ordinal);
@@ -307,6 +308,8 @@ namespace ArrayImageViewer.Debugging
             {
             while (pending.Count > 0 && visited < maximumNodes)
             {
+                await System.Threading.Tasks.Task.Delay(1);
+                ThreadHelper.ThrowIfNotOnUIThread();
                 checkBudget();
                 var node = pending.Dequeue();
                 if (!seenExpressions.Add(node.Expression))
@@ -361,6 +364,8 @@ namespace ArrayImageViewer.Debugging
                 {
                 foreach (var child in EnumerateExpressionChildren(evaluated, 64, checkBudget))
                 {
+                    await System.Threading.Tasks.Task.Delay(1);
+                    ThreadHelper.ThrowIfNotOnUIThread();
                     checkBudget();
                     if (child == null) continue;
                     var childName = Convert.ToString(GetOptionalMember(child, "Name"), CultureInfo.InvariantCulture);
@@ -415,6 +420,8 @@ namespace ArrayImageViewer.Debugging
                 searchWarning = exception.Message;
             }
 
+            if (!isCurrentSearch()) throw new OperationCanceledException("Debugger or viewer context changed. Search again at the current break.");
+            reportWarning(searchWarning);
             return results;
         }
 

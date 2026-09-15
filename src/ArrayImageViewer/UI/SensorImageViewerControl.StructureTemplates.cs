@@ -16,6 +16,13 @@ namespace ArrayImageViewer.UI
     internal sealed partial class SensorImageViewerControl
     {
         private const int StructureTemplateFormatVersion = 1;
+        private bool structureSearchRunning;
+        private int structureSearchEpoch;
+        private readonly ProgressBar structureSearchProgress = new ProgressBar
+        {
+            Width = 100, Height = 6, IsIndeterminate = true, Visibility = Visibility.Collapsed,
+            ToolTip = "Searching debugger objects. Individual debugger calls may delay updates."
+        };
 
         private void ReloadStructureTemplates(object sender, RoutedEventArgs e)
         {
@@ -116,10 +123,19 @@ namespace ArrayImageViewer.UI
             }
         }
 
-        private void CaptureStructureObjects(object sender, RoutedEventArgs e)
+        private async void CaptureStructureObjects(object sender, RoutedEventArgs e)
         {
+            if (structureSearchRunning) return;
+            structureSearchRunning = true;
+            var wasEnabled = IsEnabled;
             try
             {
+                IsEnabled = false;
+                structureSearchProgress.Visibility = Visibility.Visible;
+                var timeoutSeconds = StructureTemplateStore.LoadSearchSeconds();
+                var searchEpoch = structureSearchEpoch;
+                SetStatus("Searching objects... (limit " + timeoutSeconds + " seconds)");
+                await System.Threading.Tasks.Task.Delay(30);
                 ClearAllInputErrors();
                 var root = (structureTemplateRoot.Text ?? String.Empty).Trim();
                 var addedSampleTemplate = EnsureImageSimulatorSampleTemplate(root);
@@ -142,7 +158,9 @@ namespace ArrayImageViewer.UI
                 }
                 else
                 {
-                    captured = DebugExpressionFrameReader.CaptureInterestedStructures(root, interestTypes, 12, 512, out searchWarning);
+                    captured = await DebugExpressionFrameReader.CaptureInterestedStructures(root, interestTypes, 12, 512,
+                        timeoutSeconds, delegate(string warning) { searchWarning = warning; },
+                        delegate { return searchEpoch == structureSearchEpoch; });
                     structureSearchCacheKey = searchWarning == null ? cacheKey : null;
                     cachedStructureCandidates.Clear();
                     foreach (var candidate in captured)
@@ -175,11 +193,17 @@ namespace ArrayImageViewer.UI
                     (usedCachedResult ? "Reused the current-break search result: " : "Captured ") + capturedStructureCandidates.Count.ToString(CultureInfo.InvariantCulture) +
                     " registered structure(s) below '" + root + "'. " +
                     (searchWarning != null ? "Partial results: " + searchWarning + " Narrow the root to search further." :
-                    "Search limits: depth 12, 512 nodes, 16 matching container elements, 3 seconds."));
+                    "Search limits: depth 12, 512 nodes, 16 matching container elements, " + timeoutSeconds + " seconds."));
             }
             catch (Exception exception)
             {
                 SetInputError("Cannot capture structures: " + exception.Message);
+            }
+            finally
+            {
+                structureSearchProgress.Visibility = Visibility.Collapsed;
+                IsEnabled = wasEnabled;
+                structureSearchRunning = false;
             }
         }
 
@@ -269,6 +293,7 @@ namespace ArrayImageViewer.UI
 
         private void InvalidateStructureSearchCache()
         {
+            structureSearchEpoch++;
             structureSearchCacheKey = null;
             cachedStructureCandidates.Clear();
         }

@@ -150,6 +150,12 @@ never reread debugger memory.
 
 ### JSON으로 구조체 설정 편집하기
 
+같은 옵션 페이지의 **Search timeout (sec)**에서 검색 제한 시간을 설정하고
+**Save**로 저장합니다. 기본 10초, 범위 1~120초이며 모든 솔루션에 적용됩니다.
+검색 중 Viewer에 진행 막대가 표시되고 중복 입력이 잠깐 비활성화됩니다.
+시간 제한은 디버거 호출 사이에서 확인하므로 단일 COM 호출이 지연되면
+실제 종료가 늦어질 수 있습니다.
+
 **Tools > Options > Array RAW Viewer > Structure Templates**에서 **Open JSON**을
 누르면 현재 표를 JSON 편집본으로 만들어 메모장에서 엽니다. 수정하고 메모장에서
 저장한 뒤 **Load edited JSON**으로 표를 교체하고 **Save**로 현재 솔루션에 적용합니다.

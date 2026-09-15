@@ -104,6 +104,9 @@ internal static class Program
             using (var form = new Form { Width = 1000, Height = 600 })
             {
                 form.Controls.Add(control);
+                var timeout = (NumericUpDown)type.GetField("searchSeconds", flags).GetValue(control);
+                if (timeout.Minimum != 1 || timeout.Maximum != 120 || timeout.Value < 1 || timeout.Value > 120)
+                    throw new Exception("Search timeout option must be bounded to 1..120 seconds.");
                 var accept = new Button();
                 int accepts = 0;
                 accept.Click += delegate { accepts++; };

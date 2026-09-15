@@ -112,6 +112,7 @@ namespace ArrayImageViewer.Options
         private readonly DataGridView grid;
         private BindingList<StructureTemplateItem> templates;
         private string jsonEditPath;
+        private readonly NumericUpDown searchSeconds = new NumericUpDown { Minimum = 1, Maximum = 120, Width = 55 };
 
         public StructureTemplateOptionsControl(string solutionIdentityValue)
         {
@@ -175,6 +176,9 @@ namespace ArrayImageViewer.Options
             buttons.Controls.Add(CreateButton("Open JSON", OpenJson));
             buttons.Controls.Add(CreateButton("Load edited JSON", LoadEditedJson));
             buttons.Controls.Add(CreateButton("Reload", ReloadTemplates));
+            buttons.Controls.Add(new Label { Text = "Search timeout (sec)", AutoSize = true, Padding = new Padding(0, 5, 0, 0) });
+            searchSeconds.Value = StructureTemplateStore.LoadSearchSeconds();
+            buttons.Controls.Add(searchSeconds);
             layout.Controls.Add(buttons, 0, 2);
 
             LoadTemplates();
@@ -228,6 +232,7 @@ namespace ArrayImageViewer.Options
             {
                 grid.EndEdit();
                 StructureTemplateStore.Replace(solutionIdentity, new List<StructureTemplateItem>(templates));
+                StructureTemplateStore.SaveSearchSeconds((int)searchSeconds.Value);
                 MessageBox.Show("Structure templates saved for the active solution.", "Array RAW Viewer", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception exception)
@@ -347,6 +352,22 @@ namespace ArrayImageViewer.Options
 
     internal static class StructureTemplateStore
     {
+        public static int LoadSearchSeconds()
+        {
+            string value;
+            int seconds;
+            return ReadRecords().TryGetValue("search-timeout-seconds", out value) &&
+                Int32.TryParse(value, out seconds) && seconds >= 1 && seconds <= 120 ? seconds : 10;
+        }
+
+        public static void SaveSearchSeconds(int seconds)
+        {
+            if (seconds < 1 || seconds > 120) throw new ArgumentOutOfRangeException("seconds");
+            var records = ReadRecords();
+            records["search-timeout-seconds"] = seconds.ToString(CultureInfo.InvariantCulture);
+            WriteRecords(records);
+        }
+
         private static string PathValue
         {
             get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ArrayImageViewer", "structure-templates-v1.txt"); }
