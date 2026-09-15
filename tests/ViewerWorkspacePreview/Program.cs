@@ -167,7 +167,11 @@ internal static class Program
         Button("Hide stats").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         VerifyWatchNavigation(window);
         VerifyCompletionFocus(window);
+        VerifyInlineCaptionMouseDown(window);
         VerifyArrayTabs(window);
+        VerifyRunCancelsDeferredDebuggerWork();
+        VerifySessionEndCancelsDeferredDebuggerWork();
+        VerifyCancelledWatchTickIsIgnored();
         var searchButton = Button("Search objects");
         var searchWidth = searchButton.Width;
         viewerType.GetMethod("SetSearchBusy", Private).Invoke(viewer, new object[] { true });
@@ -178,11 +182,117 @@ internal static class Program
         Console.WriteLine("Search/cancel icon fixed-layout and enabled-style checks passed.");
     }
 
+    private static void VerifyCancelledWatchTickIsIgnored()
+    {
+        Set("pendingHardwareWatchConfiguration", null);
+        var retired = (System.Collections.IList)Get("retiredHardwareWatchBreakpoints");
+        var sentinel = new object();
+        retired.Add(sentinel);
+        var statusBefore = ((TextBox)Get("status")).Text;
+        var attemptsBefore = Get("pendingHardwareWatchReleaseAttempts");
+        try
+        {
+            viewerType.GetMethod("HardwareWatchReleaseTimerTick", Private).Invoke(viewer, new object[] { null, EventArgs.Empty });
+            if (!Equals(attemptsBefore, Get("pendingHardwareWatchReleaseAttempts")) || ((TextBox)Get("status")).Text != statusBefore)
+                throw new Exception("A cancelled watch retry must not enumerate/delete breakpoints or start another watch.");
+            Console.WriteLine("Cancelled watch timer delivery does no breakpoint work.");
+        }
+        finally { retired.Remove(sentinel); }
+    }
+
+    private static void VerifySessionEndCancelsDeferredDebuggerWork()
+    {
+        var pendingType = viewerType.GetNestedType("PendingMemoryRead", BindingFlags.NonPublic);
+        Set("pendingMemoryRead", Activator.CreateInstance(pendingType, new object[] { null, 64, 48, 5, 5, false, false, "raw_buffer", null, 0, false }));
+        var timer = (System.Windows.Threading.DispatcherTimer)Get("memoryReadTimer");
+        var generation = Get("renderGeneration");
+        timer.Start();
+        try
+        {
+            viewerType.GetMethod("DebuggerSessionEnded", Private).Invoke(viewer, null);
+            if (timer.IsEnabled || Get("pendingMemoryRead") != null || Equals(generation, Get("renderGeneration")))
+                throw new Exception("Session end must cancel old native reads and invalidate their render generation.");
+            viewerType.GetMethod("MemoryReadTimerTick", Private).Invoke(viewer, new object[] { null, EventArgs.Empty });
+            Console.WriteLine("Session end cancels native memory work before another cached tab is selected.");
+        }
+        finally { timer.Stop(); Set("pendingMemoryRead", null); }
+    }
+
+    private static void VerifyRunCancelsDeferredDebuggerWork()
+    {
+        var pendingType = viewerType.GetNestedType("PendingMemoryRead", BindingFlags.NonPublic);
+        var pending = Activator.CreateInstance(pendingType, new object[] { null, 64, 48, 5, 5, false, false, "raw_buffer", null, 0, false });
+        var timers = new[] { "memoryReadTimer", "autoRefreshTimer", "coordinateUpdateTimer", "debuggerBreakRefreshTimer" };
+        var generation = Get("renderGeneration");
+        var watch = new object(); // Must stay armed: Run cancellation is not breakpoint deletion.
+        Set("pendingMemoryRead", pending);
+        Set("hardwareWatchBreakpoint", watch);
+        Set("pendingHardwareWatchConfiguration", Get("frame").GetType().GetProperty("Configuration").GetValue(Get("frame"), null));
+        try
+        {
+            foreach (var timer in timers) ((System.Windows.Threading.DispatcherTimer)Get(timer)).Start();
+            viewerType.GetMethod("DebuggerStartedRunning", Private).Invoke(viewer, null);
+            foreach (var timer in timers)
+                if (((System.Windows.Threading.DispatcherTimer)Get(timer)).IsEnabled)
+                    throw new Exception("Run must stop deferred debugger work: " + timer);
+            if (Get("pendingMemoryRead") != null || Get("pendingHardwareWatchConfiguration") != null || Equals(generation, Get("renderGeneration")))
+                throw new Exception("Run must discard old memory/watch requests and invalidate background rendering.");
+            if (!Object.ReferenceEquals(Get("hardwareWatchBreakpoint"), watch))
+                throw new Exception("Run must not disarm the active hardware breakpoint.");
+            viewerType.GetMethod("MemoryReadTimerTick", Private).Invoke(viewer, new object[] { null, EventArgs.Empty });
+            Console.WriteLine("Run cancels old debugger reads/refreshes/render results without disarming the watch.");
+        }
+        finally
+        {
+            foreach (var timer in timers) ((System.Windows.Threading.DispatcherTimer)Get(timer)).Stop();
+            Set("pendingMemoryRead", null); Set("pendingHardwareWatchConfiguration", null); Set("hardwareWatchBreakpoint", null);
+        }
+    }
+
+    private static void VerifyInlineCaptionMouseDown(Window window)
+    {
+        var panel = (Panel)Get("viewerTabPanel");
+        var button = (Button)((Panel)panel.Children[0]).Children[0];
+        var originalCaption = button.Content;
+        try
+        {
+            // Button's default AccessText template turns an underscore caption
+            // into Run content. Unlike RaiseEvent(Click), this exercises the
+            // parent PreviewMouseDown route that executes BEFORE tab selection.
+            button.Content = "raw_buffer";
+            window.UpdateLayout();
+            System.Windows.ContentElement hit = null;
+            for (double x = 0; x < button.ActualWidth && hit == null; x += 1)
+                hit = button.InputHitTest(new Point(x, button.ActualHeight / 2)) as System.Windows.ContentElement;
+            if (hit == null) throw new Exception("Test setup: underscore button caption must expose inline hit content.");
+            var args = new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left)
+            {
+                RoutedEvent = System.Windows.Input.Mouse.PreviewMouseDownEvent
+            };
+            hit.RaiseEvent(args);
+            if (args.Handled) throw new Exception("Inline caption mouse-down must not consume the tab click.");
+            Console.WriteLine("Underscore caption Run hit safely routes PreviewMouseDown before tab Click.");
+        }
+        finally { button.Content = originalCaption; }
+    }
+
     private static void VerifyArrayTabs(Window window)
     {
         Set("isApplyingProfile", false);
         var original = Get("activeViewerTab");
         var cachedFrame = Get("frame");
+        var tabPanel = (Panel)Get("viewerTabPanel");
+        var selectedButton = (Button)((Panel)tabPanel.Children[0]).Children[0];
+        var coordinateTimer = (System.Windows.Threading.DispatcherTimer)Get("coordinateUpdateTimer");
+        coordinateTimer.Start();
+        var previousStatus = ((TextBox)Get("status")).Text;
+        for (int repeat = 0; repeat < 5; repeat++)
+            selectedButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        if (!coordinateTimer.IsEnabled || !Object.ReferenceEquals(Get("activeViewerTab"), original) ||
+            !Object.ReferenceEquals(Get("frame"), cachedFrame) || ((TextBox)Get("status")).Text != previousStatus)
+            throw new Exception("Clicking the active array tab must not run transition cleanup or change state.");
+        coordinateTimer.Stop();
+        Console.WriteLine("Repeated active array tab routed clicks are no-ops.");
         Set("isApplyingProfile", true);
         ((TextBox)Get("expression")).Text = "(this->buffer.C).m_data";
         ((TextBox)Get("width")).Text = "(this->buffer.C).m_width";
@@ -198,13 +308,23 @@ internal static class Program
         viewerType.GetMethod("AddViewerTab", Private).Invoke(viewer, new object[] { null, null });
         var added = Get("activeViewerTab");
         if (original == added || Get("frame") != null) throw new Exception("New array tab must be empty.");
+        if (!Object.ReferenceEquals(((Panel)tabPanel.Children[0]).Children[0], selectedButton))
+            throw new Exception("Adding an array must preserve the existing tab button and its focus identity.");
+        var addedButton = (Button)((Panel)tabPanel.Children[1]).Children[0];
         for (int i = 0; i < 12; i++)
         {
-            viewerType.GetMethod("SelectViewerTab", Private).Invoke(viewer, new object[] { new Button { Tag = original }, null });
+            selectedButton.Focus();
+            selectedButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            if (!Object.ReferenceEquals(((Panel)tabPanel.Children[0]).Children[0], selectedButton) || !selectedButton.IsKeyboardFocused)
+                throw new Exception("Selecting an array must retain the clicked button and keyboard focus.");
+            var caption = selectedButton.Content as TextBlock;
+            if (caption == null || caption.Text != "C.m_data" ||
+                System.Windows.Automation.AutomationProperties.GetName(selectedButton) != caption.Text)
+                throw new Exception("Pointer tab captions must display literal underscores and expose an accessible name.");
             if (!Object.ReferenceEquals(Get("frame"), cachedFrame)) throw new Exception("Array tab did not restore its cached frame.");
             if (Get("pendingMemoryRead") != null || Get("navigatorPreviewKey") != null)
                 throw new Exception("Restoring a tab must not start a frame-map debugger read.");
-            viewerType.GetMethod("SelectViewerTab", Private).Invoke(viewer, new object[] { new Button { Tag = added }, null });
+            addedButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
         }
         var dispatcherFrame = new System.Windows.Threading.DispatcherFrame();
         window.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle,

@@ -12,6 +12,7 @@ namespace ArrayImageViewer.UI
         private int nextViewerTabId = 1;
         private ViewerTab activeViewerTab;
         private bool switchingViewerTab;
+        private Button addViewerTabButton;
         private ArrayImageViewer.Debugging.StructureSearchTrace tabTrace;
 
         private void TraceTabStep(string name, Action action)
@@ -110,33 +111,61 @@ namespace ArrayImageViewer.UI
 
         private void RefreshViewerTabs()
         {
-            viewerTabPanel.Children.Clear();
+            // Keep live headers attached: this also runs from their Click
+            // callbacks and after capture. Replacing the focused native-hosted
+            // WPF subtree can trigger focus restoration while switching tabs.
+            for (var childIndex = viewerTabPanel.Children.Count - 1; childIndex >= 0; childIndex--)
+            {
+                var header = viewerTabPanel.Children[childIndex] as StackPanel;
+                if (header != null && !viewerTabs.Contains(header.Tag as ViewerTab))
+                    viewerTabPanel.Children.RemoveAt(childIndex);
+            }
             for (var index = 0; index < viewerTabs.Count; index++)
             {
                 var tab = viewerTabs[index];
-                var select = CreateButton(tab.Caption, SelectViewerTab, tab == activeViewerTab);
-                select.Tag = tab;
-                select.ToolTip = tab.Profile == null ? tab.Caption : tab.Profile.Expression;
-                select.Margin = new Thickness(0, 0, 2, 0);
-                select.MinWidth = 105;
-                select.MaxWidth = 210;
+                if (tab.Header == null) CreateViewerTabHeader(tab);
+                if (!viewerTabPanel.Children.Contains(tab.Header))
+                    viewerTabPanel.Children.Insert(index, tab.Header);
 
-                var header = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 7, 0) };
-                header.Children.Add(select);
-                if (viewerTabs.Count > 1)
-                {
-                    var close = CreateButton("×", CloseViewerTab, false);
-                    close.Tag = tab;
-                    close.Width = 28;
-                    close.Padding = new Thickness(0, 2, 0, 3);
-                    header.Children.Add(close);
-                }
-                viewerTabPanel.Children.Add(header);
+                var select = tab.SelectButton;
+                var selected = tab == activeViewerTab;
+                ((TextBlock)select.Content).Text = tab.Caption;
+                System.Windows.Automation.AutomationProperties.SetName(select, tab.Caption);
+                select.ToolTip = tab.Profile == null ? tab.Caption : tab.Profile.Expression;
+                select.Foreground = selected ? RootBrush : TextBrush;
+                select.Background = selected ? AccentBrush : ControlBrush;
+                select.BorderBrush = selected ? AccentBrush : PanelBorderBrush;
+                select.FontWeight = selected ? FontWeights.SemiBold : FontWeights.Normal;
+                tab.CloseButton.Visibility = viewerTabs.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
             }
 
-            var add = CreateButton("+ Array", AddViewerTab, false);
-            add.Margin = new Thickness(2, 0, 0, 0);
-            viewerTabPanel.Children.Add(add);
+            if (addViewerTabButton == null)
+            {
+                addViewerTabButton = CreateButton("+ Array", AddViewerTab, false);
+                addViewerTabButton.Margin = new Thickness(2, 0, 0, 0);
+                viewerTabPanel.Children.Add(addViewerTabButton);
+            }
+        }
+
+        private void CreateViewerTabHeader(ViewerTab tab)
+        {
+            var select = CreateButton(tab.Caption, SelectViewerTab, false);
+            // A debugger expression is literal text, not a WPF access-key label.
+            select.Content = new TextBlock { Text = tab.Caption, TextTrimming = TextTrimming.CharacterEllipsis };
+            select.Tag = tab;
+            select.Margin = new Thickness(0, 0, 2, 0);
+            select.MinWidth = 105;
+            select.MaxWidth = 210;
+            var close = CreateButton("×", CloseViewerTab, false);
+            close.Tag = tab;
+            close.Width = 28;
+            close.Padding = new Thickness(0, 2, 0, 3);
+            var header = new StackPanel { Tag = tab, Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 7, 0) };
+            header.Children.Add(select);
+            header.Children.Add(close);
+            tab.Header = header;
+            tab.SelectButton = select;
+            tab.CloseButton = close;
         }
 
         private void AddViewerTab(object sender, RoutedEventArgs e)
@@ -159,15 +188,15 @@ namespace ArrayImageViewer.UI
 
         private void SelectViewerTab(object sender, RoutedEventArgs e)
         {
+            var button = sender as Button;
+            var tab = button == null ? null : button.Tag as ViewerTab;
+            // A selected (or stale) header is not a transition. In particular,
+            // do not touch timers, completion popups or search state on re-click.
+            if (tab == null || tab == activeViewerTab || !viewerTabs.Contains(tab)) return;
+
             ChangeViewerTab(delegate
             {
                 if (tabTrace != null) tabTrace.Write("ACTION Select Array");
-                var button = sender as Button;
-                var tab = button == null ? null : button.Tag as ViewerTab;
-                if (tab == null || tab == activeViewerTab)
-                {
-                    return;
-                }
                 TraceTabStep("CapturePreviousTab", CaptureActiveViewerTab);
                 TraceTabStep("CancelPreviousRead", BeginNewReadRequest);
                 TraceTabStep("ClearHardwareWatch", delegate { ClearHardwareWatch(false); });
@@ -292,6 +321,9 @@ namespace ArrayImageViewer.UI
             }
 
             public int Id { get; private set; }
+            public StackPanel Header { get; set; }
+            public Button SelectButton { get; set; }
+            public Button CloseButton { get; set; }
             public ViewerProfile Profile { get; set; }
             public FrameBuffer Frame { get; set; }
             public int SelectedX { get; set; }

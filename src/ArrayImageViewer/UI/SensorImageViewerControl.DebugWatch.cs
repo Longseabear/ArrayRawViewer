@@ -303,6 +303,9 @@ namespace ArrayImageViewer.UI
         private void HardwareWatchReleaseTimerTick(object sender, EventArgs e)
         {
             Dispatcher.VerifyAccess();
+            // A queued Tick can arrive after cancellation on Run/Design or a
+            // tab switch. It must not touch COM or create a replacement watch.
+            if (pendingHardwareWatchConfiguration == null) return;
             CleanupRetiredHardwareWatches();
             if (retiredHardwareWatchBreakpoints.Count > 0)
             {
@@ -376,9 +379,25 @@ namespace ArrayImageViewer.UI
 
         internal void DebuggerStartedRunning()
         {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(DebuggerStartedRunning));
+                return;
+            }
+            CancelDeferredDebuggerWork();
             if (hardwareWatchContinueTimer == null || !hardwareWatchContinueTimer.IsEnabled) return;
             hardwareWatchContinueTimer.Stop();
             SetStatus("Running until watched pixel (" + hardwareWatchX + ", " + hardwareWatchY + ") is written.");
+        }
+
+        private void CancelDeferredDebuggerWork()
+        {
+            autoRefreshTimer.Stop();
+            coordinateUpdateTimer.Stop();
+            debuggerBreakRefreshTimer.Stop();
+            BeginNewReadRequest();
+            InvalidateStructureSearchCache();
+            CancelPendingHardwareWatch();
         }
 
         private void CenterHardwareWatchTarget(int x, int y)
@@ -456,13 +475,13 @@ namespace ArrayImageViewer.UI
                 Dispatcher.BeginInvoke(new Action(DebuggerSessionEnded));
                 return;
             }
-            CancelPendingHardwareWatch();
-            InvalidateStructureSearchCache();
+            CancelDeferredDebuggerWork();
             centerViewAfterHardwareWatch = false;
             preserveZoomAfterHardwareWatch = false;
             ClearHardwareWatch(false);
-            // Ending the debug session discards all native data breakpoints,
-            // including references that were waiting for publication.
+            // Native data breakpoints are disabled by VS at session end, not
+            // necessarily deleted. ClearHardwareWatch attempts our own cleanup;
+            // do not reuse retired wrappers in the next debug session.
             retiredHardwareWatchBreakpoints.Clear();
         }
     }

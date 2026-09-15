@@ -7,6 +7,161 @@ using System.Runtime.InteropServices;
 
 internal static class Program
 {
+    private sealed class BreakpointFixture
+    {
+        public readonly ArrayList Items = new ArrayList();
+        public readonly Type Reader;
+        public readonly object Reference;
+
+        public BreakpointFixture(Assembly assembly, params FakeBreakpoint[] existing)
+        {
+            Reader = assembly.GetType("ArrayImageViewer.Debugging.DebugExpressionFrameReader", true);
+            var referenceType = Reader.GetNestedType("NativeDataBreakpointReference", BindingFlags.NonPublic);
+            Items.AddRange(existing);
+            var identities = Reader.GetMethod("GetBreakpointIdentities", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, new object[] { Items });
+            // Retain the old constructor path so these regressions can also
+            // demonstrate wrong-target deletion against a pre-fix DLL.
+            object[] arguments = referenceType.GetConstructors()[0].GetParameters().Length == 3
+                ? new object[] { Items, identities, Items.Count }
+                : new object[] { Items, identities, "0x1000", 4 };
+            Reference = Activator.CreateInstance(referenceType, arguments);
+        }
+
+        public int ReadHitCount()
+        {
+            object[] arguments = { Reference, 0 };
+            bool found = (bool)Reader.GetMethod("TryGetBreakpointHitCount", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, arguments);
+            return found ? (int)arguments[1] : -1;
+        }
+
+        public bool Delete()
+        {
+            object[] arguments = { Reference, null };
+            return (bool)Reader.GetMethod("DeleteBreakpoint", BindingFlags.Static | BindingFlags.NonPublic, null,
+                new[] { typeof(object), typeof(string).MakeByRefType() }, null).Invoke(null, arguments);
+        }
+    }
+
+    private static void CheckBreakpointOwnership(Assembly assembly)
+    {
+        int failures = 0;
+        CheckBreakpointCase("Removed viewer breakpoint never deletes a newly added user breakpoint", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            fixture.Items.Add(new FakeBreakpoint { Name = "0x1000", Data = "", HitCount = 7 });
+            if (fixture.ReadHitCount() != 7) throw new Exception("Setup: viewer breakpoint must resolve first.");
+            fixture.Items.Clear();
+            var unrelated = new FakeBreakpoint { Name = "source.cpp, line 42", Data = "", HitCount = 99 };
+            fixture.Items.Add(unrelated);
+            bool removed = fixture.Delete();
+            if (unrelated.DeleteCalls != 0) throw new Exception("User breakpoint was deleted after the owned breakpoint disappeared.");
+            if (!removed) throw new Exception("A previously resolved, now absent breakpoint must be treated as removed.");
+        }, ref failures);
+        CheckBreakpointCase("Resolved identity wins over an earlier same-name user breakpoint", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            var owned = new FakeBreakpoint { Name = "0x1000", Data = "", HitCount = 7 };
+            fixture.Items.Add(owned);
+            if (fixture.ReadHitCount() != 7) throw new Exception("Setup: viewer breakpoint must resolve first.");
+            var unrelated = new FakeBreakpoint { Name = "0x1000", Data = "", HitCount = 99 };
+            fixture.Items.Insert(0, unrelated);
+            if (fixture.ReadHitCount() != 7) throw new Exception("Same-name user breakpoint replaced the owned COM identity.");
+            if (!fixture.Delete() || owned.DeleteCalls != 1 || unrelated.DeleteCalls != 0)
+                throw new Exception("Only the resolved viewer breakpoint may be deleted.");
+        }, ref failures);
+        CheckBreakpointCase("Removed viewer breakpoint never adopts a same-name replacement", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            fixture.Items.Add(new FakeBreakpoint { Name = "0x1000", Data = "", HitCount = 7 });
+            if (fixture.ReadHitCount() != 7) throw new Exception("Setup: viewer breakpoint must resolve first.");
+            fixture.Items.Clear();
+            var replacement = new FakeBreakpoint { Name = "0x1000", Data = "", HitCount = 99 };
+            fixture.Items.Add(replacement);
+            bool removed = fixture.Delete();
+            if (replacement.DeleteCalls != 0) throw new Exception("A same-name replacement is not proof of viewer ownership.");
+            if (removed) throw new Exception("A same-address entry with a different identity is unresolved, not proof of removal.");
+        }, ref failures);
+        CheckBreakpointCase("Unpublished viewer breakpoint does not adopt an unrelated new entry", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            var unrelated = new FakeBreakpoint { Name = "source.cpp, line 42", Data = "", HitCount = 99 };
+            fixture.Items.Add(unrelated);
+            if (fixture.ReadHitCount() != -1) throw new Exception("An unrelated newly published entry was adopted as the watch.");
+            if (fixture.Delete() || unrelated.DeleteCalls != 0) throw new Exception("Unpublished ownership must remain unresolved without deletion.");
+        }, ref failures);
+        CheckBreakpointCase("Initial resolution matches a unique padded address name with empty Data", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            fixture.Items.Add(new FakeBreakpoint { Name = "source.cpp, line 42", Data = "", HitCount = 99 });
+            var owned = new FakeBreakpoint { Name = "0x0000000000001000", Data = "", HitCount = 7 };
+            fixture.Items.Add(owned);
+            if (fixture.ReadHitCount() != 7) throw new Exception("Initial resolution chose collection position instead of the expected address.");
+            if (!fixture.Delete() || owned.DeleteCalls != 1) throw new Exception("The matching native address-name watch was not deleted.");
+        }, ref failures);
+        CheckBreakpointCase("Initial duplicate address names are ambiguous", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            var first = new FakeBreakpoint { Name = "0x1000", Data = "", HitCount = 7 };
+            var second = new FakeBreakpoint { Name = "0x00001000", Data = "", HitCount = 99 };
+            fixture.Items.Add(first); fixture.Items.Add(second);
+            if (fixture.ReadHitCount() != -1 || fixture.Delete() || first.DeleteCalls != 0 || second.DeleteCalls != 0)
+                throw new Exception("Duplicate address matches must not be resolved by collection order.");
+        }, ref failures);
+        CheckBreakpointCase("Existing same-address breakpoint makes initial ownership ambiguous", delegate
+        {
+            var existing = new FakeBreakpoint { Name = "0x1000", Data = "", HitCount = 99 };
+            var fixture = new BreakpointFixture(assembly, existing);
+            var added = new FakeBreakpoint { Name = "0x1000", Data = "", HitCount = 7 };
+            fixture.Items.Add(added);
+            if (fixture.ReadHitCount() != -1 || fixture.Delete() || existing.DeleteCalls != 0 || added.DeleteCalls != 0)
+                throw new Exception("Duplicate address ownership must fail closed even when one entry existed before Add.");
+        }, ref failures);
+        CheckBreakpointCase("Conflicting Data overrides a matching display name", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            var unrelated = new FakeBreakpoint { Name = "0x1000", Data = "0x2000", HitCount = 99 };
+            fixture.Items.Add(unrelated);
+            if (fixture.ReadHitCount() != -1 || fixture.Delete() || unrelated.DeleteCalls != 0)
+                throw new Exception("A display name must not override conflicting data-address metadata.");
+        }, ref failures);
+        CheckBreakpointCase("Wrong data byte count cannot establish ownership", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            var unrelated = new FakeBreakpoint { Name = "0x1000", Data = "0x1000", DataCount = 2, HitCount = 99 };
+            fixture.Items.Add(unrelated);
+            if (fixture.ReadHitCount() != -1 || fixture.Delete() || unrelated.DeleteCalls != 0)
+                throw new Exception("A watch for a different byte count was adopted.");
+        }, ref failures);
+        CheckBreakpointCase("Unpublished breakpoint remains retryable until its entry appears", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            if (fixture.ReadHitCount() != -1 || fixture.Delete()) throw new Exception("An unpublished entry must not be reported as removed.");
+            var owned = new FakeBreakpoint { Name = "0x1000", Data = "", HitCount = 7 };
+            fixture.Items.Add(owned);
+            if (fixture.ReadHitCount() != 7 || !fixture.Delete() || owned.DeleteCalls != 1)
+                throw new Exception("A later matching published entry must remain resolvable.");
+        }, ref failures);
+        CheckBreakpointCase("Incomplete pre-add snapshot must fail instead of hiding existing breakpoints", delegate
+        {
+            var reader = assembly.GetType("ArrayImageViewer.Debugging.DebugExpressionFrameReader", true);
+            var snapshot = reader.GetMethod("GetBreakpointIdentities", BindingFlags.Static | BindingFlags.NonPublic);
+            try { snapshot.Invoke(null, new object[] { new UnreadableBreakpoints() }); }
+            catch (TargetInvocationException exception)
+            {
+                if (exception.InnerException is InvalidOperationException && exception.InnerException.Message == "Synthetic unreadable breakpoint collection.") return;
+                throw;
+            }
+            throw new Exception("The failed baseline was silently accepted as an empty set of existing breakpoints.");
+        }, ref failures);
+        if (failures != 0) throw new Exception(failures + " breakpoint ownership regression(s) failed.");
+    }
+
+    private static void CheckBreakpointCase(string name, Action check, ref int failures)
+    {
+        try { check(); Console.WriteLine("PASS: " + name); }
+        catch (Exception exception) { failures++; Console.WriteLine("FAIL: " + name + ": " + exception.Message); }
+    }
+
     public sealed class FakeExpression
     {
         public string Name { get; set; }
@@ -139,6 +294,7 @@ internal static class Program
                 return File.Exists(path) ? Assembly.LoadFrom(path) : null;
             };
             var assembly = Assembly.LoadFrom(Path.Combine(directory, "ArrayImageViewer.dll"));
+            CheckBreakpointOwnership(assembly);
             CheckTemplateSerialization(assembly);
             CheckStructureTraversal(assembly);
             var traceType = assembly.GetType("ArrayImageViewer.Debugging.StructureSearchTrace", true);
@@ -243,5 +399,26 @@ internal static class Program
             return 0;
         }
         catch (Exception e) { Console.Error.WriteLine(e); return 1; }
+    }
+}
+
+// Public so the extension's C# dynamic binder can invoke the same Delete
+// member as a COM breakpoint without accessing any Visual Studio service.
+public sealed class FakeBreakpoint
+{
+    public FakeBreakpoint() { DataCount = 4; }
+    public string Name { get; set; }
+    public string Data { get; set; }
+    public int DataCount { get; set; }
+    public int HitCount { get; set; }
+    public int DeleteCalls { get; private set; }
+    public void Delete() { DeleteCalls++; }
+}
+
+public sealed class UnreadableBreakpoints : IEnumerable
+{
+    public IEnumerator GetEnumerator()
+    {
+        throw new InvalidOperationException("Synthetic unreadable breakpoint collection.");
     }
 }

@@ -75,90 +75,37 @@ namespace ArrayImageViewer.Debugging
         public const int DraftSampleLimit = 16384;
         public static bool LastRoiReadUsedMemory { get; private set; }
 
-        // Breakpoints.Add returns the collection rather than the new item.
-        // Resolve the actual COM breakpoint as the new automation object that
-        // appeared after Add. Native data breakpoints expose an empty Data
-        // property on several VS engines, and collection ordering is unstable.
+        // Native data breakpoint publication can be delayed. Resolve only a
+        // unique new entry matching the requested address; collection position
+        // alone cannot distinguish it from a breakpoint added by the user.
         private sealed class NativeDataBreakpointReference
         {
             private readonly object breakpoints;
             private readonly HashSet<string> existingBreakpointIdentities;
-            private readonly int breakpointCountBeforeAdd;
+            private readonly string dataExpression;
+            private readonly int byteCount;
             private string resolvedBreakpointIdentity;
-            private string resolvedBreakpointName;
             public string LastResolutionError { get; private set; }
+            public bool IsKnownRemoved { get; private set; }
 
             public NativeDataBreakpointReference(object breakpoints, HashSet<string> existingBreakpointIdentities,
-                int breakpointCountBeforeAdd)
+                string dataExpression, int byteCount)
             {
                 this.breakpoints = breakpoints;
                 this.existingBreakpointIdentities = existingBreakpointIdentities;
-                this.breakpointCountBeforeAdd = breakpointCountBeforeAdd;
+                this.dataExpression = dataExpression;
+                this.byteCount = byteCount;
             }
 
             public object TryResolve()
             {
+                if (IsKnownRemoved) return null;
                 try
                 {
                     LastResolutionError = null;
                     var breakpointSnapshot = GetBreakpointSnapshot(breakpoints);
-                    var count = breakpointSnapshot.Count;
-
-                    // The generated Name contains the resolved native address
-                    // even when EnvDTE exposes an empty Data expression. Match
-                    // it first so Delete always receives a freshly retrieved
-                    // collection item rather than a stale COM wrapper.
-                    if (!String.IsNullOrWhiteSpace(resolvedBreakpointName))
-                    {
-                        for (var index = 1; index <= count; index++)
-                        {
-                            var candidate = breakpointSnapshot[index - 1];
-                            var candidateName = Convert.ToString(GetOptionalMember(candidate, "Name"), CultureInfo.InvariantCulture);
-                            if (String.Equals(candidateName, resolvedBreakpointName, StringComparison.Ordinal))
-                            {
-                                resolvedBreakpointIdentity = GetAutomationObjectIdentity(candidate);
-                                return candidate;
-                            }
-                        }
-                    }
-
-                    // EnvDTE appends a newly added native data breakpoint. This
-                    // exact position remains reliable while its COM identity is
-                    // still being published, whereas identity-only matching can
-                    // temporarily see the old collection snapshot.
-                    if (count >= breakpointCountBeforeAdd + 1)
-                    {
-                        var appended = breakpointSnapshot[breakpointCountBeforeAdd];
-                        var appendedIdentity = GetAutomationObjectIdentity(appended);
-                        // Add was invoked specifically with the Data argument,
-                        // so this appended item is the viewer's native data
-                        // breakpoint. Some native engines do not implement
-                        // LocationType through IDispatch (DISP_E_MEMBERNOTFOUND).
-                        if (!existingBreakpointIdentities.Contains(appendedIdentity))
-                        {
-                            resolvedBreakpointIdentity = appendedIdentity;
-                            resolvedBreakpointName = Convert.ToString(GetOptionalMember(appended, "Name"), CultureInfo.InvariantCulture);
-                            return appended;
-                        }
-                    }
-
-                    for (var index = 1; index <= count; index++)
-                    {
-                        var candidate = breakpointSnapshot[index - 1];
-                        var candidateIdentity = GetAutomationObjectIdentity(candidate);
-                        if (!String.IsNullOrWhiteSpace(resolvedBreakpointIdentity) &&
-                            String.Equals(candidateIdentity, resolvedBreakpointIdentity, StringComparison.Ordinal))
-                        {
-                            return candidate;
-                        }
-                        if (!String.IsNullOrWhiteSpace(candidateIdentity) &&
-                            !existingBreakpointIdentities.Contains(candidateIdentity))
-                        {
-                            resolvedBreakpointIdentity = candidateIdentity;
-                            resolvedBreakpointName = Convert.ToString(GetOptionalMember(candidate, "Name"), CultureInfo.InvariantCulture);
-                            return candidate;
-                        }
-                    }
+                    return String.IsNullOrWhiteSpace(resolvedBreakpointIdentity)
+                        ? ResolveNewBreakpoint(breakpointSnapshot) : ResolveKnownBreakpoint(breakpointSnapshot);
                 }
                 catch (Exception exception)
                 {
@@ -168,6 +115,67 @@ namespace ArrayImageViewer.Debugging
                 }
 
                 return null;
+            }
+
+            private object ResolveKnownBreakpoint(List<object> snapshot)
+            {
+                // Identity wins over display name, address and collection order.
+                foreach (var candidate in snapshot)
+                    if (String.Equals(GetAutomationObjectIdentity(candidate), resolvedBreakpointIdentity, StringComparison.Ordinal))
+                        return candidate;
+                // A recreated wrapper or same-address replacement is ambiguous,
+                // not proof that the original hardware watch was removed.
+                foreach (var candidate in snapshot)
+                    if (MatchesRequestedWatch(candidate))
+                    {
+                        LastResolutionError = "The watched address is still present with a different breakpoint identity; ownership cannot be verified.";
+                        return null;
+                    }
+                IsKnownRemoved = true;
+                return null;
+            }
+
+            private object ResolveNewBreakpoint(List<object> snapshot)
+            {
+                object match = null;
+                foreach (var candidate in snapshot)
+                {
+                    if (!MatchesRequestedWatch(candidate)) continue;
+                    if (match != null)
+                    {
+                        LastResolutionError = "Multiple breakpoints match the watched address; ownership is ambiguous.";
+                        return null;
+                    }
+                    match = candidate;
+                }
+                var identity = GetAutomationObjectIdentity(match);
+                if (match == null || String.IsNullOrWhiteSpace(identity) || existingBreakpointIdentities.Contains(identity)) return null;
+                resolvedBreakpointIdentity = identity;
+                return match;
+            }
+
+            private bool MatchesRequestedWatch(object candidate)
+            {
+                var count = GetOptionalMember(candidate, "DataCount");
+                if (count != null && Convert.ToInt32(count, CultureInfo.InvariantCulture) != byteCount) return false;
+                var data = Convert.ToString(GetOptionalMember(candidate, "Data"), CultureInfo.InvariantCulture);
+                // Some native engines expose Data as empty and only publish a
+                // generated address Name. Accept that unique literal fallback,
+                // but never override a conflicting nonempty Data value.
+                if (String.IsNullOrWhiteSpace(data))
+                    data = Convert.ToString(GetOptionalMember(candidate, "Name"), CultureInfo.InvariantCulture);
+                ulong requestedAddress;
+                ulong candidateAddress;
+                return TryParseLiteralAddress(dataExpression, out requestedAddress) &&
+                    TryParseLiteralAddress(data, out candidateAddress) && requestedAddress == candidateAddress;
+            }
+
+            private static bool TryParseLiteralAddress(string value, out ulong address)
+            {
+                address = 0;
+                value = value == null ? String.Empty : value.Trim();
+                return value.StartsWith("0x", StringComparison.OrdinalIgnoreCase) &&
+                    UInt64.TryParse(value.Substring(2), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out address);
             }
         }
 
@@ -704,7 +712,6 @@ namespace ArrayImageViewer.Debugging
             // Condition, ConditionType, Language, Data, DataCount, Address,
             // HitCount, HitCountType). Enum value 1 is the documented
             // WhenTrue/None default for VS 2015-2022.
-            var breakpointCountBeforeAdd = GetBreakpointSnapshot(breakpoints).Count;
             var breakpointIdentitiesBeforeAdd = GetBreakpointIdentities(breakpoints);
             Invoke(breakpoints, "Add", "", "", 1, 1, "", 1,
                 "", dataExpression, byteCount, "", 0, 1);
@@ -712,7 +719,7 @@ namespace ArrayImageViewer.Debugging
             // collection later (often only once the debugger resumes). Add has
             // already accepted the request, so keep a lazy reference instead
             // of falsely reporting failure from a stale Count value.
-            return new NativeDataBreakpointReference(breakpoints, breakpointIdentitiesBeforeAdd, breakpointCountBeforeAdd);
+            return new NativeDataBreakpointReference(breakpoints, breakpointIdentitiesBeforeAdd, dataExpression, byteCount);
         }
 
         internal static bool DeleteBreakpoint(object breakpoint)
@@ -737,6 +744,7 @@ namespace ArrayImageViewer.Debugging
                     breakpoint = pending.TryResolve();
                     if (breakpoint == null)
                     {
+                        if (pending.IsKnownRemoved) return true;
                         failureReason = "The Visual Studio breakpoint entry was not published. " + (pending.LastResolutionError ?? String.Empty);
                         return false;
                     }
@@ -875,22 +883,14 @@ namespace ArrayImageViewer.Debugging
         private static HashSet<string> GetBreakpointIdentities(object breakpoints)
         {
             var identities = new HashSet<string>(StringComparer.Ordinal);
-            try
+            // This is the ownership baseline captured before Add. A partial
+            // snapshot must abort Add, not make old user entries appear new.
+            foreach (var breakpoint in GetBreakpointSnapshot(breakpoints))
             {
-                foreach (var breakpoint in GetBreakpointSnapshot(breakpoints))
-                {
-                    var identity = GetAutomationObjectIdentity(breakpoint);
-                    if (!String.IsNullOrWhiteSpace(identity))
-                    {
-                        identities.Add(identity);
-                    }
-                }
-            }
-            catch (Exception)
-            {
-                // Adding a data breakpoint still succeeds on engines that do
-                // not publish their collection synchronously. Resolution will
-                // retry when the debugger later enters break mode.
+                var identity = GetAutomationObjectIdentity(breakpoint);
+                if (String.IsNullOrWhiteSpace(identity))
+                    throw new InvalidOperationException("Cannot identify an existing Visual Studio breakpoint; no hardware watch was added.");
+                identities.Add(identity);
             }
             return identities;
         }

@@ -240,10 +240,31 @@ namespace ArrayImageViewer.UI
         private void DismissExpressionSuggestionsOutside(object sender, MouseButtonEventArgs e)
         {
             var target = e.OriginalSource as DependencyObject;
-            if (target == null || (target != expression && !expression.IsAncestorOf(target) &&
-                target != expressionSuggestionList && !expressionSuggestionList.IsAncestorOf(target)))
+            if (!IsInputDescendant(target, expression) && !IsInputDescendant(target, expressionSuggestionList))
                 DismissExpressionSuggestions();
             // Intentionally leave e.Handled false so the original button acts.
+        }
+
+        private static bool IsInputDescendant(DependencyObject target, DependencyObject ancestor)
+        {
+            // Routed mouse input can originate in Run/AccessText content (for
+            // example a pointer name containing '_'), not just in a Visual.
+            // Visual.IsAncestorOf throws for such content BEFORE Button.Click.
+            while (target != null)
+            {
+                if (Object.ReferenceEquals(target, ancestor)) return true;
+                var content = target as ContentElement;
+                if (content != null)
+                {
+                    var frameworkContent = content as FrameworkContentElement;
+                    target = ContentOperations.GetParent(content) ?? (frameworkContent == null ? null : frameworkContent.Parent);
+                }
+                else if (target is System.Windows.Media.Visual || target is System.Windows.Media.Media3D.Visual3D)
+                    target = System.Windows.Media.VisualTreeHelper.GetParent(target);
+                else
+                    return false;
+            }
+            return false;
         }
 
         private void ExpressionLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
