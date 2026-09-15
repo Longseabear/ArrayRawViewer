@@ -168,6 +168,14 @@ internal static class Program
         VerifyWatchNavigation(window);
         VerifyCompletionFocus(window);
         VerifyArrayTabs(window);
+        var searchButton = Button("Search objects");
+        var searchWidth = searchButton.Width;
+        viewerType.GetMethod("SetSearchBusy", Private).Invoke(viewer, new object[] { true });
+        if (Button("Cancel search") != searchButton || searchButton.Width != searchWidth || !searchButton.IsEnabled ||
+            !((UIElement)viewer).IsEnabled || ((TextBox)Get("structureTemplateRoot")).IsReadOnly)
+            throw new Exception("Search state must reuse its icon without disabling or resizing the viewer/root.");
+        viewerType.GetMethod("SetSearchBusy", Private).Invoke(viewer, new object[] { false });
+        Console.WriteLine("Search/cancel icon fixed-layout and enabled-style checks passed.");
     }
 
     private static void VerifyArrayTabs(Window window)

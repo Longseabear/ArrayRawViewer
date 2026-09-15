@@ -29,6 +29,8 @@ internal static class Program
         var root = new FakeExpression { Name = "this", Type = "A *", Value = "0x00001234" };
         var cycle = new FakeExpression { Name = "self", Type = "A *", Value = "0x1234", Children = new object[] { root } };
         var children = new System.Collections.Generic.List<object>();
+        var baseClass = new FakeExpression { Name = "Base", Type = "ns::Base", Children = new object[] { root, target } };
+        children.Add(baseClass);
         for (int i = 0; i < 50; i++) children.Add(new FakeExpression { Name = "value" + i, Type = "unsigned int" });
         children.Add(cycle); children.Add(branch); root.Children = children.ToArray();
         int evaluations = 0;
@@ -42,7 +44,7 @@ internal static class Program
                     new Func<System.Threading.Tasks.Task>(delegate { return System.Threading.Tasks.Task.FromResult(0); }) });
             task.GetAwaiter().GetResult();
             var result = (IList)task.GetType().GetProperty("Result").GetValue(task, null);
-            if (result.Count != 1 || evaluations != 1 || target.Expansions != 0 || cycle.Expansions != 0 || branch.Expansions != 1 || warning != null)
+            if (result.Count != 1 || evaluations != 1 || target.Expansions != 0 || cycle.Expansions != 0 || baseClass.Expansions != 0 || branch.Expansions != 1 || warning != null)
                 throw new Exception("Traversal must find nested target, avoid cycles/target storage, and evaluate root only once.");
         }
         Console.WriteLine("Synthetic debugger traversal: 50 scalar siblings, depth-8 template, cycle pruning, one root evaluation passed.");

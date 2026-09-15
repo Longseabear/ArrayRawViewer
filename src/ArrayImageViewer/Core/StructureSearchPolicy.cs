@@ -22,6 +22,16 @@ namespace ArrayImageViewer.Core
     // testable, so capture visits the object graph rather than RAW storage.
     internal static class StructureSearchPolicy
     {
+        public static bool IsBaseClassEntry(string name, string type)
+        {
+            // DTE exposes native base subobjects as type-named children (A or
+            // ns::A, type A), unlike ordinary member fields. Never classify
+            // pointer members as bases solely by their names.
+            if (String.IsNullOrWhiteSpace(name) || String.IsNullOrWhiteSpace(type) ||
+                type.IndexOf('*') >= 0 || type.IndexOf('&') >= 0 || type.IndexOf('[') >= 0) return false;
+            return FindInterestedTypeName(type, new string[] { name }) != null;
+        }
+
         public static string PointerIdentity(string type, string value)
         {
             if (String.IsNullOrEmpty(type) || type.IndexOf('*') < 0 || String.IsNullOrWhiteSpace(value)) return null;

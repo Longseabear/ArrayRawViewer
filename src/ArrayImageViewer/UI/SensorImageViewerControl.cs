@@ -390,10 +390,11 @@ namespace ArrayImageViewer.UI
             var content = new StackPanel();
             var rootRow = CreateRow();
             rootRow.Children.Add(CreateField("SEARCH ROOT", structureTemplateRoot));
-            rootRow.Children.Add(CreateAction("", CreateButton("Search objects", CaptureStructureObjects, false)));
-            rootRow.Children.Add(structureSearchProgress);
-            structureSearchCancelButton.Click += delegate { structureSearchCancelled = true; };
-            rootRow.Children.Add(structureSearchCancelButton);
+            structureSearchButton = CreateIconButton("Search objects", "객체 검색", "M11,6 A5,5 0 1 1 1,6 A5,5 0 1 1 11,6 M10,10 L15,15", CaptureStructureObjects);
+            var searchControls = new StackPanel { Orientation = Orientation.Horizontal };
+            searchControls.Children.Add(structureSearchButton);
+            searchControls.Children.Add(structureSearchState);
+            rootRow.Children.Add(CreateField("SEARCH", searchControls));
             rootRow.Children.Add(CreateField("STRUCTURE TEMPLATE", structureTemplatePicker));
             rootRow.Children.Add(CreateAction("", CreateButton("Bind current root", BindStructureTemplate, false)));
             content.Children.Add(rootRow);

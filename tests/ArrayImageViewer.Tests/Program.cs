@@ -119,6 +119,9 @@ namespace ArrayImageViewer.Tests
 
         private static void StructureSearchPolicySkipsRawStorage()
         {
+            Assert(StructureSearchPolicy.IsBaseClassEntry("Base", "ns::Base"), "Debugger base entries must be excluded.");
+            Assert(!StructureSearchPolicy.IsBaseClassEntry("buffer", "ns::Base"), "Ordinary object members must remain searchable.");
+            Assert(!StructureSearchPolicy.IsBaseClassEntry("Base", "ns::Base *"), "Pointer member names alone must not imply inheritance.");
             Assert(StructureSearchPolicy.PointerIdentity("A *", "0x00001234") == StructureSearchPolicy.PointerIdentity("A *", "0x1234"), "Pointer identity must normalize leading zeros.");
             Assert(StructureSearchPolicy.PointerIdentity("B *", "0x1234") != StructureSearchPolicy.PointerIdentity("A *", "0x1234"), "Different typed subobjects must not be merged.");
             Assert(StructureSearchPolicy.PointerIdentity("A", "0x1234") == null && StructureSearchPolicy.PointerIdentity("A **", "0x1234") == null,

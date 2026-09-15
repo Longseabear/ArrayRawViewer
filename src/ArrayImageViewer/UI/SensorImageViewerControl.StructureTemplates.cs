@@ -18,13 +18,20 @@ namespace ArrayImageViewer.UI
         private const int StructureTemplateFormatVersion = 1;
         private bool structureSearchRunning;
         private bool structureSearchCancelled;
-        private readonly Button structureSearchCancelButton = new Button { Content = "Cancel search", Visibility = Visibility.Collapsed };
-        private int structureSearchEpoch;
-        private readonly ProgressBar structureSearchProgress = new ProgressBar
+        private Button structureSearchButton;
+        private readonly TextBlock structureSearchState = new TextBlock
         {
-            Width = 100, Height = 6, IsIndeterminate = true, Visibility = Visibility.Collapsed,
-            ToolTip = "Searching debugger objects. Individual debugger calls may delay updates."
+            Text = "검색 준비", Width = 135, VerticalAlignment = VerticalAlignment.Center,
+            Foreground = System.Windows.Media.Brushes.LightGray, Margin = new Thickness(6, 0, 4, 0)
         };
+        private int structureSearchEpoch;
+        private void SetSearchBusy(bool busy)
+        {
+            SetIconContent(structureSearchButton, busy ? "Cancel search" : "Search objects",
+                busy ? "검색 취소 · 현재 디버거 호출이 끝나면 중단합니다" : "객체 검색 · 지정한 루트의 멤버만 탐색합니다 (기반 클래스 제외)",
+                busy ? "M4,4 L12,4 L12,12 L4,12 Z" : "M11,6 A5,5 0 1 1 1,6 A5,5 0 1 1 11,6 M10,10 L15,15", false);
+            structureSearchState.Text = busy ? "검색 중… ■ 취소" : "검색 준비";
+        }
 
         private void ReloadStructureTemplates(object sender, RoutedEventArgs e)
         {
@@ -128,18 +135,19 @@ namespace ArrayImageViewer.UI
 
         private async void CaptureStructureObjects(object sender, RoutedEventArgs e)
         {
-            if (structureSearchRunning) return;
+            if (structureSearchRunning)
+            {
+                structureSearchCancelled = true;
+                structureSearchState.Text = "취소 요청 중…";
+                return;
+            }
             structureSearchRunning = true;
             structureSearchCancelled = false;
-            var searchButton = sender as Button;
             StructureSearchTrace trace = null;
             try
             {
                 trace = new StructureSearchTrace(StructureTemplateStore.LoadSearchDebug());
-                if (searchButton != null) searchButton.IsEnabled = false;
-                structureTemplateRoot.IsReadOnly = true;
-                structureSearchProgress.Visibility = Visibility.Visible;
-                structureSearchCancelButton.Visibility = Visibility.Visible;
+                SetSearchBusy(true);
                 var timeoutSeconds = StructureTemplateStore.LoadSearchSeconds();
                 SetStatus("Searching objects... (limit " + timeoutSeconds + " seconds)");
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
@@ -165,7 +173,7 @@ namespace ArrayImageViewer.UI
                 string searchWarning = null;
                 var captured = await DebugExpressionFrameReader.CaptureInterestedStructures(root, interestTypes, 12, 512,
                     timeoutSeconds, delegate(string warning) { searchWarning = warning; },
-                    delegate { return searchEpoch == structureSearchEpoch && !structureSearchCancelled && templateRevision == StructureTemplateStore.Revision; }, trace);
+                    delegate { return searchEpoch == structureSearchEpoch && !structureSearchCancelled && templateRevision == StructureTemplateStore.Revision && root == structureTemplateRoot.Text.Trim(); }, trace);
                 if (solutionAtStart != DebugExpressionFrameReader.GetActiveSolutionIdentity())
                     throw new OperationCanceledException("Solution changed during search. Search again.");
                 capturedStructureCandidates.Clear();
@@ -212,10 +220,8 @@ namespace ArrayImageViewer.UI
                     trace.Dispose();
                     if (trace.FilePath != null) status.Text += " Debug dump: " + trace.FilePath;
                 }
-                structureSearchProgress.Visibility = Visibility.Collapsed;
-                structureSearchCancelButton.Visibility = Visibility.Collapsed;
-                if (searchButton != null) searchButton.IsEnabled = true;
-                structureTemplateRoot.IsReadOnly = false;
+                SetSearchBusy(false);
+                structureSearchState.Text = structureSearchCancelled ? "검색 취소됨" : capturedStructureCandidates.Count + "개 · 아래 결과 확인";
                 structureSearchRunning = false;
             }
         }

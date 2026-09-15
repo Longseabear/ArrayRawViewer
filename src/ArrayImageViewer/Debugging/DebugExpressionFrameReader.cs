@@ -500,6 +500,11 @@ namespace ArrayImageViewer.Debugging
                     }
 
                     var childType = Convert.ToString(GetSearchMember(child, "Type", trace), CultureInfo.InvariantCulture);
+                    if (StructureSearchPolicy.IsBaseClassEntry(childName, childType))
+                    {
+                        trace.Write("SKIP base-class entry parent=" + node.Expression + " name=" + childName + " type=" + childType);
+                        continue;
+                    }
                     var childMatch = findMatch(childType);
                     trace.Write("CHILD TYPE=" + childType + " MATCH=" + (childMatch ?? "none") + " EXPANSION=" + findExpansion(childType));
                     if (childMatch != null)
