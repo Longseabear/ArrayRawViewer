@@ -148,6 +148,24 @@ never reread debugger memory.
 
 ### Structure templates
 
+### JSON으로 구조체 설정 편집하기
+
+**Tools > Options > Array RAW Viewer > Structure Templates**에서 **Open JSON**을
+누르면 현재 표를 JSON 편집본으로 만들어 메모장에서 엽니다. 수정하고 메모장에서
+저장한 뒤 **Load edited JSON**으로 표를 교체하고 **Save**로 현재 솔루션에 적용합니다.
+Viewer에서는 **Reload templates**로 새 정의를 불러옵니다.
+
+편집본은 실제 설정 저장소와 별개입니다. Open JSON을 다시 누르면 같은 편집본을
+열며, 이후 표에서 변경한 내용이 자동으로 동기화되지는 않습니다. 잘못된 JSON은
+기존 표와 저장된 설정을 바꾸지 않습니다. 다른 PC에서는 JSON을 전달하고
+**Import JSON → Save**로 적용할 수 있습니다.
+
+[구조체 2개 JSON 예시](examples/structure-templates.json)를 복사해서 시작하세요.
+`ClassName`은 디버거에 표시되는 실제 타입명(템플릿 인수 포함), 나머지 필드는
+그 객체 기준 멤버 접근식입니다. `this`나 인스턴스 이름은 넣지 않으며 검색 루트는
+Viewer에서 지정합니다. stride는 width를 따릅니다. `uint16`과 `unsigned short`처럼
+별칭이 다르게 표시될 경우 실제 디버거 타입명에 맞춰 주세요.
+
 Use **Tools > Options > Array RAW Viewer > Structure Templates** to define one
 or more framework mappings without repeatedly typing member expressions. Select
 a saved template in the viewer to bind it. A template contains only a portable

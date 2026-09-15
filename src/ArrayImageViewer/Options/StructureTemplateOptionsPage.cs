@@ -111,6 +111,7 @@ namespace ArrayImageViewer.Options
         private string solutionIdentity;
         private readonly DataGridView grid;
         private BindingList<StructureTemplateItem> templates;
+        private string jsonEditPath;
 
         public StructureTemplateOptionsControl(string solutionIdentityValue)
         {
@@ -171,6 +172,8 @@ namespace ArrayImageViewer.Options
             buttons.Controls.Add(CreateButton("Save", SaveTemplates));
             buttons.Controls.Add(CreateButton("Import JSON", ImportTemplates));
             buttons.Controls.Add(CreateButton("Export JSON", ExportTemplates));
+            buttons.Controls.Add(CreateButton("Open JSON", OpenJson));
+            buttons.Controls.Add(CreateButton("Load edited JSON", LoadEditedJson));
             buttons.Controls.Add(CreateButton("Reload", ReloadTemplates));
             layout.Controls.Add(buttons, 0, 2);
 
@@ -198,6 +201,7 @@ namespace ArrayImageViewer.Options
         internal void ReloadForSolution(string identity)
         {
             grid.CancelEdit();
+            if (!String.Equals(solutionIdentity, identity, StringComparison.Ordinal)) jsonEditPath = null;
             solutionIdentity = String.IsNullOrWhiteSpace(identity) ? "<no-solution>" : identity;
             LoadTemplates();
         }
@@ -268,6 +272,53 @@ namespace ArrayImageViewer.Options
             catch (Exception exception)
             {
                 MessageBox.Show(exception.Message, "Cannot export structure templates", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void OpenJson(object sender, EventArgs e)
+        {
+            try
+            {
+                grid.EndEdit();
+                if (jsonEditPath == null)
+                {
+                    var directory = Path.Combine(Path.GetTempPath(), "ArrayRawViewer-template-edit");
+                    Directory.CreateDirectory(directory);
+                    var path = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".json");
+                    StructureTemplateStore.Export(path, new List<StructureTemplateItem>(templates));
+                    jsonEditPath = path;
+                }
+                // Reopening never overwrites unsaved external edits.
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "notepad.exe"),
+                    Arguments = "\"" + jsonEditPath + "\"",
+                    UseShellExecute = true
+                });
+                MessageBox.Show("Edit and save the JSON in Notepad, then click Load edited JSON and Save here. This is an editing copy, not the live settings file.",
+                    "Edit structure templates", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(exception.Message, "Cannot open JSON", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void LoadEditedJson(object sender, EventArgs e)
+        {
+            try
+            {
+                if (jsonEditPath == null) throw new InvalidOperationException("Click Open JSON first.");
+                var imported = StructureTemplateStore.Import(jsonEditPath);
+                if (MessageBox.Show("Replace the displayed rows with the edited JSON? Click Save afterwards to apply them to this solution.",
+                    "Load edited JSON", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+                grid.CancelEdit();
+                templates = new BindingList<StructureTemplateItem>(imported);
+                grid.DataSource = templates;
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(exception.Message, "Cannot load edited JSON", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }

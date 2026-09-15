@@ -276,7 +276,7 @@ namespace ArrayImageViewer.Debugging
         // root and the two limits prevent a container or cyclic view from
         // making the tool window unresponsive.
         internal static IList<StructureCandidate> CaptureInterestedStructures(string rootExpression,
-            IList<string> interestedTypeNames, int maximumDepth, int maximumNodes)
+            IList<string> interestedTypeNames, int maximumDepth, int maximumNodes, out string searchWarning)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             if (String.IsNullOrWhiteSpace(rootExpression))
@@ -289,12 +289,13 @@ namespace ArrayImageViewer.Debugging
             }
 
             var debugger = GetDebugger();
+            searchWarning = null;
             var results = new List<StructureCandidate>();
             var searchClock = System.Diagnostics.Stopwatch.StartNew();
             Action checkBudget = delegate
             {
                 if (searchClock.ElapsedMilliseconds >= 3000)
-                    throw new InvalidOperationException("Structure search exceeded 3 seconds. Check the exact debugger type name (including template arguments) or use a more specific root.");
+                    throw new StructureSearchLimitException("Search time limit (3 seconds) reached.");
             };
             var pending = new Queue<StructureCaptureNode>();
             var seenExpressions = new HashSet<string>(StringComparer.Ordinal);
@@ -302,6 +303,8 @@ namespace ArrayImageViewer.Debugging
 
             var visited = 0;
             var scheduled = 1;
+            try
+            {
             while (pending.Count > 0 && visited < maximumNodes)
             {
                 checkBudget();
@@ -343,6 +346,7 @@ namespace ArrayImageViewer.Debugging
 
                 if (node.Depth >= maximumDepth)
                 {
+                    searchWarning = "Search depth limit reached.";
                     continue;
                 }
 
@@ -353,6 +357,8 @@ namespace ArrayImageViewer.Debugging
                 }
 
                 var containerElements = 0;
+                try
+                {
                 foreach (var child in EnumerateExpressionChildren(evaluated, 64, checkBudget))
                 {
                     checkBudget();
@@ -365,21 +371,48 @@ namespace ArrayImageViewer.Debugging
 
                     if (expansion == StructureSearchExpansion.InterestedContainerElements)
                     {
-                        if (!StructureSearchPolicy.IsContainerElementName(childName) || containerElements >= 16)
+                        if (!StructureSearchPolicy.IsContainerElementName(childName))
                         {
                             continue;
+                        }
+                        if (containerElements >= 16)
+                        {
+                            searchWarning = "Container element limit reached.";
+                            break;
                         }
                         containerElements++;
                     }
 
                     var childType = Convert.ToString(GetOptionalMember(child, "Type"), CultureInfo.InvariantCulture);
+                    var childMatch = StructureSearchPolicy.FindInterestedTypeName(childType, interestedTypeNames);
+                    if (childMatch != null)
+                    {
+                        var childExpression = ComposeChildExpression(node.Expression, type, childName.Trim());
+                        if (seenExpressions.Add(childExpression))
+                            results.Add(new StructureCandidate(childExpression, GetPointerRootExpression(childExpression, childType), childType, childMatch));
+                        continue;
+                    }
                     if (StructureSearchPolicy.GetExpansion(childType, interestedTypeNames) == StructureSearchExpansion.None &&
                         StructureSearchPolicy.FindInterestedTypeName(childType, interestedTypeNames) == null) continue;
                     if (scheduled >= maximumNodes)
-                        throw new InvalidOperationException("Structure search reached its node limit. Check the template type name or narrow the search root.");
+                    {
+                        searchWarning = "Search node limit reached.";
+                        break;
+                    }
                     scheduled++;
                     pending.Enqueue(new StructureCaptureNode(ComposeChildExpression(node.Expression, type, childName.Trim()), node.Depth + 1, child, childType));
                 }
+                }
+                catch (StructureSearchLimitException exception)
+                {
+                    searchWarning = exception.Message;
+                    checkBudget(); // A child cap must not discard already queued objects.
+                }
+            }
+            }
+            catch (StructureSearchLimitException exception)
+            {
+                searchWarning = exception.Message;
             }
 
             return results;
@@ -1092,7 +1125,7 @@ namespace ArrayImageViewer.Debugging
             {
                 checkBudget();
                 if (index > maximumChildren)
-                    throw new InvalidOperationException("Structure search reached its child limit. Check the template type name or narrow the search root.");
+                    throw new StructureSearchLimitException("Child enumeration limit reached.");
                 object child;
                 try
                 {

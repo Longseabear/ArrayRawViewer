@@ -102,7 +102,12 @@ internal static class Program
         ((TextBox)Get("renderWidth")).Text = "4096";
         ((TextBox)Get("renderHeight")).Text = "3072";
         var generation = Get("renderGeneration");
+        viewerType.GetMethod("ApplyZoom", Private).Invoke(viewer, new object[] { 0.5 });
         Button("Center view").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        if ((double)Get("zoom") < 48) throw new Exception("Center must zoom to readable pixel values.");
+        viewerType.GetMethod("ApplyZoom", Private).Invoke(viewer, new object[] { 96.0 });
+        Button("Center view").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        if ((double)Get("zoom") < 96) throw new Exception("Center must preserve a higher inspection zoom.");
         if (!Equals(generation, Get("renderGeneration"))) throw new Exception("Center must not start a read/render.");
         if (((TextBox)Get("status")).Text.Contains("Cannot")) throw new Exception("Center failed with oversized View dimensions.");
         if (!Button("Select X/Y").IsVisible || Button("Select X/Y").ToolTip == null)

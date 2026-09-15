@@ -5,6 +5,11 @@ using System.Text;
 
 namespace ArrayImageViewer.Core
 {
+    internal sealed class StructureSearchLimitException : InvalidOperationException
+    {
+        public StructureSearchLimitException(string message) : base(message) { }
+    }
+
     internal enum StructureSearchExpansion
     {
         None,
@@ -31,7 +36,7 @@ namespace ArrayImageViewer.Core
                     checkBudget();
                     yield return enumerator.Current;
                 }
-                throw new InvalidOperationException("Structure search reached its child limit. Check the exact debugger type name or use a more specific root.");
+                throw new StructureSearchLimitException("Child enumeration limit reached.");
             }
             finally
             {
@@ -196,6 +201,8 @@ namespace ArrayImageViewer.Core
             var normalized = (type ?? String.Empty).Trim();
             normalized = normalized.Replace("class ", String.Empty).Replace("struct ", String.Empty).Replace("const ", String.Empty).Trim();
             normalized = normalized.TrimEnd('*', '&', ' ');
+            normalized = System.Text.RegularExpressions.Regex.Replace(normalized, @"\s+", " ");
+            normalized = System.Text.RegularExpressions.Regex.Replace(normalized, @"\s*([<>,:*&\[\]])\s*", "$1");
             return normalized;
         }
     }

@@ -119,6 +119,20 @@ namespace ArrayImageViewer.Tests
 
         private static void StructureSearchPolicySkipsRawStorage()
         {
+            var generic = new string[] { "target_type<unsigned short>" };
+            Assert(StructureSearchPolicy.FindInterestedTypeName("struct target_type<  unsigned   short > *", generic) == generic[0],
+                "Template punctuation and repeated whitespace must not prevent binding.");
+            Assert(StructureSearchPolicy.FindInterestedTypeName("target_type<unsignedshort>", generic) == null,
+                "Meaningful token boundaries must not be removed.");
+            Assert(StructureSearchPolicy.FindInterestedTypeName("target_type<unsigned int>", generic) == null,
+                "Different template arguments must remain distinct.");
+            Assert(StructureSearchPolicy.GetExpansion("class A::B", generic) == StructureSearchExpansion.ObjectMembers,
+                "Intermediate unregistered structures must remain searchable.");
+            Assert(StructureSearchPolicy.FindInterestedTypeName("ns :: target_type< unsigned short >", generic) == generic[0],
+                "Namespace punctuation whitespace must normalize.");
+            Assert(StructureSearchPolicy.CreateCacheKey("this", generic) ==
+                StructureSearchPolicy.CreateCacheKey("this", new string[] { "target_type< unsigned  short >" }),
+                "Equivalent type spelling must share cache identity.");
             var templates = new string[] { "ImageStream" };
             Assert(StructureSearchPolicy.GetExpansion("uint16 *", new string[] { "WrongClass" }) == StructureSearchExpansion.None,
                 "A wrong template name must not expand uint16 RAW storage.");

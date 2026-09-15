@@ -135,14 +135,15 @@ namespace ArrayImageViewer.UI
                 var cacheKey = StructureSearchPolicy.CreateCacheKey(root, interestTypes);
                 var usedCachedResult = String.Equals(structureSearchCacheKey, cacheKey, StringComparison.Ordinal);
                 IList<DebugExpressionFrameReader.StructureCandidate> captured;
+                string searchWarning = null;
                 if (usedCachedResult)
                 {
                     captured = new List<DebugExpressionFrameReader.StructureCandidate>(cachedStructureCandidates);
                 }
                 else
                 {
-                    captured = DebugExpressionFrameReader.CaptureInterestedStructures(root, interestTypes, 4, 64);
-                    structureSearchCacheKey = cacheKey;
+                    captured = DebugExpressionFrameReader.CaptureInterestedStructures(root, interestTypes, 12, 512, out searchWarning);
+                    structureSearchCacheKey = searchWarning == null ? cacheKey : null;
                     cachedStructureCandidates.Clear();
                     foreach (var candidate in captured)
                     {
@@ -164,13 +165,17 @@ namespace ArrayImageViewer.UI
                 isApplyingProfile = false;
                 if (capturedStructureCandidates.Count == 0)
                 {
-                    SetStatus("No registered interest types were found below '" + root + "'. Check the template class name and pause where the object is alive.");
+                    SetStatus(searchWarning != null
+                        ? "Search incomplete: " + searchWarning + " No matches found in the inspected portion. Try a closer root such as this->buffer."
+                        : "No registered interest types were found below '" + root + "'. Check the template class name and pause where the object is alive.");
                     return;
                 }
 
                 SetStatus((addedSampleTemplate ? "Added the built-in ImageStream sample template. " : String.Empty) +
                     (usedCachedResult ? "Reused the current-break search result: " : "Captured ") + capturedStructureCandidates.Count.ToString(CultureInfo.InvariantCulture) +
-                    " registered structure(s) below '" + root + "'. Fast search is limited to depth 4, 64 nodes, and 16 matching container elements.");
+                    " registered structure(s) below '" + root + "'. " +
+                    (searchWarning != null ? "Partial results: " + searchWarning + " Narrow the root to search further." :
+                    "Search limits: depth 12, 512 nodes, 16 matching container elements, 3 seconds."));
             }
             catch (Exception exception)
             {

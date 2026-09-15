@@ -455,6 +455,8 @@ namespace ArrayImageViewer.UI
             // Centering already-cached pixels is a camera operation, not a read.
             if (frame != null && IsLoadedCoordinate(currentX, currentY))
             {
+                ZoomForPixelInspection();
+                scrollViewer.UpdateLayout();
                 CenterOnSelection();
                 return;
             }
@@ -466,12 +468,22 @@ namespace ArrayImageViewer.UI
                 // reevaluate an older expression such as centerX/centerY.
                 var x = frame != null && currentX >= 0 && currentX < configuration.Width ? currentX : ResolveCurrentSelection(configuration).X;
                 var y = frame != null && currentY >= 0 && currentY < configuration.Height ? currentY : ResolveCurrentSelection(configuration).Y;
+                ZoomForPixelInspection();
                 MoveViewTo(x, y, true);
             }
             catch (Exception exception)
             {
                 SetInputError("Cannot center view: " + exception.Message);
             }
+        }
+
+        private void ZoomForPixelInspection()
+        {
+            // Keep both RAW/Q labels readable and the visible cell count below
+            // the overlay's 900-cell limit, including on a large docked window.
+            var readableZoom = Math.Max(48.0,
+                Math.Max(scrollViewer.ViewportWidth, scrollViewer.ViewportHeight) / 26.0);
+            ApplyZoom(Math.Max(zoom, readableZoom));
         }
 
         private void GoToEnteredCoordinate(object sender, RoutedEventArgs e)

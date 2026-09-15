@@ -1,0 +1,17 @@
+{
+  "FormatVersion": 1,
+  "Templates": [
+    {
+      "ClassName": "CInputStream<uint16>",
+      "DataAccess": "m_data",
+      "WidthAccess": "m_width",
+      "HeightAccess": "m_height"
+    },
+    {
+      "ClassName": "OutputImage",
+      "DataAccess": "pixels",
+      "WidthAccess": "width",
+      "HeightAccess": "height"
+    }
+  ]
+}
