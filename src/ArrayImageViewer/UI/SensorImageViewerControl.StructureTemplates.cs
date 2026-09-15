@@ -17,6 +17,8 @@ namespace ArrayImageViewer.UI
     {
         private const int StructureTemplateFormatVersion = 1;
         private bool structureSearchRunning;
+        private bool structureSearchCancelled;
+        private readonly Button structureSearchCancelButton = new Button { Content = "Cancel search", Visibility = Visibility.Collapsed };
         private int structureSearchEpoch;
         private readonly ProgressBar structureSearchProgress = new ProgressBar
         {
@@ -28,6 +30,7 @@ namespace ArrayImageViewer.UI
         {
             try
             {
+                InvalidateStructureSearchCache();
                 structureTemplates.Clear();
                 RestoreStructureTemplates();
                 SetStatus("Reloaded " + structureTemplates.Count.ToString(CultureInfo.InvariantCulture) +
@@ -127,21 +130,29 @@ namespace ArrayImageViewer.UI
         {
             if (structureSearchRunning) return;
             structureSearchRunning = true;
-            var wasEnabled = IsEnabled;
+            structureSearchCancelled = false;
+            var searchButton = sender as Button;
             StructureSearchTrace trace = null;
             try
             {
                 trace = new StructureSearchTrace(StructureTemplateStore.LoadSearchDebug());
-                IsEnabled = false;
+                if (searchButton != null) searchButton.IsEnabled = false;
+                structureTemplateRoot.IsReadOnly = true;
                 structureSearchProgress.Visibility = Visibility.Visible;
+                structureSearchCancelButton.Visibility = Visibility.Visible;
                 var timeoutSeconds = StructureTemplateStore.LoadSearchSeconds();
-                var searchEpoch = structureSearchEpoch;
                 SetStatus("Searching objects... (limit " + timeoutSeconds + " seconds)");
-                await System.Threading.Tasks.Task.Delay(30);
+                await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
                 ClearAllInputErrors();
+                InvalidateStructureSearchCache();
+                RestoreStructureTemplates();
+                capturedStructureCandidates.Clear();
+                capturedStructurePicker.ItemsSource = null;
+                var searchEpoch = structureSearchEpoch;
+                var templateRevision = StructureTemplateStore.Revision;
+                var solutionAtStart = DebugExpressionFrameReader.GetActiveSolutionIdentity();
                 var root = (structureTemplateRoot.Text ?? String.Empty).Trim();
                 trace.Write("ROOT " + root);
-                var addedSampleTemplate = trace.Call("EnsureImageSimulatorSampleTemplate", delegate { return EnsureImageSimulatorSampleTemplate(root); });
                 var interestTypes = new List<string>();
                 foreach (var template in structureTemplates.Values)
                 {
@@ -151,27 +162,12 @@ namespace ArrayImageViewer.UI
                     }
                 }
 
-                var cacheKey = StructureSearchPolicy.CreateCacheKey(root, interestTypes);
-                var usedCachedResult = String.Equals(structureSearchCacheKey, cacheKey, StringComparison.Ordinal);
-                trace.Write("CACHE HIT=" + usedCachedResult);
-                IList<DebugExpressionFrameReader.StructureCandidate> captured;
                 string searchWarning = null;
-                if (usedCachedResult)
-                {
-                    captured = new List<DebugExpressionFrameReader.StructureCandidate>(cachedStructureCandidates);
-                }
-                else
-                {
-                    captured = await DebugExpressionFrameReader.CaptureInterestedStructures(root, interestTypes, 12, 512,
-                        timeoutSeconds, delegate(string warning) { searchWarning = warning; },
-                        delegate { return searchEpoch == structureSearchEpoch; }, trace);
-                    structureSearchCacheKey = searchWarning == null ? cacheKey : null;
-                    cachedStructureCandidates.Clear();
-                    foreach (var candidate in captured)
-                    {
-                        cachedStructureCandidates.Add(candidate);
-                    }
-                }
+                var captured = await DebugExpressionFrameReader.CaptureInterestedStructures(root, interestTypes, 12, 512,
+                    timeoutSeconds, delegate(string warning) { searchWarning = warning; },
+                    delegate { return searchEpoch == structureSearchEpoch && !structureSearchCancelled && templateRevision == StructureTemplateStore.Revision; }, trace);
+                if (solutionAtStart != DebugExpressionFrameReader.GetActiveSolutionIdentity())
+                    throw new OperationCanceledException("Solution changed during search. Search again.");
                 capturedStructureCandidates.Clear();
                 foreach (var candidate in captured)
                 {
@@ -193,11 +189,15 @@ namespace ArrayImageViewer.UI
                     return;
                 }
 
-                SetStatus((addedSampleTemplate ? "Added the built-in ImageStream sample template. " : String.Empty) +
-                    (usedCachedResult ? "Reused the current-break search result: " : "Captured ") + capturedStructureCandidates.Count.ToString(CultureInfo.InvariantCulture) +
+                SetStatus("Captured " + capturedStructureCandidates.Count.ToString(CultureInfo.InvariantCulture) +
                     " registered structure(s) below '" + root + "'. " +
                     (searchWarning != null ? "Partial results: " + searchWarning + " Narrow the root to search further." :
                     "Search limits: depth 12, 512 nodes, 16 matching container elements, " + timeoutSeconds + " seconds."));
+            }
+            catch (OperationCanceledException exception)
+            {
+                if (trace != null) trace.Write("CANCEL " + exception.Message);
+                SetStatus(structureSearchCancelled ? "Structure search cancelled." : exception.Message);
             }
             catch (Exception exception)
             {
@@ -213,41 +213,13 @@ namespace ArrayImageViewer.UI
                     if (trace.FilePath != null) status.Text += " Debug dump: " + trace.FilePath;
                 }
                 structureSearchProgress.Visibility = Visibility.Collapsed;
-                IsEnabled = wasEnabled;
+                structureSearchCancelButton.Visibility = Visibility.Collapsed;
+                if (searchButton != null) searchButton.IsEnabled = true;
+                structureTemplateRoot.IsReadOnly = false;
                 structureSearchRunning = false;
             }
         }
 
-        // Keep a turnkey smoke test in the repository without adding a
-        // misleading ImageStream template to unrelated user solutions. The
-        // template appears only when the debugger root is the included
-        // ImageSimulator sample and is persisted for that sample solution.
-        private bool EnsureImageSimulatorSampleTemplate(string root)
-        {
-            if (structureTemplates.ContainsKey("ImageStream"))
-            {
-                return false;
-            }
-
-            string rootType;
-            if (!DebugExpressionFrameReader.TryGetExpressionType(root, out rootType) ||
-                rootType.IndexOf("ImageSimulator", StringComparison.OrdinalIgnoreCase) < 0)
-            {
-                return false;
-            }
-
-            var sample = new StructureTemplate
-            {
-                ClassName = "ImageStream",
-                DataAccess = "m_data",
-                WidthAccess = "m_width",
-                HeightAccess = "m_height"
-            };
-            structureTemplates[sample.ClassName] = sample;
-            PersistStructureTemplate(sample);
-            RebuildStructureTemplatePicker(sample.ClassName);
-            return true;
-        }
 
         private void CapturedStructurePickerChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -265,6 +237,7 @@ namespace ArrayImageViewer.UI
 
         private void UseCapturedStructure(object sender, RoutedEventArgs e)
         {
+            if (structureSearchRunning) return;
             var candidate = capturedStructurePicker.SelectedItem as DebugExpressionFrameReader.StructureCandidate;
             if (candidate == null)
             {
@@ -305,8 +278,6 @@ namespace ArrayImageViewer.UI
         private void InvalidateStructureSearchCache()
         {
             structureSearchEpoch++;
-            structureSearchCacheKey = null;
-            cachedStructureCandidates.Clear();
         }
 
         private void SaveStructureTemplate(object sender, RoutedEventArgs e)
@@ -492,15 +463,11 @@ namespace ArrayImageViewer.UI
 
         private void RestoreStructureTemplates()
         {
-            if (rememberForSolution.IsChecked != true)
-            {
-                return;
-            }
-
             // The Options page owns the persisted definition format. Reading
             // through the same store is important: it also exposes the
             // built-in ImageStream mapping for this sample solution.
             var savedTemplates = StructureTemplateStore.Load(DebugExpressionFrameReader.GetActiveSolutionIdentity());
+            structureTemplates.Clear();
             foreach (var item in savedTemplates)
             {
                 var template = new StructureTemplate

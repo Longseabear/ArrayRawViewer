@@ -373,6 +373,7 @@ namespace ArrayImageViewer.Options
 
     internal static class StructureTemplateStore
     {
+        public static int Revision { get; private set; }
         public static bool LoadSearchDebug()
         {
             string value;
@@ -456,6 +457,7 @@ namespace ArrayImageViewer.Options
                 records[prefix + templates[index].ClassName] = Serialize(new StructureTemplateDocument { FormatVersion = 1, Templates = new List<StructureTemplateItem> { templates[index] } });
             }
             WriteRecords(records);
+            Revision++;
         }
 
         public static List<StructureTemplateItem> Import(string fileName)

@@ -167,6 +167,39 @@ internal static class Program
         Button("Hide stats").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         VerifyWatchNavigation(window);
         VerifyCompletionFocus(window);
+        VerifyArrayTabs(window);
+    }
+
+    private static void VerifyArrayTabs(Window window)
+    {
+        Set("isApplyingProfile", false);
+        var original = Get("activeViewerTab");
+        var cachedFrame = Get("frame");
+        Set("navigatorSourceConfiguration", cachedFrame.GetType().GetProperty("Configuration").GetValue(cachedFrame, null));
+        Set("navigatorPreviewKey", null); // Missing map must not trigger a debugger read on restore.
+        foreach (string timer in new[] { "autoRefreshTimer", "coordinateUpdateTimer", "debuggerBreakRefreshTimer" })
+            ((System.Windows.Threading.DispatcherTimer)Get(timer)).Start();
+        viewerType.GetMethod("AddViewerTab", Private).Invoke(viewer, new object[] { null, null });
+        var added = Get("activeViewerTab");
+        if (original == added || Get("frame") != null) throw new Exception("New array tab must be empty.");
+        for (int i = 0; i < 12; i++)
+        {
+            viewerType.GetMethod("SelectViewerTab", Private).Invoke(viewer, new object[] { new Button { Tag = original }, null });
+            if (!Object.ReferenceEquals(Get("frame"), cachedFrame)) throw new Exception("Array tab did not restore its cached frame.");
+            if (Get("pendingMemoryRead") != null || Get("navigatorPreviewKey") != null)
+                throw new Exception("Restoring a tab must not start a frame-map debugger read.");
+            viewerType.GetMethod("SelectViewerTab", Private).Invoke(viewer, new object[] { new Button { Tag = added }, null });
+        }
+        var dispatcherFrame = new System.Windows.Threading.DispatcherFrame();
+        window.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+            new Action(delegate { dispatcherFrame.Continue = false; }));
+        System.Windows.Threading.Dispatcher.PushFrame(dispatcherFrame);
+        foreach (string timer in new[] { "autoRefreshTimer", "coordinateUpdateTimer", "debuggerBreakRefreshTimer" })
+            if (((System.Windows.Threading.DispatcherTimer)Get(timer)).IsEnabled) throw new Exception("Old tab timer survived switching.");
+        viewerType.GetMethod("CloseViewerTab", Private).Invoke(viewer, new object[] { new Button { Tag = added }, null });
+        if (!Object.ReferenceEquals(Get("frame"), cachedFrame)) throw new Exception("Closing active tab must restore previous cached frame.");
+        if (((TextBox)Get("status")).Text.StartsWith("Cannot")) throw new Exception("Array switch failed.");
+        Console.WriteLine("Array add/12 round trips/close, missing map cache and pending timer regression checks passed.");
     }
 
     private static void VerifyCompletionFocus(Window window)

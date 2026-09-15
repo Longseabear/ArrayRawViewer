@@ -141,8 +141,6 @@ namespace ArrayImageViewer.UI
         private readonly Dictionary<string, NamedProfileSet> profileSets = new Dictionary<string, NamedProfileSet>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, StructureTemplate> structureTemplates = new Dictionary<string, StructureTemplate>(StringComparer.OrdinalIgnoreCase);
         private readonly List<DebugExpressionFrameReader.StructureCandidate> capturedStructureCandidates = new List<DebugExpressionFrameReader.StructureCandidate>();
-        private readonly List<DebugExpressionFrameReader.StructureCandidate> cachedStructureCandidates = new List<DebugExpressionFrameReader.StructureCandidate>();
-        private string structureSearchCacheKey;
         private readonly List<DebugExpressionFrameReader.PointerExpression> pointerCandidates = new List<DebugExpressionFrameReader.PointerExpression>();
         private bool isApplyingProfile;
         private string activeProfileExpression;
@@ -394,6 +392,8 @@ namespace ArrayImageViewer.UI
             rootRow.Children.Add(CreateField("SEARCH ROOT", structureTemplateRoot));
             rootRow.Children.Add(CreateAction("", CreateButton("Search objects", CaptureStructureObjects, false)));
             rootRow.Children.Add(structureSearchProgress);
+            structureSearchCancelButton.Click += delegate { structureSearchCancelled = true; };
+            rootRow.Children.Add(structureSearchCancelButton);
             rootRow.Children.Add(CreateField("STRUCTURE TEMPLATE", structureTemplatePicker));
             rootRow.Children.Add(CreateAction("", CreateButton("Bind current root", BindStructureTemplate, false)));
             content.Children.Add(rootRow);

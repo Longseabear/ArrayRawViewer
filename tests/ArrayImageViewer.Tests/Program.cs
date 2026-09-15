@@ -119,6 +119,11 @@ namespace ArrayImageViewer.Tests
 
         private static void StructureSearchPolicySkipsRawStorage()
         {
+            Assert(StructureSearchPolicy.PointerIdentity("A *", "0x00001234") == StructureSearchPolicy.PointerIdentity("A *", "0x1234"), "Pointer identity must normalize leading zeros.");
+            Assert(StructureSearchPolicy.PointerIdentity("B *", "0x1234") != StructureSearchPolicy.PointerIdentity("A *", "0x1234"), "Different typed subobjects must not be merged.");
+            Assert(StructureSearchPolicy.PointerIdentity("A", "0x1234") == null && StructureSearchPolicy.PointerIdentity("A **", "0x1234") == null,
+                "Only unambiguous single pointers may be deduplicated.");
+            Assert(StructureSearchPolicy.PointerIdentity("A *", "{ value=0x1234 }") == null, "Pretty-print fields must not be treated as addresses.");
             var generic = new string[] { "target_type<unsigned short>" };
             Assert(StructureSearchPolicy.FindInterestedTypeName("struct target_type<  unsigned   short > *", generic) == generic[0],
                 "Template punctuation and repeated whitespace must not prevent binding.");

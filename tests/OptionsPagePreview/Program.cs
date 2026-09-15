@@ -7,6 +7,47 @@ using System.Runtime.InteropServices;
 
 internal static class Program
 {
+    public sealed class FakeExpression
+    {
+        public string Name { get; set; }
+        public string Type { get; set; }
+        public string Value { get; set; }
+        public object[] Children = new object[0];
+        public int Expansions;
+        public object[] DataMembers { get { Expansions++; return Children; } }
+    }
+
+    private static void CheckStructureTraversal(Assembly assembly)
+    {
+        var engine = assembly.GetType("ArrayImageViewer.Debugging.DebugExpressionFrameReader", true);
+        var traceType = assembly.GetType("ArrayImageViewer.Debugging.StructureSearchTrace", true);
+        var target = new FakeExpression { Name = "C", Type = "ns::Target< unsigned short >" };
+        var branch = new FakeExpression { Name = "buffer", Type = "B", Children = new object[] { target } };
+        FakeExpression nested = target;
+        for (int i = 0; i < 6; i++) nested = new FakeExpression { Name = "nested" + i, Type = "Wrapper" + i, Children = new object[] { nested } };
+        branch.Children = new object[] { nested };
+        var root = new FakeExpression { Name = "this", Type = "A *", Value = "0x00001234" };
+        var cycle = new FakeExpression { Name = "self", Type = "A *", Value = "0x1234", Children = new object[] { root } };
+        var children = new System.Collections.Generic.List<object>();
+        for (int i = 0; i < 50; i++) children.Add(new FakeExpression { Name = "value" + i, Type = "unsigned int" });
+        children.Add(cycle); children.Add(branch); root.Children = children.ToArray();
+        int evaluations = 0;
+        string warning = null;
+        using (var trace = (IDisposable)Activator.CreateInstance(traceType, new object[] { false }))
+        {
+            var task = (System.Threading.Tasks.Task)engine.GetMethod("SearchStructureGraph", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null,
+                new object[] { "this", new string[] { "Target<unsigned short>" }, 12, 512, 10,
+                    new Action<string>(delegate(string value) { warning = value; }), new Func<bool>(delegate { return true; }), trace,
+                    new Func<string, object>(delegate(string value) { evaluations++; return root; }),
+                    new Func<System.Threading.Tasks.Task>(delegate { return System.Threading.Tasks.Task.FromResult(0); }) });
+            task.GetAwaiter().GetResult();
+            var result = (IList)task.GetType().GetProperty("Result").GetValue(task, null);
+            if (result.Count != 1 || evaluations != 1 || target.Expansions != 0 || cycle.Expansions != 0 || branch.Expansions != 1 || warning != null)
+                throw new Exception("Traversal must find nested target, avoid cycles/target storage, and evaluate root only once.");
+        }
+        Console.WriteLine("Synthetic debugger traversal: 50 scalar siblings, depth-8 template, cycle pruning, one root evaluation passed.");
+    }
+
     private static void CheckTemplateSerialization(Assembly assembly)
     {
         var store = assembly.GetType("ArrayImageViewer.Options.StructureTemplateStore", true);
@@ -97,6 +138,7 @@ internal static class Program
             };
             var assembly = Assembly.LoadFrom(Path.Combine(directory, "ArrayImageViewer.dll"));
             CheckTemplateSerialization(assembly);
+            CheckStructureTraversal(assembly);
             var traceType = assembly.GetType("ArrayImageViewer.Debugging.StructureSearchTrace", true);
             using (var disabledTrace = (IDisposable)Activator.CreateInstance(traceType, new object[] { false }))
                 if (traceType.GetProperty("FilePath").GetValue(disabledTrace, null) != null)

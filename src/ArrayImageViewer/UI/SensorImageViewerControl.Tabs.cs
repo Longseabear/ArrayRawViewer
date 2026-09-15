@@ -11,6 +11,42 @@ namespace ArrayImageViewer.UI
     {
         private int nextViewerTabId = 1;
         private ViewerTab activeViewerTab;
+        private bool switchingViewerTab;
+
+        private void StopTabTimers()
+        {
+            autoRefreshTimer.Stop();
+            coordinateUpdateTimer.Stop();
+            debuggerBreakRefreshTimer.Stop();
+            viewportOverlayTimer.Stop();
+        }
+
+        private void ChangeViewerTab(Action change)
+        {
+            if (switchingViewerTab) return;
+            switchingViewerTab = true;
+            var applying = isApplyingProfile;
+            try
+            {
+                StopTabTimers();
+                InvalidateStructureSearchCache();
+                CancelStatisticsRequest();
+                DismissExpressionSuggestions();
+                change();
+            }
+            catch (Exception exception)
+            {
+                // Do not let a WPF button callback terminate the IDE. Cached
+                // tabs remain available even if this restore failed.
+                SetStatus("Cannot switch array tab: " + exception.Message);
+            }
+            finally
+            {
+                StopTabTimers();
+                isApplyingProfile = applying;
+                switchingViewerTab = false;
+            }
+        }
 
         private UIElement CreateViewerTabStrip()
         {
@@ -71,63 +107,69 @@ namespace ArrayImageViewer.UI
 
         private void AddViewerTab(object sender, RoutedEventArgs e)
         {
-            CaptureActiveViewerTab();
-            BeginNewReadRequest();
-            ClearHardwareWatch(false);
-            var copiedSettings = CreateCurrentProfile(String.Empty);
-            var tab = new ViewerTab(nextViewerTabId++, copiedSettings);
-            viewerTabs.Add(tab);
-            activeViewerTab = tab;
-            RestoreViewerTab(tab);
-            RefreshViewerTabs();
-            SetStatus("New array tab created. Choose a pointer or enter an expression, then load its View ROI.");
+            ChangeViewerTab(delegate
+            {
+                CaptureActiveViewerTab();
+                BeginNewReadRequest();
+                ClearHardwareWatch(false);
+                var copiedSettings = CreateCurrentProfile(String.Empty);
+                var tab = new ViewerTab(nextViewerTabId++, copiedSettings);
+                viewerTabs.Add(tab);
+                activeViewerTab = tab;
+                RestoreViewerTab(tab);
+                RefreshViewerTabs();
+                SetStatus("New array tab created. Choose a pointer or enter an expression, then load its View ROI.");
+            });
         }
 
         private void SelectViewerTab(object sender, RoutedEventArgs e)
         {
-            var button = sender as Button;
-            var tab = button == null ? null : button.Tag as ViewerTab;
-            if (tab == null || tab == activeViewerTab)
+            ChangeViewerTab(delegate
             {
-                return;
-            }
-
-            CaptureActiveViewerTab();
-            BeginNewReadRequest();
-            ClearHardwareWatch(false);
-            activeViewerTab = tab;
-            RestoreViewerTab(tab);
-            RefreshViewerTabs();
-            SetStatus(tab.Frame == null
-                ? "Switched to " + tab.Caption + ". Load its View ROI when ready."
-                : "Switched to " + tab.Caption + " using its cached ROI; no debugger read was made.");
+                var button = sender as Button;
+                var tab = button == null ? null : button.Tag as ViewerTab;
+                if (tab == null || tab == activeViewerTab)
+                {
+                    return;
+                }
+                CaptureActiveViewerTab();
+                BeginNewReadRequest();
+                ClearHardwareWatch(false);
+                activeViewerTab = tab;
+                RestoreViewerTab(tab);
+                RefreshViewerTabs();
+                SetStatus(tab.Frame == null
+                    ? "Switched to " + tab.Caption + ". Load its View ROI when ready."
+                    : "Switched to " + tab.Caption + " using its cached ROI; no debugger read was made.");
+            });
         }
 
         private void CloseViewerTab(object sender, RoutedEventArgs e)
         {
-            var button = sender as Button;
-            var tab = button == null ? null : button.Tag as ViewerTab;
-            if (tab == null || viewerTabs.Count <= 1)
+            ChangeViewerTab(delegate
             {
-                return;
-            }
-
-            var removedIndex = viewerTabs.IndexOf(tab);
-            if (tab == activeViewerTab)
-            {
-                BeginNewReadRequest();
-                ClearHardwareWatch(false);
-                viewerTabs.Remove(tab);
-                activeViewerTab = viewerTabs[Math.Max(0, removedIndex - 1)];
-                RestoreViewerTab(activeViewerTab);
-            }
-            else
-            {
-                viewerTabs.Remove(tab);
-            }
-
-            RefreshViewerTabs();
-            SetStatus("Closed " + tab.Caption + ". Cached samples for that tab were discarded.");
+                var button = sender as Button;
+                var tab = button == null ? null : button.Tag as ViewerTab;
+                if (tab == null || viewerTabs.Count <= 1)
+                {
+                    return;
+                }
+                var removedIndex = viewerTabs.IndexOf(tab);
+                if (tab == activeViewerTab)
+                {
+                    BeginNewReadRequest();
+                    ClearHardwareWatch(false);
+                    viewerTabs.Remove(tab);
+                    activeViewerTab = viewerTabs[Math.Max(0, removedIndex - 1)];
+                    RestoreViewerTab(activeViewerTab);
+                }
+                else
+                {
+                    viewerTabs.Remove(tab);
+                }
+                RefreshViewerTabs();
+                SetStatus("Closed " + tab.Caption + ". Cached samples for that tab were discarded.");
+            });
         }
 
         private void CaptureActiveViewerTab()
@@ -166,11 +208,19 @@ namespace ArrayImageViewer.UI
             if (tab.Frame != null && tab.Bitmap != null)
             {
                 ApplyFrame(tab.Frame, tab.Bitmap, tab.FullFrameWidth, tab.FullFrameHeight,
-                    tab.SelectedX, tab.SelectedY, tab.ShowsFullFrameContext);
+                    tab.SelectedX, tab.SelectedY, tab.ShowsFullFrameContext, false);
+                var generation = renderGeneration;
+                var offsetX = tab.HorizontalOffset;
+                var offsetY = tab.VerticalOffset;
                 Dispatcher.BeginInvoke(new Action(delegate
                 {
-                    scrollViewer.ScrollToHorizontalOffset(tab.HorizontalOffset);
-                    scrollViewer.ScrollToVerticalOffset(tab.VerticalOffset);
+                    if (activeViewerTab != tab || generation != renderGeneration) return;
+                    try
+                    {
+                        scrollViewer.ScrollToHorizontalOffset(offsetX);
+                        scrollViewer.ScrollToVerticalOffset(offsetY);
+                    }
+                    catch (Exception exception) { SetStatus("Cannot restore array viewport: " + exception.Message); }
                 }));
                 return;
             }
@@ -180,6 +230,9 @@ namespace ArrayImageViewer.UI
             fullFrameWidth = 0;
             fullFrameHeight = 0;
             showsFullFrameContext = false;
+            currentX = currentY = -1;
+            canvas.Width = 0;
+            canvas.Height = 0;
             ClearValueOverlay();
             unloadedFrame.Visibility = Visibility.Collapsed;
             selectedCellRectangle.Visibility = Visibility.Collapsed;

@@ -22,6 +22,19 @@ namespace ArrayImageViewer.Core
     // testable, so capture visits the object graph rather than RAW storage.
     internal static class StructureSearchPolicy
     {
+        public static string PointerIdentity(string type, string value)
+        {
+            if (String.IsNullOrEmpty(type) || type.IndexOf('*') < 0 || String.IsNullOrWhiteSpace(value)) return null;
+            if (type.IndexOf('*') != type.LastIndexOf('*')) return null;
+            // Only a plain debugger-reported hex pointer is trustworthy here.
+            // Do not guess from an object's pretty-printed numeric fields.
+            var match = System.Text.RegularExpressions.Regex.Match(value.Trim(), @"^0[xX]([0-9a-fA-F]+)(?:\s|$)");
+            ulong address;
+            if (!match.Success || !UInt64.TryParse(match.Groups[1].Value, System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out address)) return null;
+            return NormalizeType(type) + "@" + address.ToString("X", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         // Count every debugger entry, including null/presentation entries.
         // Checking before MoveNext avoids requesting one more expensive child.
         public static IEnumerable<object> EnumerateBoundedChildren(IEnumerable children, int maximumChildren, Action checkBudget)

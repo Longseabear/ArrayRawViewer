@@ -305,7 +305,7 @@ namespace ArrayImageViewer.UI
         }
 
         private void ApplyFrame(FrameBuffer source, ImageSource bitmap, int sourceWidth, int sourceHeight, int selectedGlobalX, int selectedGlobalY,
-            bool showFullFrameContext)
+            bool showFullFrameContext, bool allowDebuggerPreview = true)
         {
             frame = source;
             fullFrameWidth = sourceWidth;
@@ -329,7 +329,7 @@ namespace ArrayImageViewer.UI
             ApplyZoom(zoom);
             UpdateSelection(currentX, currentY, false);
             UpdateStatistics();
-            EnsureNavigatorPreview();
+            if (allowDebuggerPreview) EnsureNavigatorPreview();
         }
     }
 }

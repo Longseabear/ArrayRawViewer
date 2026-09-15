@@ -584,6 +584,7 @@ namespace ArrayImageViewer.UI
 
         private void AutoRefreshTimerTick(object sender, EventArgs e)
         {
+            if (structureSearchRunning) return;
             autoRefreshTimer.Stop();
             if (autoUpdate.IsChecked != true)
             {
@@ -617,6 +618,7 @@ namespace ArrayImageViewer.UI
 
         private void DebuggerBreakRefreshTimerTick(object sender, EventArgs e)
         {
+            if (structureSearchRunning) return;
             debuggerBreakRefreshTimer.Stop();
             if ((autoUpdate.IsChecked == true || centerViewAfterHardwareWatch) && !String.IsNullOrWhiteSpace(expression.Text))
             {
@@ -665,6 +667,7 @@ namespace ArrayImageViewer.UI
 
         private void CoordinateUpdateTimerTick(object sender, EventArgs e)
         {
+            if (structureSearchRunning) return;
             coordinateUpdateTimer.Stop();
             try
             {
