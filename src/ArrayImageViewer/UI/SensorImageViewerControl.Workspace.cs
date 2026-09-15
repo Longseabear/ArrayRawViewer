@@ -15,67 +15,142 @@ namespace ArrayImageViewer.UI
         {
             var root = new Grid { Background = RootBrush };
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var source = CreateRow();
-            expression.Width = 220;
-            source.Children.Add(WorkspaceField("BUFFER EXPRESSION", expression));
-            source.Children.Add(WorkspaceAction("", CreateButton("Capture", LoadContextPreview, true)));
-            source.Children.Add(WorkspaceAction("", CreateCommandMenu("Source", new[] { "Refresh pointers", "Use editor selection" }, new RoutedEventHandler[] { RefreshPointers, CaptureSelection })));
-            source.Children.Add(WorkspaceField("POINTERS", availablePointers));
-            source.Children.Add(WorkspaceField("", autoUpdate));
-            source.Children.Add(WorkspaceAction("", CreateCommandMenu("Read options", new[] { "Read exact kernel area", "Full-frame preview", "Refresh exact cells", "Cancel read" }, new RoutedEventHandler[] { LoadExpression, LoadFullPreview, InspectCells, CancelRead })));
-            AddWorkspaceCell(root, WorkspaceBand(source), 0);
-            root.RowDefinitions.Insert(1, new RowDefinition { Height = new GridLength(145), MinHeight = 70, MaxHeight = 300 });
-            root.RowDefinitions.Insert(2, new RowDefinition { Height = new GridLength(5) });
-            AddWorkspaceCell(root, CreateHeader(), 1);
-            AddWorkspaceCell(root, new GridSplitter { Background = PanelBorderBrush,
+            AddWorkspaceCell(root, CreateViewerTabStrip(), 0);
+            AddWorkspaceCell(root, CreateWorkspaceSource(), 1);
+            AddWorkspaceCell(root, CreateWorkspaceTarget(), 2);
+
+            // Settings and map share one inspector column. This splitter changes
+            // layout only; no control or debugger handler is recreated on resize.
+            var body = new Grid();
+            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 240 });
+            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(5) });
+            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(280), MinWidth = 260, MaxWidth = 460 });
+            var inspector = new Grid { Background = RootBrush };
+            inspector.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 90 });
+            inspector.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            AddWorkspaceCell(inspector, CreateHeader(), 0);
+
+            var map = CreateInspectorMap();
+            var details = new StackPanel();
+            details.Children.Add(map);
+            var stats = new StackPanel { Margin = new Thickness(12, 6, 12, 8) };
+            stats.Children.Add(WorkspaceField("STATISTICS SCOPE", statisticsScope));
+            stats.Children.Add(statisticsSummary);
+            stats.Children.Add(statisticsChannels);
+            statisticsPanel.Children.Add(stats);
+            details.Children.Add(statisticsPanel);
+            var detailsScroll = new ScrollViewer { Content = details, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            inspector.SizeChanged += delegate {
+                detailsScroll.MaxHeight = Math.Max(0, inspector.ActualHeight - 140);
+            };
+            AddWorkspaceCell(inspector, detailsScroll, 1);
+
+            var imageArea = new Grid();
+            imageArea.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            imageArea.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            AddWorkspaceCell(imageArea, CreateWorkspaceImageTools(map), 0);
+            AddWorkspaceCell(imageArea, scrollViewer, 1);
+            body.Children.Add(imageArea);
+            var splitter = new GridSplitter { Background = PanelBorderBrush,
                 HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch,
-                ResizeDirection = GridResizeDirection.Rows, ResizeBehavior = GridResizeBehavior.PreviousAndNext,
-                ShowsPreview = true, ToolTip = "Drag to resize settings; image uses the remaining space." }, 2);
+                ResizeDirection = GridResizeDirection.Columns, ResizeBehavior = GridResizeBehavior.PreviousAndNext,
+                ShowsPreview = true, ToolTip = "Drag to resize the settings panel and image." };
+            Grid.SetColumn(splitter, 1);
+            body.Children.Add(splitter);
+            Grid.SetColumn(inspector, 2);
+            body.Children.Add(inspector);
+            AddWorkspaceCell(root, body, 3);
+            AddWorkspaceCell(root, CreateFooter(), 4);
+            return root;
+        }
 
-            var inspection = new Grid();
-            inspection.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            inspection.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            inspection.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            inspection.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            AddWorkspaceCell(inspection, CreateViewerTabStrip(), 0);
+        private UIElement CreateWorkspaceSource()
+        {
+            var source = new Grid();
+            source.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            source.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            expression.Width = Double.NaN;
+            expression.HorizontalAlignment = HorizontalAlignment.Stretch;
+            var input = new DockPanel { Margin = new Thickness(0, 0, 10, 6) };
+            var label = new TextBlock { Text = "Buffer", Foreground = MutedBrush, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0) };
+            DockPanel.SetDock(label, Dock.Left);
+            input.Children.Add(label);
+            input.Children.Add(expression);
+            source.Children.Add(input);
+            var actions = CreateRow();
+            availablePointers.Width = 130;
+            availablePointers.ToolTip = "Pointers from the current stack frame";
+            System.Windows.Automation.AutomationProperties.SetName(availablePointers, "Pointers");
+            actions.Children.Add(WorkspaceAction("", CreateButton("Capture", LoadContextPreview, true)));
+            var pointers = new Grid();
+            pointers.Children.Add(availablePointers);
+            var pointerHintStyle = new Style(typeof(TextBlock));
+            pointerHintStyle.Setters.Add(new Setter(UIElement.VisibilityProperty, Visibility.Collapsed));
+            var noPointer = new DataTrigger { Binding = new System.Windows.Data.Binding("SelectedItem") { Source = availablePointers }, Value = null };
+            noPointer.Setters.Add(new Setter(UIElement.VisibilityProperty, Visibility.Visible));
+            pointerHintStyle.Triggers.Add(noPointer);
+            pointers.Children.Add(new TextBlock { Text = "Pointers", Foreground = MutedBrush, Margin = new Thickness(8, 0, 25, 0),
+                VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Style = pointerHintStyle });
+            actions.Children.Add(WorkspaceField("", pointers));
+            actions.Children.Add(WorkspaceField("", autoUpdate));
+            actions.Children.Add(WorkspaceAction("", CreateCommandMenu("Source",
+                new[] { "Refresh pointers", "Use editor selection", "Read exact kernel area", "Full-frame preview", "Refresh exact cells", "Cancel read" },
+                new RoutedEventHandler[] { RefreshPointers, CaptureSelection, LoadExpression, LoadFullPreview, InspectCells, CancelRead })));
+            Grid.SetColumn(actions, 1);
+            source.Children.Add(actions);
+            return WorkspaceBand(source);
+        }
 
+        private UIElement CreateWorkspaceTarget()
+        {
+            var groups = CreateRow();
+            var target = CreateRow();
+            target.Children.Add(WorkspaceField("X", selectedX));
+            target.Children.Add(WorkspaceField("Y", selectedY));
+            var select = CreateButton("Select X/Y", GoToEnteredCoordinate, false);
+            select.ToolTip = "입력한 X/Y 픽셀을 선택합니다. 디버거를 실행하지 않습니다.";
+            target.Children.Add(WorkspaceAction("", select));
+            target.Children.Add(WorkspaceAction("", CreateIconButton("Center view",
+                "Center view · 선택한 픽셀을 화면 중앙으로 이동합니다. 디버거를 실행하지 않습니다.",
+                "M8,1 L8,4 M8,12 L8,15 M1,8 L4,8 M12,8 L15,8 M8,4 A4,4 0 1 1 8,12 A4,4 0 1 1 8,4", JumpToCoordinate)));
+            groups.Children.Add(new Border { Child = target, Margin = new Thickness(0, 0, 12, 0) });
+
+            var watch = CreateRow();
+            watch.Children.Add(WorkspaceAction("", CreateRunButton("Run to write X/Y", "입력한 X/Y 픽셀에 쓰기가 발생할 때까지 디버거를 실행합니다.", WatchSelectedPixelAndContinue)));
+            watch.Children.Add(WorkspaceAction("", CreateRunButton("Run to next X", "다음 X 픽셀에 쓰기가 발생할 때까지 디버거를 실행합니다.", WatchNextPixelAndContinue)));
+            watch.Children.Add(WorkspaceAction("", CreateRunButton("Run to next Y", "다음 Y 픽셀에 쓰기가 발생할 때까지 디버거를 실행합니다.", WatchNextLineAndContinue)));
+            watch.Children.Add(WorkspaceField("", keepHardwareWatchArmed));
+            watch.Children.Add(WorkspaceAction("", CreateButton("Clear", ClearHardwareWatch, false)));
+            groups.Children.Add(watch);
+            var panel = new StackPanel();
+            panel.Children.Add(groups);
+            hardwareWatchInfo.Margin = new Thickness(0, 0, 0, 5);
+            hardwareWatchInfo.MaxHeight = 32;
+            hardwareWatchInfo.SetBinding(TextBlock.ToolTipProperty, new System.Windows.Data.Binding("Text") { Source = hardwareWatchInfo });
+            panel.Children.Add(hardwareWatchInfo);
+            return WorkspaceBand(panel);
+        }
+
+        private UIElement CreateWorkspaceImageTools(UIElement map)
+        {
             var tools = CreateRow();
-            tools.Children.Add(WorkspaceField("X", selectedX));
-            tools.Children.Add(WorkspaceField("Y", selectedY));
-            var selectPixel = CreateButton("Select X/Y", GoToEnteredCoordinate, false);
-            selectPixel.ToolTip = "입력한 X/Y 픽셀을 선택합니다. 디버거를 실행하지 않습니다.";
-            tools.Children.Add(WorkspaceAction("", selectPixel));
-            tools.Children.Add(WorkspaceAction("", CreateIconButton("Center view", "Center view · 선택한 픽셀을 화면 중앙으로 이동합니다. 디버거를 실행하지 않습니다.", "M8,1 L8,4 M8,12 L8,15 M1,8 L4,8 M12,8 L15,8 M8,4 A4,4 0 1 1 8,12 A4,4 0 1 1 8,4", JumpToCoordinate)));
-            tools.Children.Add(WorkspaceField("KERNEL W", roiWidth));
-            tools.Children.Add(WorkspaceField("KERNEL H", roiHeight));
-            tools.Children.Add(WorkspaceField("DISPLAY", visualizeChannel));
-            tools.Children.Add(WorkspaceAction("", CreateCommandMenu("Zoom", new[] { "Fit loaded view", "100%", "Zoom in", "Zoom out" }, new RoutedEventHandler[] {
-                FitLoadedView, delegate { SetWorkspaceZoom(1); },
-                delegate { ZoomAroundSelection(1.25); }, delegate { ZoomAroundSelection(0.8); } })));
-            tools.Children.Add(WorkspaceAction("", CreateCommandMenu("Export", new[] { "Copy kernel text  ·  Ctrl+C", "Save full RAW…", "Save View RAW…", "Save Kernel RAW…" }, new RoutedEventHandler[] { CopyKernelToClipboard, SaveFullRaw, SaveViewRaw, SaveKernelRaw })));
+            roiWidth.Width = 42;
+            roiHeight.Width = 42;
+            tools.Children.Add(WorkspaceField("Kernel W", roiWidth));
+            tools.Children.Add(WorkspaceField("H", roiHeight));
+            tools.Children.Add(WorkspaceField("", visualizeChannel));
+            tools.Children.Add(WorkspaceAction("", CreateCommandMenu("Zoom", new[] { "Fit loaded view", "100%", "Zoom in", "Zoom out" },
+                new RoutedEventHandler[] { FitLoadedView, delegate { SetWorkspaceZoom(1); },
+                    delegate { ZoomAroundSelection(1.25); }, delegate { ZoomAroundSelection(0.8); } })));
+            tools.Children.Add(WorkspaceAction("", CreateCommandMenu("Export", new[] { "Copy kernel text  ·  Ctrl+C", "Save full RAW…", "Save View RAW…", "Save Kernel RAW…" },
+                new RoutedEventHandler[] { CopyKernelToClipboard, SaveFullRaw, SaveViewRaw, SaveKernelRaw })));
             tools.Children.Add(WorkspaceAction("", statisticsToggle));
-
-            navigatorCanvas.Width = 174;
-            navigatorCanvas.Height = 118;
-            var mapContents = new StackPanel { Width = 174, Margin = new Thickness(8) };
-            var map = new ScrollViewer { Content = mapContents, Width = 194, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-            mapContents.Children.Add(new TextBlock { Text = "FRAME MAP", Foreground = MutedBrush, Margin = new Thickness(0, 0, 0, 8) });
-            mapContents.Children.Add(navigatorCanvas);
-            navigatorCanvas.ToolTip = "Drag to set View ROI. Orange rectangle = Kernel.";
-            mapContents.Children.Add(navigatorInfo);
-            var viewSize = CreateRow();
-            viewSize.Margin = new Thickness(0, 12, 0, 0);
-            viewSize.Children.Add(WorkspaceField("VIEW W", renderWidth));
-            viewSize.Children.Add(WorkspaceField("VIEW H", renderHeight));
-            mapContents.Children.Add(viewSize);
-            var movement = CreateRow();
-            movement.Children.Add(WorkspaceAction("", CreateIconButton("Left", "뷰를 왼쪽으로 이동", "M14,8 L2,8 M7,3 L2,8 L7,13", PanLeft)));
-            movement.Children.Add(WorkspaceAction("", CreateIconButton("Right", "뷰를 오른쪽으로 이동", "M2,8 L14,8 M9,3 L14,8 L9,13", PanRight)));
-            movement.Children.Add(WorkspaceAction("", CreateIconButton("Up", "뷰를 위로 이동", "M8,14 L8,2 M3,7 L8,2 L13,7", PanUp)));
-            movement.Children.Add(WorkspaceAction("", CreateIconButton("Down", "뷰를 아래로 이동", "M8,2 L8,14 M3,9 L8,14 L13,9", PanDown)));
-            mapContents.Children.Add(movement);
             var mapToggle = CreateIconButton("Frame map", "프레임 맵 숨기기", "M1,2 L15,2 L15,14 L1,14 Z M3,4 L8,4 L8,8 L3,8 Z M10,10 L13,10 M10,12 L13,12", null);
             mapToggle.Content = CreateFrameMapImage();
             mapToggle.Padding = new Thickness(3, 2, 3, 2);
@@ -84,40 +159,36 @@ namespace ArrayImageViewer.UI
                 mapToggle.ToolTip = map.Visibility == Visibility.Visible ? "프레임 맵 숨기기" : "프레임 맵 표시";
             };
             tools.Children.Add(WorkspaceAction("", mapToggle));
-            AddWorkspaceCell(inspection, WorkspaceBand(tools), 1);
+            return WorkspaceBand(tools);
+        }
 
-            var auxiliary = new StackPanel();
-            var watch = CreateRow();
-            watch.Children.Add(new TextBlock { Text = "디버거 실행", Foreground = MutedBrush,
-                FontSize = 10, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 6) });
-            watch.Children.Add(WorkspaceAction("", CreateRunButton("Run to write X/Y", "입력한 X/Y 픽셀에 쓰기가 발생할 때까지 디버거를 실행합니다.", WatchSelectedPixelAndContinue)));
-            watch.Children.Add(WorkspaceAction("", CreateRunButton("Run to next X", "다음 X 픽셀에 쓰기가 발생할 때까지 디버거를 실행합니다.", WatchNextPixelAndContinue)));
-            watch.Children.Add(WorkspaceAction("", CreateRunButton("Run to next Y", "다음 Y 픽셀에 쓰기가 발생할 때까지 디버거를 실행합니다.", WatchNextLineAndContinue)));
-            watch.Children.Add(WorkspaceField("", keepHardwareWatchArmed));
-            watch.Children.Add(WorkspaceAction("", CreateButton("Clear", ClearHardwareWatch, false)));
-            var watchPanel = new StackPanel();
-            watchPanel.Children.Add(watch);
-            watchPanel.Children.Add(hardwareWatchInfo);
-            watchPanel.ToolTip = "하드웨어 데이터 중단점으로 대상 픽셀의 쓰기를 기다립니다. Run 버튼은 디버거 실행을 재개합니다.";
-            hardwareWatchInfo.Margin = new Thickness(0, 2, 0, 4);
-            hardwareWatchInfo.MaxHeight = 36;
-            hardwareWatchInfo.SetBinding(TextBlock.ToolTipProperty, new System.Windows.Data.Binding("Text") { Source = hardwareWatchInfo });
-            auxiliary.Children.Add(WorkspaceBand(watchPanel));
-            var stats = new StackPanel { Margin = new Thickness(8) };
-            stats.Children.Add(WorkspaceField("STATISTICS SCOPE", statisticsScope));
-            stats.Children.Add(statisticsSummary);
-            stats.Children.Add(statisticsChannels);
-            statisticsPanel.Children.Add(stats);
-            auxiliary.Children.Add(new ScrollViewer { Content = statisticsPanel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 160 });
-            AddWorkspaceCell(inspection, auxiliary, 3);
-            var stage = new DockPanel();
-            DockPanel.SetDock(map, Dock.Right);
-            stage.Children.Add(map);
-            stage.Children.Add(scrollViewer);
-            AddWorkspaceCell(inspection, stage, 2);
-            AddWorkspaceCell(root, inspection, 3);
-            AddWorkspaceCell(root, CreateFooter(), 4);
-            return root;
+        private UIElement CreateInspectorMap()
+        {
+            navigatorCanvas.Width = 230;
+            navigatorCanvas.Height = 128;
+            navigatorCanvas.HorizontalAlignment = HorizontalAlignment.Center;
+            navigatorCanvas.ToolTip = "Drag to set View ROI. Orange rectangle = Kernel.";
+            var content = new StackPanel { Margin = new Thickness(12, 8, 12, 8) };
+            content.SizeChanged += delegate {
+                navigatorCanvas.Width = Math.Max(1, Math.Min(230, content.ActualWidth));
+                UpdateNavigator();
+            };
+            content.Children.Add(new TextBlock { Text = "Frame map", Foreground = TextBrush, FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 6) });
+            content.Children.Add(navigatorCanvas);
+            navigatorInfo.Margin = new Thickness(0, 5, 0, 5);
+            content.Children.Add(navigatorInfo);
+            var viewSize = CreateRow();
+            viewSize.Children.Add(WorkspaceField("View W", renderWidth));
+            viewSize.Children.Add(WorkspaceField("H", renderHeight));
+            content.Children.Add(viewSize);
+            var movement = CreateRow();
+            movement.Children.Add(WorkspaceAction("", CreateIconButton("Left", "뷰를 왼쪽으로 이동", "M14,8 L2,8 M7,3 L2,8 L7,13", PanLeft)));
+            movement.Children.Add(WorkspaceAction("", CreateIconButton("Right", "뷰를 오른쪽으로 이동", "M2,8 L14,8 M9,3 L14,8 L9,13", PanRight)));
+            movement.Children.Add(WorkspaceAction("", CreateIconButton("Up", "뷰를 위로 이동", "M8,14 L8,2 M3,7 L8,2 L13,7", PanUp)));
+            movement.Children.Add(WorkspaceAction("", CreateIconButton("Down", "뷰를 아래로 이동", "M8,2 L8,14 M3,9 L8,14 L13,9", PanDown)));
+            content.Children.Add(movement);
+            return new Border { Child = content, BorderBrush = PanelBorderBrush, BorderThickness = new Thickness(0, 1, 0, 0) };
         }
 
         private static FrameworkElement WorkspaceAction(string label, Button button)

@@ -12,6 +12,8 @@ internal static class Program
 {
     private static object viewer;
     private static Type viewerType;
+    private static object syntheticFrame;
+    private static object syntheticOverview;
     private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
     [STAThread]
     private static void Main(string[] args)
@@ -28,11 +30,7 @@ internal static class Program
             viewerType = assembly.GetType("ArrayImageViewer.UI.SensorImageViewerControl", true);
             viewer = Activator.CreateInstance(viewerType, true);
             Set("isApplyingProfile", true);
-            ((CheckBox)Get("rememberForSolution")).IsChecked = false;
-            ((CheckBox)Get("autoUpdate")).IsChecked = false;
-            foreach (string key in new[] { "width", "height", "stride", "renderWidth", "renderHeight" })
-                ((TextBox)Get(key)).Text = key == "height" || key == "renderHeight" ? "48" : "64";
-            ((TextBox)Get("expression")).Text = "imageSimulator.output.m_data";
+            SetSyntheticInputs();
             var configuration = Activator.CreateInstance(assembly.GetType("ArrayImageViewer.Core.FrameConfiguration"), new object[] {
                 64, 48, 64, 13, 0, false,
                 Enum.Parse(assembly.GetType("ArrayImageViewer.Core.PixelOrder"), "GRFirst"),
@@ -40,11 +38,18 @@ internal static class Program
                 Enum.Parse(assembly.GetType("ArrayImageViewer.Core.VisualizeChannel"), "BayerRaw") });
             var samples = new long[64 * 48];
             for (int y = 0; y < 48; y++) for (int x = 0; x < 64; x++) samples[y * 64 + x] = 400 + x * 70 + y * 30;
-            var buffer = Activator.CreateInstance(assembly.GetType("ArrayImageViewer.Core.FrameBuffer"), new object[] { configuration, samples });
+            syntheticFrame = Activator.CreateInstance(assembly.GetType("ArrayImageViewer.Core.FrameBuffer"), new object[] { configuration, samples });
+            var overviewConfiguration = Activator.CreateInstance(assembly.GetType("ArrayImageViewer.Core.FrameConfiguration"), new object[] {
+                64, 48, 64, 13, 0, false,
+                Enum.Parse(assembly.GetType("ArrayImageViewer.Core.PixelOrder"), "GRFirst"),
+                Enum.Parse(assembly.GetType("ArrayImageViewer.Core.PixelType"), "Bayer"),
+                Enum.Parse(assembly.GetType("ArrayImageViewer.Core.VisualizeChannel"), "Gray") });
+            syntheticOverview = Activator.CreateInstance(assembly.GetType("ArrayImageViewer.Core.FrameBuffer"), new object[] { overviewConfiguration, samples });
             var window = new Window { Title = "Array RAW Viewer — Workspace preview", Width = 1050, Height = 780, Content = viewer };
             window.Loaded += delegate
             {
-                viewerType.GetMethod("ApplyLoadedFrame", Private).Invoke(viewer, new object[] { buffer, 64, 48, 32, 24, false, true, "imageSimulator.output.m_data" });
+                viewerType.GetMethod("ApplyLoadedFrame", Private).Invoke(viewer, new object[] { syntheticFrame, 64, 48, 32, 24, false, true, "imageSimulator.output.m_data" });
+                viewerType.GetMethod("ApplyNavigatorPreview", Private).Invoke(viewer, new object[] { syntheticOverview });
                 viewerType.GetMethod("FitLoadedView", Private).Invoke(viewer, new object[] { null, null });
                 if (args.Length > 1 && args[1] == "--verify")
                 {
@@ -55,6 +60,14 @@ internal static class Program
                         finally { window.Close(); }
                     }));
                 }
+                else
+                {
+                    window.Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        try { AddSyntheticPreviewTab(window); }
+                        catch (Exception e) { Console.Error.WriteLine(e); Environment.ExitCode = 1; window.Close(); }
+                    }));
+                }
             };
             new Application().Run(window);
         }
@@ -62,6 +75,113 @@ internal static class Program
     }
     private static object Get(string name) { return viewerType.GetField(name, Private).GetValue(viewer); }
     private static void Set(string name, object value) { viewerType.GetField(name, Private).SetValue(viewer, value); }
+
+    private static void SetSyntheticInputs()
+    {
+        // Synthetic frames own their map directly; clear debugger-only metadata
+        // that a preceding tab regression may deliberately have populated.
+        Set("navigatorSourceConfiguration", null);
+        Set("navigatorPreviewKey", null);
+        ((CheckBox)Get("rememberForSolution")).IsChecked = false;
+        ((CheckBox)Get("autoUpdate")).IsChecked = false;
+        foreach (string key in new[] { "width", "height", "stride", "renderWidth", "renderHeight" })
+            ((TextBox)Get(key)).Text = key == "height" || key == "renderHeight" ? "48" : "64";
+        ((TextBox)Get("selectedX")).Text = "32";
+        ((TextBox)Get("selectedY")).Text = "24";
+        ((TextBox)Get("roiWidth")).Text = "5";
+        ((TextBox)Get("roiHeight")).Text = "5";
+        ((TextBox)Get("qFormat")).Text = "13.0b";
+        ((CheckBox)Get("signed")).IsChecked = false;
+        ((ComboBox)Get("normalizationMode")).SelectedIndex = 0;
+        ((ComboBox)Get("sourceElementType")).SelectedItem = Enum.Parse(viewerType.Assembly.GetType("ArrayImageViewer.Core.SourceElementType"), "UInt32");
+        ((ComboBox)Get("pixelOrder")).SelectedItem = Enum.Parse(viewerType.Assembly.GetType("ArrayImageViewer.Core.PixelOrder"), "GRFirst");
+        ((ComboBox)Get("pixelType")).SelectedItem = Enum.Parse(viewerType.Assembly.GetType("ArrayImageViewer.Core.PixelType"), "Bayer");
+        ((ComboBox)Get("visualizeChannel")).SelectedItem = Enum.Parse(viewerType.Assembly.GetType("ArrayImageViewer.Core.VisualizeChannel"), "BayerRaw");
+        ((TextBox)Get("expression")).Text = "imageSimulator.output.m_data";
+    }
+
+    private static void AddSyntheticPreviewTab(Window window)
+    {
+        // Exercise real cached array tabs without requesting a debugger read or
+        // changing the single-tab setup used by the crash/watch regressions.
+        Set("isApplyingProfile", false);
+        viewerType.GetMethod("AddViewerTab", Private).Invoke(viewer, new object[] { null, null });
+        Set("isApplyingProfile", true);
+        ((TextBox)Get("expression")).Text = "imageSimulator.input.m_data";
+        viewerType.GetMethod("ApplyLoadedFrame", Private).Invoke(viewer, new object[] {
+            syntheticFrame, 64, 48, 32, 24, false, true, "imageSimulator.input.m_data" });
+        viewerType.GetMethod("ApplyNavigatorPreview", Private).Invoke(viewer, new object[] { syntheticOverview });
+        window.UpdateLayout();
+        viewerType.GetMethod("FitLoadedView", Private).Invoke(viewer, new object[] { null, null });
+        Set("isApplyingProfile", false);
+        viewerType.GetMethod("CaptureActiveViewerTab", Private).Invoke(viewer, null);
+        Set("isApplyingProfile", true);
+        var panel = (Panel)Get("viewerTabPanel");
+        ((Button)((Panel)panel.Children[0]).Children[0]).RaiseEvent(
+            new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        window.Dispatcher.BeginInvoke(new Action(delegate
+        {
+            window.UpdateLayout();
+            viewerType.GetMethod("FitLoadedView", Private).Invoke(viewer, new object[] { null, null });
+            window.UpdateLayout();
+            viewerType.GetMethod("UpdateViewportAndOverlay", Private).Invoke(viewer, null);
+            ((TextBox)Get("status")).Text = "Synthetic 64 x 48 preview. Cached array tabs and display controls use no debugger connection.";
+        }));
+    }
+
+    private static Rect Bounds(FrameworkElement element)
+    {
+        return new Rect(element.TranslatePoint(new Point(), (UIElement)viewer),
+            new Size(element.ActualWidth, element.ActualHeight));
+    }
+
+    private static void VerifyInWindow(FrameworkElement element, string name, int size, bool vertical)
+    {
+        var bounds = Bounds(element);
+        var surface = (FrameworkElement)viewer;
+        if (!element.IsVisible || bounds.Width <= 0 || bounds.Height <= 0 || bounds.Left < -1 ||
+            bounds.Right > surface.ActualWidth + 1 || (vertical && (bounds.Top < -1 || bounds.Bottom > surface.ActualHeight + 1)))
+            throw new Exception("Clipped inspection control: " + name + " at " + size + " (" + bounds + ").");
+    }
+
+    private static void FitPresentationFrame(Window window)
+    {
+        // Screenshots must show a coherent sample, not the deliberately oversized
+        // view dimensions or high zoom used by the center-command regression.
+        Set("isApplyingProfile", true);
+        SetSyntheticInputs();
+        viewerType.GetMethod("ApplyLoadedFrame", Private).Invoke(viewer, new object[] {
+            syntheticFrame, 64, 48, 32, 24, false, true, "imageSimulator.output.m_data" });
+        viewerType.GetMethod("ApplyNavigatorPreview", Private).Invoke(viewer, new object[] { syntheticOverview });
+        var dispatcherFrame = new System.Windows.Threading.DispatcherFrame();
+        window.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+            new Action(delegate { dispatcherFrame.Continue = false; }));
+        System.Windows.Threading.Dispatcher.PushFrame(dispatcherFrame);
+        window.UpdateLayout();
+        viewerType.GetMethod("FitLoadedView", Private).Invoke(viewer, new object[] { null, null });
+        window.UpdateLayout();
+        viewerType.GetMethod("UpdateViewportAndOverlay", Private).Invoke(viewer, null);
+        ((TextBox)Get("status")).Text = "Synthetic preview: 64 x 48 samples, selected X=32 / Y=24, kernel 5 x 5. No debugger memory was read.";
+        window.UpdateLayout();
+    }
+
+    private static void SavePresentationSnapshot(int width)
+    {
+        SavePresentationSnapshot(width, "preview");
+    }
+
+    private static void SavePresentationSnapshot(int width, string presentation)
+    {
+        var surface = (FrameworkElement)viewer;
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(surface.ActualWidth),
+            (int)Math.Ceiling(surface.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(surface);
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+        string snapshot = Path.Combine(Path.GetTempPath(), "ArrayRawViewer-inspector-" + presentation + "-" + width + ".png");
+        using (var stream = File.Create(snapshot)) encoder.Save(stream);
+        Console.WriteLine("Synthetic inspector layout snapshot: " + snapshot);
+    }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
     {
@@ -121,15 +241,38 @@ internal static class Program
         foreach (int size in new[] { 600, 900, 1200 })
         {
             window.Width = size;
-            window.UpdateLayout();
-            if (((ScrollViewer)Get("scrollViewer")).ActualHeight < 230) throw new Exception("Image has insufficient height in single-window viewer.");
-            foreach (string name in new[] { "selectedX", "selectedY", "roiWidth", "roiHeight", "visualizeChannel" })
+            FitPresentationFrame(window);
+            var imageBounds = Bounds((ScrollViewer)Get("scrollViewer"));
+            var settingsBounds = Bounds((ScrollViewer)Get("configurationScrollViewer"));
+            var mapBounds = Bounds((Canvas)Get("navigatorCanvas"));
+            double minimumHeight = size == 600 ? 300 : 400;
+            if (imageBounds.Height < minimumHeight)
+                throw new Exception("Image has insufficient height at " + size + ": " + imageBounds.Height + " < " + minimumHeight + ".");
+            if (settingsBounds.Left < imageBounds.Right - 2 || settingsBounds.Width < 240)
+                throw new Exception("Settings must occupy a usable inspector to the image's right at " + size + ".");
+            if (mapBounds.Left < settingsBounds.Left - 2 || mapBounds.Right > settingsBounds.Right + 2)
+                throw new Exception("Frame map must align with the right inspector at " + size + ".");
+            if (Bounds((Panel)Get("viewerTabPanel")).Bottom > Bounds((TextBox)Get("expression")).Top + 1)
+                throw new Exception("Array tabs must remain above the compact source row.");
+            foreach (string name in new[] { "expression", "availablePointers", "autoUpdate", "selectedX", "selectedY", "roiWidth", "roiHeight", "visualizeChannel", "renderWidth", "renderHeight", "navigatorCanvas" })
+                VerifyInWindow((FrameworkElement)Get(name), name, size, true);
+            foreach (string name in new[] { "width", "height", "stride", "qFormat", "sourceElementType", "signed", "pixelOrder", "pixelType" })
+                VerifyInWindow((FrameworkElement)Get(name), name, size, false);
+            foreach (string name in new[] { "Capture", "Select X/Y", "Center view", "Run to write X/Y", "Run to next X", "Run to next Y", "Frame", "Structure", "Profiles", "Frame map", "Zoom ▾", "Export ▾", "Stats", "Left", "Right", "Up", "Down" })
+                VerifyInWindow(Button(name), name, size, true);
+            foreach (string name in new[] { "Run to write X/Y", "Run to next X", "Run to next Y", "Select X/Y" })
+                if (Bounds(Button(name)).Bottom > imageBounds.Top + 1)
+                    throw new Exception("Coordinate selection and debugger Run commands must stay above the image: " + name + ".");
+            if (Bounds((TextBox)Get("selectedX")).Bottom > imageBounds.Top + 1 || Bounds((TextBox)Get("selectedY")).Bottom > imageBounds.Top + 1)
+                throw new Exception("X/Y controls must remain above the image.");
+            bool hasInspectorSplitter = false;
+            foreach (var item in Descendants((DependencyObject)viewer))
             {
-                var field = (FrameworkElement)Get(name);
-                var point = field.TranslatePoint(new Point(), (UIElement)viewer);
-                if (!field.IsVisible || point.X < 0 || point.X + field.ActualWidth > ((FrameworkElement)viewer).ActualWidth + 1)
-                    throw new Exception("Clipped inspection control: " + name + " at " + size);
+                var splitter = item as GridSplitter;
+                if (splitter != null && splitter.IsVisible && splitter.ResizeDirection == GridResizeDirection.Columns)
+                    hasInspectorSplitter = true;
             }
+            if (!hasInspectorSplitter) throw new Exception("Inspector needs a visible column-resizing splitter.");
             double imageHeight = ((ScrollViewer)Get("scrollViewer")).ActualHeight;
             string originalExpression = ((TextBox)Get("expression")).Text;
             string originalWidth = ((TextBox)Get("width")).Text;
@@ -139,6 +282,8 @@ internal static class Program
                 window.UpdateLayout();
                 if (Math.Abs(((ScrollViewer)Get("scrollViewer")).ActualHeight - imageHeight) > 1)
                     throw new Exception("Settings tab changed image height.");
+                if (Application.Current.Windows.Count != 1)
+                    throw new Exception("Settings must switch inside the same viewer window.");
             }
             if (((TextBox)Get("expression")).Text != originalExpression || ((TextBox)Get("width")).Text != originalWidth)
                 throw new Exception("Settings tab switching changed capture settings.");
@@ -146,25 +291,18 @@ internal static class Program
             Button("Frame map").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
             window.UpdateLayout();
             if (((Canvas)Get("navigatorCanvas")).IsVisible) throw new Exception("Map failed to hide.");
+            if (Math.Abs(((ScrollViewer)Get("scrollViewer")).ActualHeight - imageHeight) > 1)
+                throw new Exception("Hiding the inspector map must not change image height.");
             Button("Frame map").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
             window.UpdateLayout();
-            if (size == 900)
-            {
-                var surface = (FrameworkElement)viewer;
-                var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(surface.ActualWidth),
-                    (int)Math.Ceiling(surface.ActualHeight), 96, 96, PixelFormats.Pbgra32);
-                bitmap.Render(surface);
-                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
-                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
-                string snapshot = Path.Combine(Path.GetTempPath(), "ArrayRawViewer-icon-preview.png");
-                using (var stream = File.Create(snapshot)) encoder.Save(stream);
-                Console.WriteLine("Synthetic layout snapshot: " + snapshot);
-            }
+            if (size == 900 || size == 1200) SavePresentationSnapshot(size);
+            Console.WriteLine("Inspector layout " + size + " px: image " + imageBounds.Width + " x " + imageHeight + "; settings/map aligned right.");
         }
         if (Button("Export ▾").ContextMenu.Items.Count != 4) throw new Exception("Export scopes missing.");
         Button("Stats").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         if (((StackPanel)Get("statisticsPanel")).Visibility != Visibility.Visible) throw new Exception("Statistics failed to open.");
         Button("Hide stats").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        VerifyShortInspector(window);
         VerifyWatchNavigation(window);
         VerifyCompletionFocus(window);
         VerifyInlineCaptionMouseDown(window);
@@ -180,6 +318,71 @@ internal static class Program
             throw new Exception("Search state must reuse its icon without disabling or resizing the viewer/root.");
         viewerType.GetMethod("SetSearchBusy", Private).Invoke(viewer, new object[] { false });
         Console.WriteLine("Search/cancel icon fixed-layout and enabled-style checks passed.");
+        VerifySyntheticPreview(window);
+    }
+
+    private static void VerifyShortInspector(Window window)
+    {
+        double originalWidth = window.Width;
+        double originalHeight = window.Height;
+        try
+        {
+            window.Width = 600;
+            window.Height = 620;
+            Button("Stats").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            window.UpdateLayout();
+            if (!((Canvas)Get("navigatorCanvas")).IsVisible || !((StackPanel)Get("statisticsPanel")).IsVisible)
+                throw new Exception("Short-window test requires both Frame map and statistics open.");
+            DependencyObject parent = (DependencyObject)Get("statisticsPanel");
+            while (parent != null && !(parent is ScrollViewer)) parent = LogicalTreeHelper.GetParent(parent);
+            var details = parent as ScrollViewer;
+            if (details == null) throw new Exception("Inspector statistics need a scrollable details viewport.");
+            var detailsBounds = Bounds(details);
+            var imageBounds = Bounds((ScrollViewer)Get("scrollViewer"));
+            if (detailsBounds.Height <= 0 || detailsBounds.Left < imageBounds.Right - 2 || detailsBounds.Bottom > imageBounds.Bottom + 1)
+                throw new Exception("Short-window inspector details overlap the footer: details=" + detailsBounds + "; image=" + imageBounds + ".");
+            VerifyInWindow(details, "inspector details viewport", 600, true);
+            Console.WriteLine("Short 600 x 620 host keeps Frame map/statistics inside a bounded inspector viewport.");
+        }
+        finally
+        {
+            if (((StackPanel)Get("statisticsPanel")).Visibility == Visibility.Visible)
+                Button("Hide stats").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            window.Width = originalWidth;
+            window.Height = originalHeight;
+            window.UpdateLayout();
+        }
+    }
+
+    private static void VerifySyntheticPreview(Window window)
+    {
+        FitPresentationFrame(window);
+        AddSyntheticPreviewTab(window);
+        var dispatcherFrame = new System.Windows.Threading.DispatcherFrame();
+        window.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+            new Action(delegate { dispatcherFrame.Continue = false; }));
+        System.Windows.Threading.Dispatcher.PushFrame(dispatcherFrame);
+        if (((System.Collections.IList)Get("viewerTabs")).Count != 2)
+            throw new Exception("Standalone preview must open two synthetic array tabs.");
+        var panel = (Panel)Get("viewerTabPanel");
+        for (int index = 1; index >= 0; index--)
+        {
+            ((Button)((Panel)panel.Children[index]).Children[0]).RaiseEvent(
+                new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            if (!Object.ReferenceEquals(Get("frame"), syntheticFrame) || Get("pendingMemoryRead") != null)
+                throw new Exception("Standalone array tabs must restore their synthetic cache without a debugger read.");
+        }
+        window.Width = 900;
+        window.UpdateLayout();
+        viewerType.GetMethod("ApplyZoom", Private).Invoke(viewer, new object[] { 48.0 });
+        window.UpdateLayout();
+        viewerType.GetMethod("CenterOnSelection", Private).Invoke(viewer, null);
+        window.UpdateLayout();
+        viewerType.GetMethod("UpdateViewportAndOverlay", Private).Invoke(viewer, null);
+        ((TextBox)Get("status")).Text = "Synthetic pixel inspection: X=32 / Y=24, kernel 5 x 5, 48x zoom. Cached samples only.";
+        window.UpdateLayout();
+        SavePresentationSnapshot(900, "detail");
+        Console.WriteLine("Standalone preview opens and switches two cached synthetic tabs without debugger reads.");
     }
 
     private static void VerifyCancelledWatchTickIsIgnored()

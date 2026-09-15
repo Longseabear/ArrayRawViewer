@@ -292,17 +292,17 @@ namespace ArrayImageViewer.UI
             var panel = new StackPanel { Margin = new Thickness(8) };
             var profileRow = CreateRow();
             profileRow.Margin = new Thickness(0, 8, 0, 0);
-            profileRow.Children.Add(CreateField("SESSION PROFILE", profilePicker));
+            profileRow.Children.Add(CreateField("Session profile", profilePicker));
             profileRow.Children.Add(CreateAction("", CreateButton("Save settings", SaveProfileSettings, false)));
-            profileRow.Children.Add(CreateField("PROFILE SET", profileSetPicker));
-            profileRow.Children.Add(CreateField("SET NAME", profileSetName));
+            profileRow.Children.Add(CreateField("Profile set", profileSetPicker));
+            profileRow.Children.Add(CreateField("Set name", profileSetName));
             profileRow.Children.Add(CreateAction("", CreateButton("Save set", SaveProfileSet, false)));
             profileRow.Children.Add(CreateAction("", CreateButton("Delete set", DeleteProfileSet, false)));
-            profileRow.Children.Add(CreateField("PERSIST", rememberForSolution));
+            profileRow.Children.Add(CreateField("Persistence", rememberForSolution));
             profileRow.Children.Add(new TextBlock
             {
                 Text = "Profile sets and the last state are local to this solution; RAW samples are never saved.",
-                Width = 250,
+                MaxWidth = 230,
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = MutedBrush,
                 FontSize = 10,
@@ -311,20 +311,20 @@ namespace ArrayImageViewer.UI
             });
 
             var formatRow = CreateRow();
-            formatRow.Children.Add(CreateField("WIDTH", width));
-            formatRow.Children.Add(CreateField("HEIGHT", height));
-            formatRow.Children.Add(CreateField("ROW STRIDE", stride));
-            formatRow.Children.Add(CreateField("Q FORMAT", qFormat));
-            formatRow.Children.Add(CreateField("ELEMENT", sourceElementType));
-            formatRow.Children.Add(CreateField("VALUE TYPE", signed));
-            formatRow.Children.Add(CreateField("PIXEL ORDER", pixelOrder));
-            formatRow.Children.Add(CreateField("PIXEL TYPE", pixelType));
+            formatRow.Children.Add(CreateField("Width", width));
+            formatRow.Children.Add(CreateField("Height", height));
+            formatRow.Children.Add(CreateField("Row stride", stride));
+            formatRow.Children.Add(CreateField("Q format", qFormat));
+            formatRow.Children.Add(CreateField("Element", sourceElementType));
+            formatRow.Children.Add(CreateField("Value type", signed));
+            formatRow.Children.Add(CreateField("Pixel order", pixelOrder));
+            formatRow.Children.Add(CreateField("Pixel type", pixelType));
 
-            formatRow.Children.Add(CreateAction("LOCAL STACK", CreateButton("Auto-fill", RefreshScalarValues, false)));
+            formatRow.Children.Add(CreateAction("Local variables", CreateButton("Auto-fill", RefreshScalarValues, false)));
             var normalizationRow = CreateRow();
-            normalizationRow.Children.Add(CreateField("NORMALIZE", normalizationMode));
-            normalizationRow.Children.Add(CreateField("MIN RAW", normalizationMinimum));
-            normalizationRow.Children.Add(CreateField("MAX RAW", normalizationMaximum));
+            normalizationRow.Children.Add(CreateField("Normalize", normalizationMode));
+            normalizationRow.Children.Add(CreateField("Min RAW", normalizationMinimum));
+            normalizationRow.Children.Add(CreateField("Max RAW", normalizationMaximum));
             normalizationRow.Children.Add(CreateAction("", CreateButton("Apply display range", ApplyNormalization, false)));
             normalizationRow.ToolTip = "Q-format range is the default. Changing the range recolors cached samples without a debugger read.";
             var formatContent = new StackPanel();
@@ -334,14 +334,14 @@ namespace ArrayImageViewer.UI
 
             var localValuesRow = CreateRow();
             localValuesRow.Children.Add(CreateAction("", CreateButton("Refresh numeric locals", RefreshScalarValues, false)));
-            localValuesRow.Children.Add(CreateField("WIDTH FROM", widthValueSource));
-            localValuesRow.Children.Add(CreateField("HEIGHT FROM", heightValueSource));
-            localValuesRow.Children.Add(CreateField("STRIDE FROM", strideValueSource));
-            localValuesRow.Children.Add(CreateField("X FROM", xValueSource));
-            localValuesRow.Children.Add(CreateField("Y FROM", yValueSource));
+            localValuesRow.Children.Add(CreateField("Width from", widthValueSource));
+            localValuesRow.Children.Add(CreateField("Height from", heightValueSource));
+            localValuesRow.Children.Add(CreateField("Stride from", strideValueSource));
+            localValuesRow.Children.Add(CreateField("X from", xValueSource));
+            localValuesRow.Children.Add(CreateField("Y from", yValueSource));
             panel.Children.Add(new Expander
             {
-                Header = new TextBlock { Text = "LOCAL VALUES  Pull dimensions and coordinates from the current stack frame", Foreground = MutedBrush, FontSize = 11 },
+                Header = new TextBlock { Text = "Local values", ToolTip = "Pull dimensions and coordinates from the current stack frame", Foreground = MutedBrush, FontSize = 11 },
                 Foreground = TextBrush,
                 IsExpanded = false,
                 Margin = new Thickness(2, 0, 2, 6),
@@ -367,12 +367,17 @@ namespace ArrayImageViewer.UI
                     for (int page = 0; page < contents.Length; page++)
                     {
                         contents[page].Visibility = page == target ? Visibility.Visible : Visibility.Collapsed;
-                        buttons[page].Background = page == target ? AccentBrush : ControlBrush;
-                        buttons[page].Foreground = page == target ? RootBrush : TextBrush;
+                        buttons[page].Background = Brushes.Transparent;
+                        buttons[page].Foreground = page == target ? AccentBrush : MutedBrush;
+                        buttons[page].BorderBrush = page == target ? AccentBrush : Brushes.Transparent;
                     }
                     configurationScrollViewer.ScrollToTop();
                 }, index == 0);
                 button.Margin = new Thickness(4, 3, 4, 3);
+                button.Background = Brushes.Transparent;
+                button.Foreground = index == 0 ? AccentBrush : MutedBrush;
+                button.BorderThickness = new Thickness(0, 0, 0, 2);
+                button.BorderBrush = index == 0 ? AccentBrush : Brushes.Transparent;
                 buttons.Add(button);
                 tabs.Children.Add(button);
             }
@@ -389,18 +394,18 @@ namespace ArrayImageViewer.UI
         {
             var content = new StackPanel();
             var rootRow = CreateRow();
-            rootRow.Children.Add(CreateField("SEARCH ROOT", structureTemplateRoot));
+            rootRow.Children.Add(CreateField("Search root", structureTemplateRoot));
             structureSearchButton = CreateIconButton("Search objects", "객체 검색", "M11,6 A5,5 0 1 1 1,6 A5,5 0 1 1 11,6 M10,10 L15,15", CaptureStructureObjects);
             var searchControls = new StackPanel { Orientation = Orientation.Horizontal };
             searchControls.Children.Add(structureSearchButton);
             searchControls.Children.Add(structureSearchState);
-            rootRow.Children.Add(CreateField("SEARCH", searchControls));
-            rootRow.Children.Add(CreateField("STRUCTURE TEMPLATE", structureTemplatePicker));
+            rootRow.Children.Add(CreateField("Search", searchControls));
+            rootRow.Children.Add(CreateField("Structure template", structureTemplatePicker));
             rootRow.Children.Add(CreateAction("", CreateButton("Bind current root", BindStructureTemplate, false)));
             content.Children.Add(rootRow);
             var resultRow = CreateRow();
             capturedStructurePicker.Width = 220;
-            resultRow.Children.Add(CreateField("FOUND OBJECTS", capturedStructurePicker));
+            resultRow.Children.Add(CreateField("Found objects", capturedStructurePicker));
             resultRow.Children.Add(CreateAction("", CreateButton("Use captured object", UseCapturedStructure, false)));
             resultRow.Children.Add(CreateAction("", CreateButton("Reload templates", ReloadStructureTemplates, false)));
             content.Children.Add(resultRow);
