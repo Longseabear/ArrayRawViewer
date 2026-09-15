@@ -12,6 +12,26 @@ namespace ArrayImageViewer.UI
         private int nextViewerTabId = 1;
         private ViewerTab activeViewerTab;
         private bool switchingViewerTab;
+        private ArrayImageViewer.Debugging.StructureSearchTrace tabTrace;
+
+        private void TraceTabStep(string name, Action action)
+        {
+            if (tabTrace == null) { action(); return; }
+            tabTrace.Call(name, delegate { action(); return true; });
+        }
+
+        private void TraceTabMemory(string phase)
+        {
+            if (tabTrace == null || tabTrace.FilePath == null) return;
+            try
+            {
+            using (var process = System.Diagnostics.Process.GetCurrentProcess())
+                tabTrace.Write(phase + " process=" + process.Id + " bits=" + (Environment.Is64BitProcess ? 64 : 32) +
+                    " privateBytes=" + process.PrivateMemorySize64 + " managedBytes=" + GC.GetTotalMemory(false) +
+                    " tabs=" + viewerTabs.Count + " active=" + (activeViewerTab == null ? 0 : activeViewerTab.Id));
+            }
+            catch (Exception exception) { tabTrace.Write("Memory metrics unavailable: " + exception.Message); }
+        }
 
         private void StopTabTimers()
         {
@@ -28,14 +48,18 @@ namespace ArrayImageViewer.UI
             var applying = isApplyingProfile;
             try
             {
-                StopTabTimers();
-                InvalidateStructureSearchCache();
-                CancelStatisticsRequest();
-                DismissExpressionSuggestions();
-                change();
+                try { tabTrace = new ArrayImageViewer.Debugging.StructureSearchTrace(ArrayImageViewer.Options.StructureTemplateStore.LoadSearchDebug(), "array-tab"); }
+                catch (Exception exception) { SetStatus("Cannot create array debug log: " + exception.Message); }
+                TraceTabMemory("START");
+                TraceTabStep("StopTimers", StopTabTimers);
+                TraceTabStep("InvalidateSearch", InvalidateStructureSearchCache);
+                TraceTabStep("CancelStatistics", CancelStatisticsRequest);
+                TraceTabStep("DismissCompletion", DismissExpressionSuggestions);
+                TraceTabStep("TabOperation", change);
             }
             catch (Exception exception)
             {
+                if (tabTrace != null) tabTrace.Write("ERROR " + exception.ToString());
                 // Do not let a WPF button callback terminate the IDE. Cached
                 // tabs remain available even if this restore failed.
                 SetStatus("Cannot switch array tab: " + exception.Message);
@@ -45,6 +69,16 @@ namespace ArrayImageViewer.UI
                 StopTabTimers();
                 isApplyingProfile = applying;
                 switchingViewerTab = false;
+                if (tabTrace != null)
+                {
+                    try { TraceTabMemory("FINISH"); }
+                    finally
+                    {
+                        var path = tabTrace.FilePath;
+                        tabTrace.Dispose(); tabTrace = null;
+                        if (path != null) status.Text += " Debug dump: " + path;
+                    }
+                }
             }
         }
 
@@ -109,9 +143,10 @@ namespace ArrayImageViewer.UI
         {
             ChangeViewerTab(delegate
             {
-                CaptureActiveViewerTab();
-                BeginNewReadRequest();
-                ClearHardwareWatch(false);
+                if (tabTrace != null) tabTrace.Write("ACTION Add Array");
+                TraceTabStep("CapturePreviousTab", CaptureActiveViewerTab);
+                TraceTabStep("CancelPreviousRead", BeginNewReadRequest);
+                TraceTabStep("ClearHardwareWatch", delegate { ClearHardwareWatch(false); });
                 var copiedSettings = CreateCurrentProfile(String.Empty);
                 var tab = new ViewerTab(nextViewerTabId++, copiedSettings);
                 viewerTabs.Add(tab);
@@ -126,15 +161,16 @@ namespace ArrayImageViewer.UI
         {
             ChangeViewerTab(delegate
             {
+                if (tabTrace != null) tabTrace.Write("ACTION Select Array");
                 var button = sender as Button;
                 var tab = button == null ? null : button.Tag as ViewerTab;
                 if (tab == null || tab == activeViewerTab)
                 {
                     return;
                 }
-                CaptureActiveViewerTab();
-                BeginNewReadRequest();
-                ClearHardwareWatch(false);
+                TraceTabStep("CapturePreviousTab", CaptureActiveViewerTab);
+                TraceTabStep("CancelPreviousRead", BeginNewReadRequest);
+                TraceTabStep("ClearHardwareWatch", delegate { ClearHardwareWatch(false); });
                 activeViewerTab = tab;
                 RestoreViewerTab(tab);
                 RefreshViewerTabs();
@@ -148,6 +184,7 @@ namespace ArrayImageViewer.UI
         {
             ChangeViewerTab(delegate
             {
+                if (tabTrace != null) tabTrace.Write("ACTION Close Array");
                 var button = sender as Button;
                 var tab = button == null ? null : button.Tag as ViewerTab;
                 if (tab == null || viewerTabs.Count <= 1)
@@ -157,8 +194,8 @@ namespace ArrayImageViewer.UI
                 var removedIndex = viewerTabs.IndexOf(tab);
                 if (tab == activeViewerTab)
                 {
-                    BeginNewReadRequest();
-                    ClearHardwareWatch(false);
+                    TraceTabStep("CancelPreviousRead", BeginNewReadRequest);
+                    TraceTabStep("ClearHardwareWatch", delegate { ClearHardwareWatch(false); });
                     viewerTabs.Remove(tab);
                     activeViewerTab = viewerTabs[Math.Max(0, removedIndex - 1)];
                     RestoreViewerTab(activeViewerTab);
@@ -198,7 +235,10 @@ namespace ArrayImageViewer.UI
 
         private void RestoreViewerTab(ViewerTab tab)
         {
-            ApplyProfile(tab.Profile);
+            if (tabTrace != null) tabTrace.Write("RESTORE id=" + tab.Id + " expression=" + tab.Profile.Expression +
+                " type=" + tab.Profile.SourceElementType + " width=" + tab.Profile.Width + " height=" + tab.Profile.Height +
+                " zoom=" + tab.Zoom + " frame=" + (tab.Frame == null ? "none" : tab.Frame.Configuration.Width + "x" + tab.Frame.Configuration.Height));
+            TraceTabStep("ApplyProfile", delegate { ApplyProfile(tab.Profile); });
             activeNormalization = tab.Normalization;
             navigatorPreview.Source = tab.NavigatorPreview;
             navigatorPreviewKey = tab.NavigatorPreviewKey;
@@ -207,8 +247,8 @@ namespace ArrayImageViewer.UI
 
             if (tab.Frame != null && tab.Bitmap != null)
             {
-                ApplyFrame(tab.Frame, tab.Bitmap, tab.FullFrameWidth, tab.FullFrameHeight,
-                    tab.SelectedX, tab.SelectedY, tab.ShowsFullFrameContext, false);
+                TraceTabStep("ApplyCachedFrame", delegate { ApplyFrame(tab.Frame, tab.Bitmap, tab.FullFrameWidth, tab.FullFrameHeight,
+                    tab.SelectedX, tab.SelectedY, tab.ShowsFullFrameContext, false); });
                 var generation = renderGeneration;
                 var offsetX = tab.HorizontalOffset;
                 var offsetY = tab.VerticalOffset;

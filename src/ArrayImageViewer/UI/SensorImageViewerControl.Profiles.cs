@@ -709,6 +709,11 @@ namespace ArrayImageViewer.UI
 
         private void NormalizationModeChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (isApplyingProfile || switchingViewerTab)
+            {
+                if (tabTrace != null) tabTrace.Write("SUPPRESS NormalizationModeChanged during profile restore");
+                return;
+            }
             try
             {
                 var selectedMode = GetSelectedNormalizationMode();
@@ -754,6 +759,7 @@ namespace ArrayImageViewer.UI
 
         private void SourceElementTypeChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (isApplyingProfile || switchingViewerTab) return;
             var selected = sourceElementType.SelectedItem;
             if (selected == null)
             {
@@ -769,6 +775,7 @@ namespace ArrayImageViewer.UI
 
         private void SignedInterpretationChanged(object sender, RoutedEventArgs e)
         {
+            if (isApplyingProfile || switchingViewerTab) return;
             var selected = sourceElementType.SelectedItem;
             if (selected == null)
             {
@@ -878,12 +885,12 @@ namespace ArrayImageViewer.UI
             height.Text = profile.Height;
             stride.Text = profile.Stride;
             qFormat.Text = profile.QFormat;
-            signed.IsChecked = profile.IsSigned;
-            sourceElementType.SelectedItem = profile.SourceElementType;
+            TraceTabStep("Profile.Signed", delegate { signed.IsChecked = profile.IsSigned; });
+            TraceTabStep("Profile.ElementType", delegate { sourceElementType.SelectedItem = profile.SourceElementType; });
             pixelOrder.SelectedItem = profile.PixelOrder;
             pixelType.SelectedItem = profile.PixelType;
             visualizeChannel.SelectedItem = profile.VisualizeChannel;
-            SetSelectedNormalizationMode(profile.NormalizationMode);
+            TraceTabStep("Profile.Normalization", delegate { SetSelectedNormalizationMode(profile.NormalizationMode); });
             normalizationMinimum.Text = profile.NormalizationMinimum;
             normalizationMaximum.Text = profile.NormalizationMaximum;
             selectedX.Text = profile.SelectedX;

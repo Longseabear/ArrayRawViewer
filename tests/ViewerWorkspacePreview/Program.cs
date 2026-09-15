@@ -183,6 +183,14 @@ internal static class Program
         Set("isApplyingProfile", false);
         var original = Get("activeViewerTab");
         var cachedFrame = Get("frame");
+        Set("isApplyingProfile", true);
+        ((TextBox)Get("expression")).Text = "(this->buffer.C).m_data";
+        ((TextBox)Get("width")).Text = "(this->buffer.C).m_width";
+        ((TextBox)Get("height")).Text = "(this->buffer.C).m_height";
+        ((TextBox)Get("stride")).Text = "(this->buffer.C).m_width";
+        var sourceTypes = (ComboBox)Get("sourceElementType");
+        sourceTypes.SelectedItem = Enum.Parse(sourceTypes.SelectedItem.GetType(), "UInt16");
+        Set("isApplyingProfile", false);
         Set("navigatorSourceConfiguration", cachedFrame.GetType().GetProperty("Configuration").GetValue(cachedFrame, null));
         Set("navigatorPreviewKey", null); // Missing map must not trigger a debugger read on restore.
         foreach (string timer in new[] { "autoRefreshTimer", "coordinateUpdateTimer", "debuggerBreakRefreshTimer" })
@@ -207,6 +215,27 @@ internal static class Program
         viewerType.GetMethod("CloseViewerTab", Private).Invoke(viewer, new object[] { new Button { Tag = added }, null });
         if (!Object.ReferenceEquals(Get("frame"), cachedFrame)) throw new Exception("Closing active tab must restore previous cached frame.");
         if (((TextBox)Get("status")).Text.StartsWith("Cannot")) throw new Exception("Array switch failed.");
+        var traceType = viewerType.Assembly.GetType("ArrayImageViewer.Debugging.StructureSearchTrace", true);
+        string logPath = null;
+        try
+        {
+            using (var trace = (IDisposable)Activator.CreateInstance(traceType, new object[] { true, "array-tab" }))
+            {
+                logPath = (string)traceType.GetProperty("FilePath").GetValue(trace, null);
+                Set("tabTrace", trace);
+                Set("switchingViewerTab", true);
+                viewerType.GetMethod("RestoreViewerTab", Private).Invoke(viewer, new object[] { original });
+            }
+            var log = File.ReadAllText(logPath);
+            if (!log.Contains("type=UInt16") || !log.Contains("BEGIN ApplyProfile") || !log.Contains("END Frame.Zoom") || !log.Contains("END ApplyCachedFrame"))
+                throw new Exception("Array trace must include type and restore stages.");
+            Console.WriteLine("UInt16 expression-backed tab restore trace verified (synthetic log removed).");
+        }
+        finally
+        {
+            Set("tabTrace", null); Set("switchingViewerTab", false);
+            if (logPath != null) File.Delete(logPath);
+        }
         Console.WriteLine("Array add/12 round trips/close, missing map cache and pending timer regression checks passed.");
     }
 

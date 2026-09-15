@@ -113,7 +113,7 @@ namespace ArrayImageViewer.Options
         private BindingList<StructureTemplateItem> templates;
         private string jsonEditPath;
         private readonly NumericUpDown searchSeconds = new NumericUpDown { Minimum = 1, Maximum = 120, Width = 55 };
-        private readonly CheckBox searchDebug = new CheckBox { Text = "Search debug dump (logs expressions/types locally)", AutoSize = true };
+        private readonly CheckBox searchDebug = new CheckBox { Text = "Debug dump: Search / Array tabs (local expressions/types)", AutoSize = true };
 
         public StructureTemplateOptionsControl(string solutionIdentityValue)
         {

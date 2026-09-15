@@ -325,10 +325,10 @@ namespace ArrayImageViewer.UI
                 kernelCenterX = selectedGlobalX;
                 kernelCenterY = selectedGlobalY;
             }
-            UpdateNavigator();
-            ApplyZoom(zoom);
-            UpdateSelection(currentX, currentY, false);
-            UpdateStatistics();
+            TraceTabStep("Frame.Navigator", UpdateNavigator);
+            TraceTabStep("Frame.Zoom", delegate { ApplyZoom(zoom); });
+            TraceTabStep("Frame.Selection", delegate { UpdateSelection(currentX, currentY, false); });
+            TraceTabStep("Frame.Statistics", UpdateStatistics);
             if (allowDebuggerPreview) EnsureNavigatorPreview();
         }
     }

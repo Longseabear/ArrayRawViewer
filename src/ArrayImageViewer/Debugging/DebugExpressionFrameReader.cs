@@ -19,11 +19,13 @@ namespace ArrayImageViewer.Debugging
         private int lines;
         public string FilePath { get; private set; }
         public static string DirectoryPath { get { return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ArrayImageViewer", "debug-dump"); } }
-        public StructureSearchTrace(bool enabled)
+        public StructureSearchTrace(bool enabled) : this(enabled, "search") { }
+        public StructureSearchTrace(bool enabled, string category)
         {
             if (!enabled) return;
             System.IO.Directory.CreateDirectory(DirectoryPath);
-            FilePath = System.IO.Path.Combine(DirectoryPath, "search-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff") + "-" + Guid.NewGuid().ToString("N") + ".log");
+            if (category != "search" && category != "array-tab") throw new ArgumentException("Unknown trace category.");
+            FilePath = System.IO.Path.Combine(DirectoryPath, category + "-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff") + "-" + Guid.NewGuid().ToString("N") + ".log");
             writer = new System.IO.StreamWriter(new System.IO.FileStream(FilePath, System.IO.FileMode.CreateNew, System.IO.FileAccess.Write, System.IO.FileShare.ReadWrite), Encoding.UTF8);
             writer.AutoFlush = true;
             Write("START UTC=" + DateTime.UtcNow.ToString("o") + " (expressions/types only; no RAW sample values)");

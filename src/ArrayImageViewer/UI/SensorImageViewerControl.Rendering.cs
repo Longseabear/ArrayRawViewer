@@ -469,7 +469,7 @@ namespace ArrayImageViewer.UI
                 (SourceElementType)sourceElementType.SelectedItem);
         }
 
-        private static int ResolveInteger(TextBox field, string fieldName)
+        private int ResolveInteger(TextBox field, string fieldName)
         {
             int value;
             if (Int32.TryParse(field.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
@@ -484,6 +484,11 @@ namespace ArrayImageViewer.UI
 
             try
             {
+                if (switchingViewerTab)
+                {
+                    if (tabTrace != null) tabTrace.Write("BLOCK debugger evaluation during tab restore: " + fieldName + "=" + field.Text);
+                    throw new InvalidOperationException("Debugger expressions must not be evaluated while restoring a cached array tab.");
+                }
                 return DebugExpressionFrameReader.EvaluateInt32(field.Text.Trim());
             }
             catch (Exception exception)
