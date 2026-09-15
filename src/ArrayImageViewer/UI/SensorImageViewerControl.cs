@@ -232,6 +232,8 @@ namespace ArrayImageViewer.UI
             viewportOverlayTimer.Tick += ViewportOverlayTimerTick;
             ConfigureAutoUpdate();
             Unloaded += ViewerUnloaded;
+            Loaded += StructureOptionsLoaded;
+            Unloaded += StructureOptionsUnloaded;
             Focusable = true;
             PreviewKeyDown += ViewerPreviewKeyDown;
 

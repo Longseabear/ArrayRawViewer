@@ -78,6 +78,9 @@
     <Compile Include="Options\StructureTemplateOptionsPage.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="Options\StructureTemplateGrid.cs" />
+    <Compile Include="Options\StructureTemplateOptionsControl.cs" />
+    <Compile Include="Options\StructureTemplateStore.cs" />
     <Compile Include="UI\SensorImageViewerControl.cs" />
     <Compile Include="UI\SensorImageViewerControl.Workspace.cs" />
     <Compile Include="UI\SensorImageViewerControl.Profiles.cs" />

@@ -294,6 +294,7 @@ internal static class Program
                 return File.Exists(path) ? Assembly.LoadFrom(path) : null;
             };
             var assembly = Assembly.LoadFrom(Path.Combine(directory, "ArrayImageViewer.dll"));
+            TemplateOptionsChecks.Run(assembly);
             CheckBreakpointOwnership(assembly);
             CheckTemplateSerialization(assembly);
             CheckStructureTraversal(assembly);

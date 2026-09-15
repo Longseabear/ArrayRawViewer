@@ -202,8 +202,58 @@ internal static class Program
         }
         throw new Exception("Missing command: " + caption);
     }
+    private static void Pump(Window window)
+    {
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        window.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+            new Action(delegate { frame.Continue = false; }));
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+        window.UpdateLayout();
+    }
+
+    private static void VerifySavedOptionsRefreshViewer(Window window)
+    {
+        var store = viewerType.Assembly.GetType("ArrayImageViewer.Options.StructureTemplateStore", true);
+        var save = store.GetMethod("SaveSettings");
+        if (save == null) throw new Exception("Saving Options has no complete-settings transaction/notification for the live viewer.");
+        string directory = Path.Combine(Path.GetTempPath(), "array-options-viewer-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(directory, "settings.txt");
+        var deserialize = store.GetMethod("Deserialize", BindingFlags.Static | BindingFlags.NonPublic);
+        var document = deserialize.Invoke(null, new object[] { "{\"FormatVersion\":1,\"Templates\":[{\"ClassName\":\"LiveStream<unsigned short>\",\"DataAccess\":\"m_data\",\"WidthAccess\":\"m_width\",\"HeightAccess\":\"m_height\"}]}" });
+        var items = document.GetType().GetProperty("Templates").GetValue(document, null);
+        var root = (TextBox)Get("structureTemplateRoot");
+        root.Text = "ctx->frame";
+        string buffer = ((TextBox)Get("expression")).Text;
+        double savedZoom = (double)Get("zoom");
+        object oldFrame = Get("frame");
+        int epoch = (int)Get("structureSearchEpoch");
+        try
+        {
+            save.Invoke(null, new object[] { "<no-solution>", items, 17, false, path });
+            Pump(window);
+            var picker = (ComboBox)Get("structureTemplatePicker");
+            if (picker.Items.Count != 1 || !picker.Items[0].ToString().Contains("LiveStream<unsigned short>"))
+                throw new Exception("Saved template was not pushed to the viewer without Reload.");
+            if (root.Text != "ctx->frame" || ((TextBox)Get("expression")).Text != buffer ||
+                (double)Get("zoom") != savedZoom || !Object.ReferenceEquals(Get("frame"), oldFrame) || (int)Get("structureSearchEpoch") <= epoch)
+                throw new Exception("Options refresh changed the capture/view state or failed to invalidate stale search results.");
+            picker.SelectedIndex = 0;
+            var item = ((System.Collections.IList)items)[0];
+            item.GetType().GetProperty("DataAccess").SetValue(item, "pixels", null);
+            save.Invoke(null, new object[] { "<no-solution>", items, 17, false, path }); Pump(window);
+            if (((TextBox)Get("structureTemplateData")).Text != "pixels" || picker.SelectedIndex != 0)
+                throw new Exception("Selected template fields were not refreshed after Save.");
+            int currentEpoch = (int)Get("structureSearchEpoch");
+            save.Invoke(null, new object[] { "other.sln", items, 17, false, path }); Pump(window);
+            if ((int)Get("structureSearchEpoch") != currentEpoch) throw new Exception("Another solution's save changed this viewer.");
+            Console.WriteLine("Saved Options immediately refresh templates/selected fields without changing root, buffer, zoom or frame.");
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
     private static void Verify(Window window)
     {
+        VerifySavedOptionsRefreshViewer(window);
         var mapImage = Button("Frame map").Content as Image;
         if (mapImage == null || mapImage.Source == null)
             throw new Exception("Generated Frame map image resource is missing.");

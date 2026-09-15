@@ -25,6 +25,47 @@ namespace ArrayImageViewer.UI
             Foreground = System.Windows.Media.Brushes.LightGray, Margin = new Thickness(6, 0, 4, 0)
         };
         private int structureSearchEpoch;
+        private string structureTemplateSolutionIdentity;
+        private bool structureSettingsSubscribed;
+        private int appliedStructureSettingsRevision;
+
+        private void StructureOptionsLoaded(object sender, RoutedEventArgs e)
+        {
+            if (structureSettingsSubscribed) return;
+            structureSettingsSubscribed = true;
+            StructureTemplateStore.SettingsChanged += StructureOptionsChanged;
+            try { RestoreStructureTemplates(); }
+            catch (Exception exception) { SetStatus("Cannot load structure templates: " + exception.Message); }
+        }
+
+        private void StructureOptionsUnloaded(object sender, RoutedEventArgs e)
+        {
+            StructureTemplateStore.SettingsChanged -= StructureOptionsChanged;
+            structureSettingsSubscribed = false;
+        }
+
+        private void StructureOptionsChanged(object sender, EventArgs e)
+        {
+            var settings = e as StructureTemplateSettingsChangedEventArgs;
+            if (settings == null || Dispatcher.HasShutdownStarted) return;
+            Dispatcher.BeginInvoke(new Action(delegate
+            {
+                if (!structureSettingsSubscribed || settings.Revision <= appliedStructureSettingsRevision ||
+                    !String.Equals(settings.SolutionIdentity, structureTemplateSolutionIdentity, StringComparison.Ordinal)) return;
+                try
+                {
+                appliedStructureSettingsRevision = settings.Revision;
+                InvalidateStructureSearchCache();
+                capturedStructureCandidates.Clear();
+                capturedStructurePicker.ItemsSource = null;
+                ApplyStructureTemplateDefinitions(settings.Templates);
+                structureSearchState.Text = "템플릿 적용됨 · 검색 준비";
+                }
+                catch (Exception exception) { SetStatus("Cannot refresh structure templates: " + exception.Message); }
+                // Do not touch focus, root, capture expression, cached frame or
+                // zoom. Applying definitions never starts a search/memory read.
+            }));
+        }
         private void SetSearchBusy(bool busy)
         {
             SetIconContent(structureSearchButton, busy ? "Cancel search" : "Search objects",
@@ -440,7 +481,10 @@ namespace ArrayImageViewer.UI
 
         private void RebuildStructureTemplatePicker(string selectedName)
         {
+            var wasApplyingProfile = isApplyingProfile;
             isApplyingProfile = true;
+            try
+            {
             structureTemplatePicker.ItemsSource = new List<StructureTemplate>(structureTemplates.Values);
             structureTemplatePicker.SelectedItem = null;
             foreach (StructureTemplate template in structureTemplates.Values)
@@ -451,7 +495,8 @@ namespace ArrayImageViewer.UI
                     break;
                 }
             }
-            isApplyingProfile = false;
+            }
+            finally { isApplyingProfile = wasApplyingProfile; }
         }
 
         private static string PersistedStructureTemplatesPath
@@ -472,7 +517,15 @@ namespace ArrayImageViewer.UI
             // The Options page owns the persisted definition format. Reading
             // through the same store is important: it also exposes the
             // built-in ImageStream mapping for this sample solution.
-            var savedTemplates = StructureTemplateStore.Load(DebugExpressionFrameReader.GetActiveSolutionIdentity());
+            structureTemplateSolutionIdentity = DebugExpressionFrameReader.GetActiveSolutionIdentity();
+            var savedTemplates = StructureTemplateStore.Load(structureTemplateSolutionIdentity);
+            ApplyStructureTemplateDefinitions(savedTemplates);
+        }
+
+        private void ApplyStructureTemplateDefinitions(IList<StructureTemplateItem> savedTemplates)
+        {
+            var selected = structureTemplatePicker.SelectedItem as StructureTemplate;
+            string selectedName = selected == null ? null : selected.ClassName;
             structureTemplates.Clear();
             foreach (var item in savedTemplates)
             {
@@ -494,7 +547,13 @@ namespace ArrayImageViewer.UI
                     // Ignore an individual invalid persisted template.
                 }
             }
-            RebuildStructureTemplatePicker(null);
+            RebuildStructureTemplatePicker(selectedName);
+            var updated = structureTemplatePicker.SelectedItem as StructureTemplate;
+            if (updated != null) ApplyStructureTemplateFields(updated);
+            else if (selected != null)
+            {
+                ApplyStructureTemplateFields(new StructureTemplate());
+            }
         }
 
         private void PersistStructureTemplate(StructureTemplate template)

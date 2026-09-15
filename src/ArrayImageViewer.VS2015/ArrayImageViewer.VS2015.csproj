@@ -118,6 +118,9 @@
       <Link>Options\StructureTemplateOptionsPage.cs</Link>
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="..\ArrayImageViewer\Options\StructureTemplateGrid.cs"><Link>Options\StructureTemplateGrid.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\Options\StructureTemplateOptionsControl.cs"><Link>Options\StructureTemplateOptionsControl.cs</Link></Compile>
+    <Compile Include="..\ArrayImageViewer\Options\StructureTemplateStore.cs"><Link>Options\StructureTemplateStore.cs</Link></Compile>
     <Compile Include="..\ArrayImageViewer\UI\SensorImageViewerControl.cs">
       <Link>UI\SensorImageViewerControl.cs</Link>
     </Compile>
