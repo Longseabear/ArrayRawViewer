@@ -51,14 +51,20 @@ namespace ArrayImageViewer.UI
             Dispatcher.BeginInvoke(new Action(delegate
             {
                 if (!structureSettingsSubscribed || settings.Revision <= appliedStructureSettingsRevision ||
-                    !String.Equals(settings.SolutionIdentity, structureTemplateSolutionIdentity, StringComparison.Ordinal)) return;
+                    (settings.SolutionIdentity != StructureTemplateStore.GlobalIdentity &&
+                    !String.Equals(settings.SolutionIdentity, structureTemplateSolutionIdentity, StringComparison.Ordinal))) return;
                 try
                 {
                 appliedStructureSettingsRevision = settings.Revision;
                 InvalidateStructureSearchCache();
                 capturedStructureCandidates.Clear();
                 capturedStructurePicker.ItemsSource = null;
-                ApplyStructureTemplateDefinitions(settings.Templates);
+                var merged = new Dictionary<string, StructureTemplateItem>(StringComparer.OrdinalIgnoreCase);
+                foreach (var item in settings.SolutionIdentity == StructureTemplateStore.GlobalIdentity
+                    ? settings.Templates : StructureTemplateStore.LoadScope(StructureTemplateStore.GlobalIdentity)) merged[item.ClassName] = item;
+                foreach (var item in settings.SolutionIdentity == StructureTemplateStore.GlobalIdentity
+                    ? StructureTemplateStore.LoadScope(structureTemplateSolutionIdentity) : settings.Templates) merged[item.ClassName] = item;
+                ApplyStructureTemplateDefinitions(new List<StructureTemplateItem>(merged.Values));
                 structureSearchState.Text = "템플릿 적용됨 · 검색 준비";
                 }
                 catch (Exception exception) { SetStatus("Cannot refresh structure templates: " + exception.Message); }

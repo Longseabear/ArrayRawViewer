@@ -9,7 +9,7 @@ internal static class Program
 {
     private sealed class BreakpointFixture
     {
-        public readonly ArrayList Items = new ArrayList();
+        public readonly FakeBreakpointCollection Items = new FakeBreakpointCollection();
         public readonly Type Reader;
         public readonly object Reference;
 
@@ -25,6 +25,18 @@ internal static class Program
                 ? new object[] { Items, identities, Items.Count }
                 : new object[] { Items, identities, "0x1000", 4 };
             Reference = Activator.CreateInstance(referenceType, arguments);
+        }
+
+        public BreakpointFixture(Assembly assembly, FakeBreakpointCollection items,
+            string expression, object addResult)
+        {
+            Items = items;
+            Reader = assembly.GetType("ArrayImageViewer.Debugging.DebugExpressionFrameReader", true);
+            var referenceType = Reader.GetNestedType("NativeDataBreakpointReference", BindingFlags.NonPublic);
+            var identities = Reader.GetMethod("GetBreakpointIdentities", BindingFlags.Static | BindingFlags.NonPublic)
+                .Invoke(null, new object[] { Items });
+            Reference = Activator.CreateInstance(referenceType,
+                new object[] { Items, identities, expression, 4, addResult });
         }
 
         public int ReadHitCount()
@@ -45,6 +57,132 @@ internal static class Program
     private static void CheckBreakpointOwnership(Assembly assembly)
     {
         int failures = 0;
+        CheckBreakpointCase("Repeated clear never deletes an acknowledged watch twice", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            var owned = new FakeBreakpoint { Name = "0x1000", Data = "", HitCount = 7 };
+            fixture.Items.Add(owned);
+            if (!fixture.Delete() || !fixture.Delete() || owned.DeleteCalls != 1)
+                throw new Exception("A confirmed deletion must remain completed without dispatching Delete twice.");
+        }, ref failures);
+        CheckBreakpointCase("Delete acceptance does not report an asynchronous watch release as complete", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            var owned = new FakeBreakpoint { Name = "0x1000", DeferDeletion = true };
+            fixture.Items.Add(owned);
+            if (fixture.Delete()) throw new Exception("Delete returned normally, but the owned native breakpoint still exists.");
+            if (owned.DeleteCalls != 1 || fixture.Items.Count != 1)
+                throw new Exception("Setup: native Delete must be requested once while its entry remains published.");
+        }, ref failures);
+        CheckBreakpointCase("Repeated clear waits for pending release without redispatching native Delete", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            var owned = new FakeBreakpoint { Name = "0x1000", DeferDeletion = true };
+            fixture.Items.Add(owned);
+            fixture.Delete();
+            if (fixture.Delete()) throw new Exception("A repeated clear falsely confirmed removal while the owned entry remains published.");
+            if (owned.DeleteCalls != 1) throw new Exception("A pending accepted Delete must not be dispatched twice.");
+            fixture.Items.Remove(owned);
+            if (!fixture.Delete() || !fixture.Delete() || owned.DeleteCalls != 1)
+                throw new Exception("Actual collection removal must complete pending release idempotently.");
+        }, ref failures);
+        CheckBreakpointCase("Failed native Delete remains retryable on the owned reference", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            var owned = new FakeBreakpoint { Name = "0x1000", DeleteFailuresRemaining = 1 };
+            fixture.Items.Add(owned);
+            if (fixture.Delete()) throw new Exception("A native Delete failure was reported as successful release.");
+            if (!fixture.Delete() || owned.DeleteCalls != 2 || fixture.Items.Count != 0)
+                throw new Exception("Clear must retry a failed deletion without losing ownership.");
+        }, ref failures);
+        CheckBreakpointCase("An accepted pending deletion never deletes a same-address replacement", delegate
+        {
+            var fixture = new BreakpointFixture(assembly);
+            var owned = new FakeBreakpoint { Name = "0x1000", DeferDeletion = true };
+            fixture.Items.Add(owned);
+            fixture.Delete();
+            fixture.Items.Remove(owned);
+            var replacement = new FakeBreakpoint { Name = "0x1000", HitCount = 99 };
+            fixture.Items.Add(replacement);
+            if (fixture.Delete()) throw new Exception("A new same-address identity is ambiguous, not confirmation of native slot release.");
+            if (owned.DeleteCalls != 1 || replacement.DeleteCalls != 0)
+                throw new Exception("Clear redispatched an accepted Delete or adopted the replacement breakpoint.");
+        }, ref failures);
+        CheckBreakpointCase("Returned Add ownership resolves an unpublished breakpoint without address metadata", delegate
+        {
+            var owned = new FakeBreakpoint { Name = "Native data breakpoint", Data = "", HitCount = 7 };
+            var items = new FakeBreakpointCollection();
+            var fixture = new BreakpointFixture(assembly, items, "0x1000", new ArrayList { owned });
+            if (fixture.ReadHitCount() != 7)
+                throw new Exception("The newly created object returned by Add must establish ownership without a global collection search.");
+            items.Add(owned);
+            if (!fixture.Delete() || owned.DeleteCalls != 1 || items.Count != 0)
+                throw new Exception("The owned Add result was not deleted and confirmed absent.");
+        }, ref failures);
+        CheckBreakpointCase("Direct Add result retains the exact owned native reference", delegate
+        {
+            var owned = new FakeBreakpoint { Name = "Native data breakpoint", HitCount = 12 };
+            var items = new FakeBreakpointCollection();
+            var fixture = new BreakpointFixture(assembly, items, "0x1000", owned);
+            if (fixture.ReadHitCount() != 12) throw new Exception("A direct Add return must remain usable before publication.");
+            items.Add(owned);
+            if (!fixture.Delete() || owned.DeleteCalls != 1)
+                throw new Exception("Clear did not release the exact direct Add return.");
+        }, ref failures);
+        CheckBreakpointCase("Count and Item Add results resolve without IEnumerable", delegate
+        {
+            var owned = new FakeBreakpoint { Name = "Native data breakpoint", HitCount = 15 };
+            var items = new FakeBreakpointCollection();
+            var fixture = new BreakpointFixture(assembly, items, "0x1000", new FakeIndexedBreakpointCollection(owned));
+            if (fixture.ReadHitCount() != 15)
+                throw new Exception("A Count/Item automation collection must resolve its owned member, not be treated as the breakpoint itself.");
+            items.Add(owned);
+            if (!fixture.Delete() || owned.DeleteCalls != 1)
+                throw new Exception("The owned Count/Item collection member was not released.");
+        }, ref failures);
+        CheckBreakpointCase("Add result never adopts a pre-existing user breakpoint", delegate
+        {
+            var existing = new FakeBreakpoint { Name = "0x1000", HitCount = 99 };
+            var items = new FakeBreakpointCollection { existing };
+            var fixture = new BreakpointFixture(assembly, items, "0x1000", new ArrayList { existing });
+            if (fixture.ReadHitCount() != -1 || fixture.Delete() || existing.DeleteCalls != 0)
+                throw new Exception("An Add return already present in the baseline cannot establish new viewer ownership.");
+        }, ref failures);
+        CheckBreakpointCase("Failed post-delete snapshot cannot falsely confirm release", delegate
+        {
+            var items = new FakeBreakpointCollection();
+            var owned = new FakeBreakpoint { Name = "0x1000" };
+            var fixture = new BreakpointFixture(assembly, items, "0x1000", new ArrayList { owned });
+            items.Add(owned);
+            owned.AfterDelete = delegate { items.ThrowOnEnumeration = true; };
+            if (fixture.Delete()) throw new Exception("An unreadable collection is not evidence of removal.");
+            if (owned.DeleteCalls != 1) throw new Exception("The native Delete request was not issued exactly once.");
+            items.ThrowOnEnumeration = false;
+            if (!fixture.Delete() || owned.DeleteCalls != 1)
+                throw new Exception("A later readable absent snapshot must confirm release without a duplicate Delete request.");
+        }, ref failures);
+        CheckBreakpointCase("Fifty alternating Watch X/Y cycles release each owned slot once and preserve user breakpoints", delegate
+        {
+            var user = new FakeBreakpoint { Name = "source.cpp, line 42", HitCount = 99 };
+            var items = new FakeBreakpointCollection { user };
+            int x = 0;
+            int y = 0;
+            for (int cycle = 0; cycle < 50; cycle++)
+            {
+                if (cycle % 2 == 0) x++; else y++;
+                string address = "0x" + (0x1000 + ((y * 4096) + x) * 4).ToString("X");
+                var owned = new FakeBreakpoint { Name = address, DeferDeletion = true, HitCount = 1 };
+                var fixture = new BreakpointFixture(assembly, items, address, new ArrayList { owned });
+                items.Add(owned);
+                if (fixture.ReadHitCount() != 1) throw new Exception("Cycle " + cycle + ": newly armed watch was not resolved.");
+                if (fixture.Delete() || fixture.Delete()) throw new Exception("Cycle " + cycle + ": reported release before native entry disappeared.");
+                if (owned.DeleteCalls != 1) throw new Exception("Cycle " + cycle + ": Delete was dispatched more than once.");
+                items.Remove(owned);
+                if (!fixture.Delete()) throw new Exception("Cycle " + cycle + ": released watch remained falsely pending.");
+                if (items.Count != 1 || !Object.ReferenceEquals(items[0], user) || user.DeleteCalls != 0)
+                    throw new Exception("Cycle " + cycle + ": user breakpoint changed or native watch leaked.");
+            }
+        }, ref failures);
         CheckBreakpointCase("Removed viewer breakpoint never deletes a newly added user breakpoint", delegate
         {
             var fixture = new BreakpointFixture(assembly);
@@ -57,7 +195,7 @@ internal static class Program
             if (unrelated.DeleteCalls != 0) throw new Exception("User breakpoint was deleted after the owned breakpoint disappeared.");
             if (!removed) throw new Exception("A previously resolved, now absent breakpoint must be treated as removed.");
         }, ref failures);
-        CheckBreakpointCase("Resolved identity wins over an earlier same-name user breakpoint", delegate
+        CheckBreakpointCase("Resolved ownership deletes only its own entry while a new same-address entry stays ambiguous", delegate
         {
             var fixture = new BreakpointFixture(assembly);
             var owned = new FakeBreakpoint { Name = "0x1000", Data = "", HitCount = 7 };
@@ -66,8 +204,8 @@ internal static class Program
             var unrelated = new FakeBreakpoint { Name = "0x1000", Data = "", HitCount = 99 };
             fixture.Items.Insert(0, unrelated);
             if (fixture.ReadHitCount() != 7) throw new Exception("Same-name user breakpoint replaced the owned COM identity.");
-            if (!fixture.Delete() || owned.DeleteCalls != 1 || unrelated.DeleteCalls != 0)
-                throw new Exception("Only the resolved viewer breakpoint may be deleted.");
+            if (fixture.Delete() || owned.DeleteCalls != 1 || unrelated.DeleteCalls != 0)
+                throw new Exception("Only the resolved viewer breakpoint may be deleted; a new same-address identity must keep release unconfirmed.");
         }, ref failures);
         CheckBreakpointCase("Removed viewer breakpoint never adopts a same-name replacement", delegate
         {
@@ -294,6 +432,11 @@ internal static class Program
                 return File.Exists(path) ? Assembly.LoadFrom(path) : null;
             };
             var assembly = Assembly.LoadFrom(Path.Combine(directory, "ArrayImageViewer.dll"));
+            if (args.Length > 1 && args[1] == "--verify-breakpoints")
+            {
+                CheckBreakpointOwnership(assembly);
+                return 0;
+            }
             TemplateOptionsChecks.Run(assembly);
             CheckBreakpointOwnership(assembly);
             CheckTemplateSerialization(assembly);
@@ -412,8 +555,52 @@ public sealed class FakeBreakpoint
     public string Data { get; set; }
     public int DataCount { get; set; }
     public int HitCount { get; set; }
+    public bool DeferDeletion { get; set; }
+    public int DeleteFailuresRemaining { get; set; }
+    public IList Owner { get; set; }
+    public Action AfterDelete { get; set; }
     public int DeleteCalls { get; private set; }
-    public void Delete() { DeleteCalls++; }
+    public void Delete()
+    {
+        DeleteCalls++;
+        if (DeleteFailuresRemaining > 0)
+        {
+            DeleteFailuresRemaining--;
+            throw new COMException("Synthetic native Delete failure.");
+        }
+        if (!DeferDeletion && Owner != null) Owner.Remove(this);
+        if (AfterDelete != null) AfterDelete();
+    }
+}
+
+public sealed class FakeBreakpointCollection : ArrayList
+{
+    public bool ThrowOnEnumeration { get; set; }
+
+    public override IEnumerator GetEnumerator()
+    {
+        if (ThrowOnEnumeration) throw new InvalidOperationException("Synthetic unreadable breakpoint collection.");
+        return base.GetEnumerator();
+    }
+
+    public override int Add(object value)
+    {
+        var breakpoint = value as FakeBreakpoint;
+        if (breakpoint != null) breakpoint.Owner = this;
+        return base.Add(value);
+    }
+
+    public override void AddRange(ICollection values)
+    {
+        foreach (object value in values) Add(value);
+    }
+
+    public override void Insert(int index, object value)
+    {
+        var breakpoint = value as FakeBreakpoint;
+        if (breakpoint != null) breakpoint.Owner = this;
+        base.Insert(index, value);
+    }
 }
 
 public sealed class UnreadableBreakpoints : IEnumerable
@@ -422,4 +609,15 @@ public sealed class UnreadableBreakpoints : IEnumerable
     {
         throw new InvalidOperationException("Synthetic unreadable breakpoint collection.");
     }
+}
+
+// Some automation collections expose only Count and a one-based Item method.
+// Deliberately do not implement IEnumerable: this covers COM collection shape,
+// not a second convenient managed-list path.
+public sealed class FakeIndexedBreakpointCollection
+{
+    private readonly object[] values;
+    public FakeIndexedBreakpointCollection(params object[] values) { this.values = values; }
+    public int Count { get { return values.Length; } }
+    public object Item(object index) { return values[Convert.ToInt32(index) - 1]; }
 }

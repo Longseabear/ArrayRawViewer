@@ -84,28 +84,45 @@ namespace ArrayImageViewer.Debugging
             private readonly HashSet<string> existingBreakpointIdentities;
             private readonly string dataExpression;
             private readonly int byteCount;
+            private readonly object addedBreakpoints;
             private string resolvedBreakpointIdentity;
+            // Keep the actual automation object alive while owning the watch;
+            // a string IUnknown identity alone does not retain its COM lifetime.
+            private object resolvedBreakpoint;
+            private bool deleteRequested;
             public string LastResolutionError { get; private set; }
             public bool IsKnownRemoved { get; private set; }
 
             public NativeDataBreakpointReference(object breakpoints, HashSet<string> existingBreakpointIdentities,
                 string dataExpression, int byteCount)
+                : this(breakpoints, existingBreakpointIdentities, dataExpression, byteCount, null)
+            {
+            }
+
+            public NativeDataBreakpointReference(object breakpoints, HashSet<string> existingBreakpointIdentities,
+                string dataExpression, int byteCount, object addedBreakpoints)
             {
                 this.breakpoints = breakpoints;
                 this.existingBreakpointIdentities = existingBreakpointIdentities;
                 this.dataExpression = dataExpression;
                 this.byteCount = byteCount;
+                this.addedBreakpoints = addedBreakpoints;
             }
 
             public object TryResolve()
             {
                 if (IsKnownRemoved) return null;
+                if (resolvedBreakpoint != null) return resolvedBreakpoint;
                 try
                 {
                     LastResolutionError = null;
+                    // Add's result is the authoritative collection for this
+                    // request. Native Data/Name fields may be empty, localized,
+                    // or unavailable before the first Continue.
+                    var added = ResolveAddedBreakpoint();
+                    if (added != null) return added;
                     var breakpointSnapshot = GetBreakpointSnapshot(breakpoints);
-                    return String.IsNullOrWhiteSpace(resolvedBreakpointIdentity)
-                        ? ResolveNewBreakpoint(breakpointSnapshot) : ResolveKnownBreakpoint(breakpointSnapshot);
+                    return ResolveNewBreakpoint(breakpointSnapshot);
                 }
                 catch (Exception exception)
                 {
@@ -117,22 +134,113 @@ namespace ArrayImageViewer.Debugging
                 return null;
             }
 
-            private object ResolveKnownBreakpoint(List<object> snapshot)
+            private void MarkDeleted()
             {
-                // Identity wins over display name, address and collection order.
-                foreach (var candidate in snapshot)
-                    if (String.Equals(GetAutomationObjectIdentity(candidate), resolvedBreakpointIdentity, StringComparison.Ordinal))
-                        return candidate;
-                // A recreated wrapper or same-address replacement is ambiguous,
-                // not proof that the original hardware watch was removed.
-                foreach (var candidate in snapshot)
-                    if (MatchesRequestedWatch(candidate))
-                    {
-                        LastResolutionError = "The watched address is still present with a different breakpoint identity; ownership cannot be verified.";
-                        return null;
-                    }
                 IsKnownRemoved = true;
-                return null;
+                resolvedBreakpoint = null;
+            }
+
+            private object ResolveAddedBreakpoint()
+            {
+                if (addedBreakpoints == null) return null;
+                var returned = addedBreakpoints as IEnumerable;
+                // Some automation collections expose Count/Item without a
+                // usable IEnumerable interface. Never mistake that collection
+                // object itself for a breakpoint and call Delete on it.
+                var isCollection = returned != null || GetOptionalMember(addedBreakpoints, "Count") != null;
+                if (!isCollection && Marshal.IsComObject(addedBreakpoints))
+                {
+                    LastResolutionError = "The collection returned by Add is not readable yet.";
+                    return null;
+                }
+                var candidates = isCollection ? GetBreakpointSnapshot(addedBreakpoints) : new List<object> { addedBreakpoints };
+                object match = null;
+                foreach (var candidate in candidates)
+                {
+                    var identity = GetAutomationObjectIdentity(candidate);
+                    if (String.IsNullOrWhiteSpace(identity) || existingBreakpointIdentities.Contains(identity)) continue;
+                    if (match != null)
+                    {
+                        throw new InvalidOperationException("Add returned multiple new breakpoints; ownership is ambiguous.");
+                    }
+                    match = candidate;
+                }
+                if (match == null) return null;
+                resolvedBreakpointIdentity = GetAutomationObjectIdentity(match);
+                resolvedBreakpoint = match;
+                return match;
+            }
+
+            public bool TryDelete(out string failureReason)
+            {
+                failureReason = null;
+                if (IsKnownRemoved) return true;
+                var owned = TryResolve();
+                if (owned == null)
+                {
+                    failureReason = "Cannot identify the viewer-owned breakpoint at " + dataExpression + ". " + LastResolutionError;
+                    return false;
+                }
+
+                if (!deleteRequested)
+                {
+                    try
+                    {
+                        // Delete the object captured from OUR Add, not a newly
+                        // discovered entry at the same address or list index.
+                        dynamic nativeBreakpoint = owned;
+                        nativeBreakpoint.Delete();
+                        deleteRequested = true;
+                    }
+                    catch (Exception exception)
+                    {
+                        // A user/engine may have removed our object already.
+                        // Only a complete snapshot may establish its absence.
+                        if (ConfirmRemoval()) return true;
+                        failureReason = exception.GetType().Name + ": " + exception.Message + " " + LastResolutionError;
+                        return false;
+                    }
+                }
+                if (ConfirmRemoval()) return true;
+                failureReason = "Delete was requested for " + dataExpression + " (" + byteCount + " bytes); removal is not confirmed. " + LastResolutionError;
+                return false;
+            }
+
+            private bool ConfirmRemoval()
+            {
+                try
+                {
+                    var snapshot = GetBreakpointSnapshot(breakpoints);
+                    foreach (var candidate in snapshot)
+                    {
+                        var identity = GetAutomationObjectIdentity(candidate);
+                        if (String.IsNullOrWhiteSpace(identity))
+                        {
+                            LastResolutionError = "A breakpoint identity is unavailable; removal cannot be verified.";
+                            return false;
+                        }
+                        if (String.Equals(identity, resolvedBreakpointIdentity, StringComparison.Ordinal))
+                        {
+                            LastResolutionError = "The owned breakpoint is still present in Visual Studio (entries=" + snapshot.Count + ").";
+                            return false;
+                        }
+                        // Keep foreign/new same-address objects untouched. They
+                        // could be a recreated automation wrapper or a user BP.
+                        if (!existingBreakpointIdentities.Contains(identity) && MatchesRequestedWatch(candidate))
+                        {
+                            LastResolutionError = "The watched address is still present with a different breakpoint identity; ownership cannot be verified.";
+                            return false;
+                        }
+                    }
+                    MarkDeleted();
+                    LastResolutionError = null;
+                    return true;
+                }
+                catch (Exception exception)
+                {
+                    LastResolutionError = "Cannot verify breakpoint removal: " + exception.GetType().Name + ": " + exception.Message;
+                    return false;
+                }
             }
 
             private object ResolveNewBreakpoint(List<object> snapshot)
@@ -149,9 +257,16 @@ namespace ArrayImageViewer.Debugging
                     match = candidate;
                 }
                 var identity = GetAutomationObjectIdentity(match);
-                if (match == null || String.IsNullOrWhiteSpace(identity) || existingBreakpointIdentities.Contains(identity)) return null;
+                if (match == null || String.IsNullOrWhiteSpace(identity) || existingBreakpointIdentities.Contains(identity))
+                {
+                    LastResolutionError = "Requested address " + dataExpression + ", size " + byteCount +
+                        ", VS entries " + snapshot.Count + ": " + (match == null ? "no matching entry" :
+                        String.IsNullOrWhiteSpace(identity) ? "entry identity unavailable" : "matching entry belongs to the pre-Watch snapshot") + ".";
+                    return null;
+                }
                 resolvedBreakpointIdentity = identity;
-                return match;
+                resolvedBreakpoint = match;
+                return resolvedBreakpoint;
             }
 
             private bool MatchesRequestedWatch(object candidate)
@@ -713,13 +828,13 @@ namespace ArrayImageViewer.Debugging
             // HitCount, HitCountType). Enum value 1 is the documented
             // WhenTrue/None default for VS 2015-2022.
             var breakpointIdentitiesBeforeAdd = GetBreakpointIdentities(breakpoints);
-            Invoke(breakpoints, "Add", "", "", 1, 1, "", 1,
+            var addedBreakpoints = Invoke(breakpoints, "Add", "", "", 1, 1, "", 1,
                 "", dataExpression, byteCount, "", 0, 1);
             // Native engines can publish the new breakpoint to the automation
             // collection later (often only once the debugger resumes). Add has
             // already accepted the request, so keep a lazy reference instead
             // of falsely reporting failure from a stale Count value.
-            return new NativeDataBreakpointReference(breakpoints, breakpointIdentitiesBeforeAdd, dataExpression, byteCount);
+            return new NativeDataBreakpointReference(breakpoints, breakpointIdentitiesBeforeAdd, dataExpression, byteCount, addedBreakpoints);
         }
 
         internal static bool DeleteBreakpoint(object breakpoint)
@@ -741,13 +856,7 @@ namespace ArrayImageViewer.Debugging
                 var pending = breakpoint as NativeDataBreakpointReference;
                 if (pending != null)
                 {
-                    breakpoint = pending.TryResolve();
-                    if (breakpoint == null)
-                    {
-                        if (pending.IsKnownRemoved) return true;
-                        failureReason = "The Visual Studio breakpoint entry was not published. " + (pending.LastResolutionError ?? String.Empty);
-                        return false;
-                    }
+                    return pending.TryDelete(out failureReason);
                 }
 
                 // __ComObject's reflection binder can acknowledge Delete
@@ -901,15 +1010,24 @@ namespace ArrayImageViewer.Debugging
             var enumerable = breakpoints as IEnumerable;
             if (enumerable == null)
             {
-                throw new InvalidOperationException("The Visual Studio breakpoint collection is not enumerable.");
+                var countValue = GetMember(breakpoints, "Count");
+                if (countValue == null) throw new InvalidOperationException("The Visual Studio breakpoint collection is not readable.");
+                var count = Convert.ToInt32(countValue, CultureInfo.InvariantCulture);
+                if (count < 0 || count > 100000) throw new InvalidOperationException("Invalid Visual Studio breakpoint count.");
+                for (int index = 1; index <= count; index++)
+                {
+                    dynamic collection = breakpoints;
+                    object item = collection.Item(index);
+                    if (item == null) throw new InvalidOperationException("The Visual Studio breakpoint snapshot is incomplete.");
+                    result.Add(item);
+                }
+                return result;
             }
 
             foreach (var breakpoint in enumerable)
             {
-                if (breakpoint != null)
-                {
-                    result.Add(breakpoint);
-                }
+                if (breakpoint == null) throw new InvalidOperationException("The Visual Studio breakpoint snapshot is incomplete.");
+                result.Add(breakpoint);
             }
             return result;
         }

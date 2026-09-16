@@ -165,7 +165,6 @@ namespace ArrayImageViewer.UI
             if (!isSameWatch)
             {
                 ClearHardwareWatch(false);
-                CleanupRetiredHardwareWatches();
                 if (retiredHardwareWatchBreakpoints.Count > 0)
                 {
                     QueueHardwareWatchAfterRelease(configuration, x, y, advanceLabel);
@@ -230,22 +229,16 @@ namespace ArrayImageViewer.UI
             ClearHardwareWatch(true);
         }
 
-        private void ClearHardwareWatch(bool reportStatus)
+        private bool ClearHardwareWatch(bool reportStatus)
         {
             Dispatcher.VerifyAccess();
             if (hardwareWatchContinueTimer != null) hardwareWatchContinueTimer.Stop();
             CancelPendingHardwareWatch();
-            string failureReason = null;
-            var removed = hardwareWatchBreakpoint == null || DebugExpressionFrameReader.DeleteBreakpoint(hardwareWatchBreakpoint, out failureReason);
-            if (!removed)
+            if (hardwareWatchBreakpoint != null && !retiredHardwareWatchBreakpoints.Contains(hardwareWatchBreakpoint))
             {
-                lastHardwareWatchReleaseError = failureReason;
-            }
-            if (!removed)
-            {
-                // The native engine sometimes publishes a data breakpoint
-                // only after it resumes. Keep the reference and retry before
-                // the next Watch command instead of losing a hardware slot.
+                // Retire ownership before attempting deletion. Delete may only
+                // acknowledge the request; retain the same registration until
+                // the adapter confirms that its breakpoint is actually gone.
                 retiredHardwareWatchBreakpoints.Add(hardwareWatchBreakpoint);
             }
             hardwareWatchBreakpoint = null;
@@ -256,13 +249,23 @@ namespace ArrayImageViewer.UI
             hardwareWatchByteCount = 0;
             hardwareWatchHitCount = -1;
             hardwareWatchRunning = false;
-            hardwareWatchInfo.Text = "No hardware watch armed.";
+            CleanupRetiredHardwareWatches();
+            var removed = retiredHardwareWatchBreakpoints.Count == 0;
+            hardwareWatchInfo.Text = removed ? "No hardware watch armed." : HardwareWatchCleanupPendingMessage();
             if (reportStatus)
             {
                 SetStatus(removed
-                    ? "Removed the viewer's native data breakpoint."
-                    : "Visual Studio is still releasing the native data breakpoint; another watch will not be added until it is gone. " + lastHardwareWatchReleaseError);
+                    ? "All viewer-owned native data breakpoints are removed. User breakpoints were not changed."
+                    : "Visual Studio is still releasing the native data breakpoint. " + HardwareWatchCleanupPendingMessage() +
+                        " No new watch was added; user breakpoints were not changed.");
             }
+            return removed;
+        }
+
+        private string HardwareWatchCleanupPendingMessage()
+        {
+            return "Native watch cleanup pending (" + retiredHardwareWatchBreakpoints.Count.ToString(CultureInfo.InvariantCulture) +
+                " viewer-owned registration(s)). " + (lastHardwareWatchReleaseError ?? String.Empty);
         }
 
         private void CleanupRetiredHardwareWatches()
@@ -279,6 +282,7 @@ namespace ArrayImageViewer.UI
                     lastHardwareWatchReleaseError = failureReason;
                 }
             }
+            if (retiredHardwareWatchBreakpoints.Count == 0) lastHardwareWatchReleaseError = null;
         }
 
         private void QueueHardwareWatchAfterRelease(FrameConfiguration configuration, int x, int y, string advanceLabel)
@@ -306,6 +310,21 @@ namespace ArrayImageViewer.UI
             // A queued Tick can arrive after cancellation on Run/Design or a
             // tab switch. It must not touch COM or create a replacement watch.
             if (pendingHardwareWatchConfiguration == null) return;
+            try
+            {
+                if (!DebugExpressionFrameReader.IsDebuggerInBreakMode())
+                {
+                    CancelPendingHardwareWatch();
+                    SetStatus("The queued watch was cancelled because the debugger is not paused. No new watch was added; cleanup ownership was retained.");
+                    return;
+                }
+            }
+            catch (Exception exception)
+            {
+                CancelPendingHardwareWatch();
+                SetStatus("The queued watch was cancelled because debugger break mode could not be verified. No new watch was added. " + exception.Message);
+                return;
+            }
             CleanupRetiredHardwareWatches();
             if (retiredHardwareWatchBreakpoints.Count > 0)
             {
@@ -316,7 +335,8 @@ namespace ArrayImageViewer.UI
                 }
 
                 CancelPendingHardwareWatch();
-                SetInputError("Visual Studio did not release the previous native data breakpoint. No new watch was added. " + lastHardwareWatchReleaseError);
+                hardwareWatchInfo.Text = HardwareWatchCleanupPendingMessage();
+                SetInputError("Visual Studio did not release the previous native data breakpoint. No new watch was added. " + HardwareWatchCleanupPendingMessage());
                 return;
             }
 
@@ -456,9 +476,10 @@ namespace ArrayImageViewer.UI
                 }
                 else
                 {
-                    ClearHardwareWatch(false);
+                    var removed = ClearHardwareWatch(false);
                     hardwareWatchInfo.Text = "Stopped: pixel (" + watchedX.ToString(CultureInfo.InvariantCulture) + ", " +
-                        watchedY.ToString(CultureInfo.InvariantCulture) + ") changed. The one-shot watch was removed.";
+                        watchedY.ToString(CultureInfo.InvariantCulture) + ") changed. " +
+                        (removed ? "The one-shot watch was removed." : HardwareWatchCleanupPendingMessage());
                 }
             }
             else if (wasRunning)
@@ -480,9 +501,9 @@ namespace ArrayImageViewer.UI
             preserveZoomAfterHardwareWatch = false;
             ClearHardwareWatch(false);
             // Native data breakpoints are disabled by VS at session end, not
-            // necessarily deleted. ClearHardwareWatch attempts our own cleanup;
-            // do not reuse retired wrappers in the next debug session.
-            retiredHardwareWatchBreakpoints.Clear();
+            // necessarily deleted. Keep unresolved ownership across sessions
+            // so Clear/the next Watch can retry safely; dropping registrations
+            // here loses the only evidence that permits deleting our entries.
         }
     }
 }

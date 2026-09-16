@@ -20,6 +20,9 @@ namespace ArrayImageViewer.Options
         private readonly DataGridView grid;
         private BindingList<StructureTemplateItem> templates;
         private string jsonEditPath;
+        private readonly ComboBox scope = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
+        private readonly Dictionary<string, BindingList<StructureTemplateItem>> drafts = new Dictionary<string, BindingList<StructureTemplateItem>>();
+        private string editingIdentity;
         private readonly NumericUpDown searchSeconds = new NumericUpDown { Minimum = 1, Maximum = 120, Width = 55 };
         private readonly CheckBox searchDebug = new CheckBox { Text = "Debug dump: Search / Array tabs (local expressions/types)", AutoSize = true };
         private readonly Label status = new Label { Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(3, 6, 3, 2) };
@@ -60,7 +63,13 @@ namespace ArrayImageViewer.Options
                 Padding = new Padding(2, 2, 2, 7),
                 Text = "Map a class to RAW, Width, and Height members. Enter the live root (this, ctx, etc.) only in the Viewer capture box; stride follows Width."
             };
-            layout.Controls.Add(help, 0, 0);
+            var heading = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true };
+            scope.Items.Add("Current solution (overrides)");
+            scope.Items.Add("Global (all solutions)");
+            scope.SelectedIndex = 0;
+            heading.Controls.Add(scope);
+            heading.Controls.Add(help);
+            layout.Controls.Add(heading, 0, 0);
 
             grid = new StructureTemplateGrid
             {
@@ -102,6 +111,17 @@ namespace ArrayImageViewer.Options
             layout.Controls.Add(buttons, 0, 2);
 
             LoadTemplates();
+            scope.SelectedIndexChanged += delegate
+            {
+                grid.EndEdit();
+                drafts[editingIdentity] = templates;
+                editingIdentity = scope.SelectedIndex == 1 ? StructureTemplateStore.GlobalIdentity : solutionIdentity;
+                if (!drafts.TryGetValue(editingIdentity, out templates))
+                    templates = new BindingList<StructureTemplateItem>(StructureTemplateStore.LoadScope(editingIdentity, settingsPath));
+                grid.DataSource = templates;
+                jsonEditPath = null;
+                status.Text = "Global applies to all solutions; a matching class in Current solution overrides it. Save before closing.";
+            };
         }
 
         private static DataGridViewTextBoxColumn CreateColumn(string property, string header, int minimumWidth)
@@ -118,7 +138,9 @@ namespace ArrayImageViewer.Options
 
         private void LoadTemplates()
         {
-            templates = new BindingList<StructureTemplateItem>(StructureTemplateStore.Load(solutionIdentity, settingsPath));
+            drafts.Clear();
+            editingIdentity = scope.SelectedIndex == 1 ? StructureTemplateStore.GlobalIdentity : solutionIdentity;
+            templates = new BindingList<StructureTemplateItem>(StructureTemplateStore.LoadScope(editingIdentity, settingsPath));
             grid.DataSource = templates;
             searchSeconds.Value = StructureTemplateStore.LoadSearchSeconds(settingsPath);
             searchDebug.Checked = StructureTemplateStore.LoadSearchDebug(settingsPath);
@@ -172,10 +194,22 @@ namespace ArrayImageViewer.Options
                 if (!grid.EndEdit()) throw new InvalidOperationException("Finish the invalid cell before saving.");
                 BindingContext[templates].EndCurrentEdit();
                 if (!ValidateTemplateRows()) throw new ArgumentException("Check the highlighted cells. Required fields must be filled and class names must be unique.");
-                StructureTemplateStore.SaveSettings(solutionIdentity, new List<StructureTemplateItem>(templates),
-                    (int)searchSeconds.Value, searchDebug.Checked, settingsPath);
+                drafts[editingIdentity] = templates;
+                // Validate every visited scope before writing any of them.
+                foreach (var draft in drafts)
+                {
+                    var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var item in draft.Value)
+                    {
+                        StructureTemplateStore.Validate(item);
+                        if (!names.Add(item.ClassName.Trim())) throw new ArgumentException("Duplicate class in " + draft.Key + ": " + item.ClassName);
+                    }
+                }
+                var scopes = new Dictionary<string, IList<StructureTemplateItem>>(StringComparer.Ordinal);
+                foreach (var draft in drafts) scopes.Add(draft.Key, new List<StructureTemplateItem>(draft.Value));
+                StructureTemplateStore.SaveSettingsScopes(scopes, (int)searchSeconds.Value, searchDebug.Checked, settingsPath);
                 status.ForeColor = System.Drawing.Color.DarkGreen;
-                status.Text = "Saved and applied to the viewer. No Reload is needed.";
+                status.Text = "Saved edited scopes and applied to the viewer. No Reload is needed.";
                 return true;
             }
             catch (Exception exception)

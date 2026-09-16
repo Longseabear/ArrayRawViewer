@@ -46,13 +46,60 @@ namespace ArrayImageViewer.Options
 
     internal static class StructureTemplateStore
     {
+        public const string GlobalIdentity = "<global>";
         public static int Revision { get; private set; }
         public static event EventHandler SettingsChanged;
         private static readonly object writeGate = new object();
 
         public static void SaveSettings(string solutionIdentity, IList<StructureTemplateItem> templates, int seconds, bool debug, string path = null)
         {
+            SaveSettingsScopes(new Dictionary<string, IList<StructureTemplateItem>> { { solutionIdentity, templates } }, seconds, debug, path);
+        }
+
+        internal static void SaveSettingsScopes(IDictionary<string, IList<StructureTemplateItem>> scopes, int seconds, bool debug, string path = null)
+        {
             if (seconds < 1 || seconds > 120) throw new ArgumentOutOfRangeException("seconds");
+            var definitionsByScope = new Dictionary<string, List<StructureTemplateItem>>(StringComparer.Ordinal);
+            foreach (var scope in scopes) definitionsByScope.Add(scope.Key, PrepareDefinitions(scope.Value));
+            var notifications = new List<StructureTemplateSettingsChangedEventArgs>();
+            lock (writeGate)
+            {
+                var records = ReadRecords(path);
+                var previous = new Dictionary<string, string>(records, StringComparer.Ordinal);
+                foreach (var scope in definitionsByScope)
+                {
+                    var prefix = scope.Key + "\nstructure-template\n";
+                    foreach (var key in new List<string>(records.Keys))
+                        if (key.StartsWith(prefix, StringComparison.Ordinal)) records.Remove(key);
+                    foreach (var definition in scope.Value)
+                        records[prefix + definition.ClassName] = Serialize(new StructureTemplateDocument {
+                            FormatVersion = 1, Templates = new List<StructureTemplateItem> { definition } });
+                    records[scope.Key + "\nstructure-templates-initialized"] = "true";
+                }
+                records["search-timeout-seconds"] = seconds.ToString(CultureInfo.InvariantCulture);
+                records["search-debug-enabled"] = debug ? "true" : "false";
+                if (SameRecords(previous, records)) return;
+                WriteRecords(records, path);
+                foreach (var scope in definitionsByScope)
+                    notifications.Add(new StructureTemplateSettingsChangedEventArgs(scope.Key, scope.Value, ++Revision));
+            }
+            // All edited scopes commit together, before any viewer notification.
+            // Listeners must never run a debugger
+            // evaluation here, nor turn a successful save into a reported failure.
+            var changed = SettingsChanged;
+            if (changed == null) return;
+            foreach (var args in notifications)
+            {
+                foreach (EventHandler listener in changed.GetInvocationList())
+                {
+                    try { listener(null, args); }
+                    catch (Exception exception) { System.Diagnostics.Trace.WriteLine("Template refresh failed: " + exception.Message); }
+                }
+            }
+        }
+
+        private static List<StructureTemplateItem> PrepareDefinitions(IList<StructureTemplateItem> templates)
+        {
             var definitions = new List<StructureTemplateItem>();
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in templates)
@@ -63,34 +110,7 @@ namespace ArrayImageViewer.Options
                 if (!names.Add(definition.ClassName)) throw new ArgumentException("Duplicate template: " + definition.ClassName);
                 definitions.Add(definition);
             }
-            int revision;
-            lock (writeGate)
-            {
-                var records = ReadRecords(path);
-                var previous = new Dictionary<string, string>(records, StringComparer.Ordinal);
-                var prefix = solutionIdentity + "\nstructure-template\n";
-                foreach (var key in new List<string>(records.Keys))
-                    if (key.StartsWith(prefix, StringComparison.Ordinal)) records.Remove(key);
-                foreach (var definition in definitions)
-                    records[prefix + definition.ClassName] = Serialize(new StructureTemplateDocument {
-                        FormatVersion = 1, Templates = new List<StructureTemplateItem> { definition } });
-                records["search-timeout-seconds"] = seconds.ToString(CultureInfo.InvariantCulture);
-                records["search-debug-enabled"] = debug ? "true" : "false";
-                records[solutionIdentity + "\nstructure-templates-initialized"] = "true";
-                if (SameRecords(previous, records)) return;
-                WriteRecords(records, path);
-                revision = ++Revision;
-            }
-            // Only committed data is published. Listeners must never run a debugger
-            // evaluation here, nor turn a successful save into a reported failure.
-            var changed = SettingsChanged;
-            if (changed == null) return;
-            var args = new StructureTemplateSettingsChangedEventArgs(solutionIdentity, definitions, revision);
-            foreach (EventHandler listener in changed.GetInvocationList())
-            {
-                try { listener(null, args); }
-                catch (Exception exception) { System.Diagnostics.Trace.WriteLine("Template refresh failed: " + exception.Message); }
-            }
+            return definitions;
         }
 
         private static bool SameRecords(Dictionary<string, string> first, Dictionary<string, string> second)
@@ -123,6 +143,15 @@ namespace ArrayImageViewer.Options
         }
 
         public static List<StructureTemplateItem> Load(string solutionIdentity, string path = null)
+        {
+            var merged = new Dictionary<string, StructureTemplateItem>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in LoadScope(GlobalIdentity, path)) merged[item.ClassName] = item;
+            if (solutionIdentity != GlobalIdentity)
+                foreach (var item in LoadScope(solutionIdentity, path)) merged[item.ClassName] = item;
+            return new List<StructureTemplateItem>(merged.Values);
+        }
+
+        public static List<StructureTemplateItem> LoadScope(string solutionIdentity, string path = null)
         {
             var result = new List<StructureTemplateItem>();
             var prefix = solutionIdentity + "\nstructure-template\n";
@@ -173,7 +202,7 @@ namespace ArrayImageViewer.Options
             File.WriteAllText(fileName, Serialize(new StructureTemplateDocument { FormatVersion = 1, Templates = new List<StructureTemplateItem>(templates) }), Encoding.UTF8);
         }
 
-        private static void Validate(StructureTemplateItem item)
+        internal static void Validate(StructureTemplateItem item)
         {
             if (item == null || String.IsNullOrWhiteSpace(item.ClassName)) throw new ArgumentException("Every template requires a class/template name.");
             if (String.IsNullOrWhiteSpace(item.DataAccess)) throw new ArgumentException("Template '" + item.ClassName + "' requires RAW data access.");

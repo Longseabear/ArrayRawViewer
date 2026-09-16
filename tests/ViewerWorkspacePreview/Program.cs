@@ -6,6 +6,17 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 
+public sealed class FailedCleanupBreakpoint
+{
+    public int DeleteAttempts { get; private set; }
+    public int HitCount { get { return 1; } }
+    public void Delete()
+    {
+        DeleteAttempts++;
+        throw new InvalidOperationException("Native engine has not acknowledged removal.");
+    }
+}
+
 // Standalone host for the real viewer, not a mockup. No debugger reads or
 // profile writes: deterministic samples let layout be reviewed without VS restart.
 internal static class Program
@@ -253,6 +264,7 @@ internal static class Program
 
     private static void Verify(Window window)
     {
+        VerifyWatchCleanupChecks();
         VerifySavedOptionsRefreshViewer(window);
         var mapImage = Button("Frame map").Content as Image;
         if (mapImage == null || mapImage.Source == null)
@@ -435,10 +447,89 @@ internal static class Program
         Console.WriteLine("Standalone preview opens and switches two cached synthetic tabs without debugger reads.");
     }
 
+    private static void VerifyWatchCleanupChecks()
+    {
+        int failures = 0;
+        foreach (Action check in new Action[] {
+            VerifyOneShotCleanupFailureRemainsVisible,
+            VerifySessionEndRetainsUnreleasedWatch,
+            VerifyQueuedWatchDoesNotCleanUpOutsideBreakMode })
+        {
+            try { check(); }
+            catch (Exception exception) { failures++; Console.Error.WriteLine(check.Method.Name + ": " + exception.Message); }
+        }
+        if (failures > 0) throw new Exception(failures + " watch cleanup regressions failed.");
+    }
+
+    private static void VerifyOneShotCleanupFailureRemainsVisible()
+    {
+        var retired = (System.Collections.IList)Get("retiredHardwareWatchBreakpoints");
+        var watch = new FailedCleanupBreakpoint();
+        Set("hardwareWatchBreakpoint", watch);
+        Set("hardwareWatchHitCount", 0);
+        Set("hardwareWatchRunning", true);
+        Set("hardwareWatchX", 5);
+        Set("hardwareWatchY", 5);
+        ((CheckBox)Get("keepHardwareWatchArmed")).IsChecked = false;
+        try
+        {
+            var hit = (bool)viewerType.GetMethod("HardwareWatchReturnedToBreakMode", Private).Invoke(viewer, null);
+            if (!hit) throw new Exception("The fake watch did not report its incremented HitCount.");
+            var message = ((TextBlock)Get("hardwareWatchInfo")).Text;
+            if (message.Contains("was removed") || !message.Contains("cleanup pending") || !retired.Contains(watch))
+                throw new Exception("A failed one-shot delete must stay tracked and report cleanup pending, not removed: " + message);
+            if (watch.DeleteAttempts != 1) throw new Exception("A single Clear must make one delete attempt per owned watch.");
+            Console.WriteLine("A hit with failed one-shot cleanup remains owned and does not report removal.");
+        }
+        finally
+        {
+            retired.Remove(watch);
+            Set("hardwareWatchBreakpoint", null);
+            Set("hardwareWatchRunning", false);
+        }
+    }
+
+    private static void VerifySessionEndRetainsUnreleasedWatch()
+    {
+        var retired = (System.Collections.IList)Get("retiredHardwareWatchBreakpoints");
+        var watch = new FailedCleanupBreakpoint();
+        Set("hardwareWatchBreakpoint", watch);
+        try
+        {
+            viewerType.GetMethod("DebuggerSessionEnded", Private).Invoke(viewer, null);
+            if (!retired.Contains(watch) || retired.Count != 1 || Get("hardwareWatchBreakpoint") != null)
+                throw new Exception("Session end discarded an unresolved owned watch instead of retaining cleanup ownership.");
+            Console.WriteLine("Session end preserves unresolved owned breakpoints for the next cleanup attempt.");
+        }
+        finally { retired.Remove(watch); Set("hardwareWatchBreakpoint", null); }
+    }
+
+    private static void VerifyQueuedWatchDoesNotCleanUpOutsideBreakMode()
+    {
+        var retired = (System.Collections.IList)Get("retiredHardwareWatchBreakpoints");
+        var watch = new FailedCleanupBreakpoint();
+        retired.Add(watch);
+        Set("pendingHardwareWatchConfiguration", Get("frame").GetType().GetProperty("Configuration").GetValue(Get("frame"), null));
+        try
+        {
+            // This standalone host has no VS debugger. A delayed Tick must not
+            // delete an owned breakpoint or resume execution outside Break.
+            viewerType.GetMethod("HardwareWatchReleaseTimerTick", Private).Invoke(viewer, new object[] { null, EventArgs.Empty });
+            if (watch.DeleteAttempts != 0 || Get("pendingHardwareWatchConfiguration") != null || !retired.Contains(watch))
+                throw new Exception("A release timer tick outside Break touched debugger state or retained an auto-resume request.");
+            Console.WriteLine("A queued watch outside Break cancels without deleting breakpoints or resuming.");
+        }
+        finally { retired.Remove(watch); Set("pendingHardwareWatchConfiguration", null); }
+    }
+
     private static void VerifyCancelledWatchTickIsIgnored()
     {
         Set("pendingHardwareWatchConfiguration", null);
         var retired = (System.Collections.IList)Get("retiredHardwareWatchBreakpoints");
+        retired.Add(null); // Already released, but still present in the retirement queue.
+        viewerType.GetMethod("ClearHardwareWatch", Private, null, new[] { typeof(bool) }, null).Invoke(viewer, new object[] { true });
+        if (retired.Count != 0) throw new Exception("Clear did not clean the retirement queue.");
+        Console.WriteLine("Clear cleans already released retirement entries.");
         var sentinel = new object();
         retired.Add(sentinel);
         var statusBefore = ((TextBox)Get("status")).Text;
@@ -449,6 +540,10 @@ internal static class Program
             if (!Equals(attemptsBefore, Get("pendingHardwareWatchReleaseAttempts")) || ((TextBox)Get("status")).Text != statusBefore)
                 throw new Exception("A cancelled watch retry must not enumerate/delete breakpoints or start another watch.");
             Console.WriteLine("Cancelled watch timer delivery does no breakpoint work.");
+            viewerType.GetMethod("ClearHardwareWatch", Private, null, new[] { typeof(bool) }, null).Invoke(viewer, new object[] { true });
+            if (!((TextBox)Get("status")).Text.Contains("still releasing"))
+                throw new Exception("Clear falsely reported success with a failed retired watch.");
+            Console.WriteLine("Clear reports a remaining failed watch instead of claiming removal.");
         }
         finally { retired.Remove(sentinel); }
     }

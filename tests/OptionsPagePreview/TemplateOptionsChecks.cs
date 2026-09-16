@@ -17,6 +17,48 @@ internal static class TemplateOptionsChecks
         var context = helper.GetField("_joinableTaskContextCache", BindingFlags.Static | BindingFlags.NonPublic);
         if (context.GetValue(null) == null) context.SetValue(null, Activator.CreateInstance(context.FieldType));
         int failures = 0;
+        Check("Global templates inherit, solution overrides, and both scope drafts save", delegate
+        {
+            WithIsolatedControl(controlType, delegate(Control control, string path)
+            {
+                using (var form = new Form())
+                {
+                form.Controls.Add(control); form.Show();
+                var scope = (ComboBox)controlType.GetField("scope", Private).GetValue(control);
+                var grid = (DataGridView)controlType.GetField("grid", Private).GetValue(control);
+                var add = controlType.GetMethod("AddTemplate", Private);
+                scope.SelectedIndex = 1;
+                add.Invoke(control, new object[] { null, EventArgs.Empty });
+                grid.EndEdit();
+                scope.SelectedIndex = 0;
+                add.Invoke(control, new object[] { null, EventArgs.Empty });
+                grid.EndEdit();
+                grid.Rows[0].Cells[1].Value = "localData";
+                var store = assembly.GetType("ArrayImageViewer.Options.StructureTemplateStore", true);
+                var load = store.GetMethod("Load");
+                var loadScope = store.GetMethod("LoadScope");
+                bool notifiedBeforeCommit = false;
+                EventHandler handler = delegate
+                {
+                    var committedLocal = (System.Collections.IList)loadScope.Invoke(null, new object[] { "test.sln", path });
+                    var committedGlobal = (System.Collections.IList)loadScope.Invoke(null, new object[] { "<global>", path });
+                    notifiedBeforeCommit |= committedLocal.Count != 1 || committedGlobal.Count != 1;
+                };
+                var changed = store.GetEvent("SettingsChanged");
+                changed.AddEventHandler(null, handler);
+                try { RequireSave(controlType, control); }
+                finally { changed.RemoveEventHandler(null, handler); }
+                if (notifiedBeforeCommit) throw new Exception("Viewer was notified before both edited scopes were committed.");
+                var local = (System.Collections.IList)load.Invoke(null, new object[] { "test.sln", path });
+                var other = (System.Collections.IList)load.Invoke(null, new object[] { "other.sln", path });
+                if (local.Count != 1 || other.Count != 1) throw new Exception("Global inheritance/override count incorrect.");
+                if ((string)local[0].GetType().GetProperty("DataAccess").GetValue(local[0], null) != "localData" ||
+                    (string)other[0].GetType().GetProperty("DataAccess").GetValue(other[0], null) != "D") throw new Exception("Wrong scope precedence.");
+                scope.SelectedIndex = 1;
+                if (grid.Rows.Count != 1) throw new Exception("Global draft was lost.");
+                }
+            });
+        }, ref failures);
         Check("Save then OK does not write or notify twice", delegate
         {
             WithIsolatedControl(controlType, delegate(Control control, string path)
@@ -166,6 +208,20 @@ internal static class TemplateOptionsChecks
     {
         try { action(); Console.WriteLine("PASS: " + name); }
         catch (Exception exception) { failures++; Console.WriteLine("FAIL: " + name + "\n" + exception); }
+    }
+
+    private static void RequireSave(Type controlType, Control control)
+    {
+        if ((bool)controlType.GetMethod("TrySave", Private).Invoke(control, null)) return;
+        var status = (Label)controlType.GetField("status", Private).GetValue(control);
+        var grid = (DataGridView)controlType.GetField("grid", Private).GetValue(control);
+        string detail = status.Text;
+        foreach (DataGridViewRow row in grid.Rows)
+            foreach (DataGridViewCell cell in row.Cells)
+                if (!String.IsNullOrEmpty(cell.ErrorText))
+                    detail += " | row " + row.Index + ", " + grid.Columns[cell.ColumnIndex].DataPropertyName +
+                        "='" + Convert.ToString(cell.Value) + "': " + cell.ErrorText;
+        throw new Exception("Save failed: " + detail);
     }
 
     private static void WithIsolatedControl(Type type, Action<Control, string> test)

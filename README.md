@@ -190,6 +190,15 @@ Search objects를 실행하세요. 기본값은 꺼짐입니다. **Open debug fo
 예외 스택 및 VS 프로세스 비트 수·메모리 사용량을 확인할 수 있습니다.
 이 로그는 프로세스 메모리 덤프가 아니므로 네이티브 크래시 원인을 항상 확정해주지는 않습니다.
 
+**전역 기본 템플릿:** 옵션 상단의 `Global (all solutions)`에서 등록하면 모든
+솔루션이 기본으로 사용합니다. `Current solution (overrides)`에는 현재 솔루션의
+추가/덮어쓰기 정의만 표시됩니다. 같은 클래스 이름은 솔루션 정의가 우선하며,
+솔루션 정의를 삭제하면 전역 정의가 다시 적용됩니다. 범위를 전환해도 편집 중인
+행은 유지되고, Save 또는 확인으로 편집한 범위들을 저장합니다. Import/Export/Open
+JSON은 현재 선택한 범위에 적용됩니다. 검색 시간과 Debug dump 설정은 공통입니다.
+저장 파일은 기존 `structure-templates-v1.txt`를 사용하며 전역 키는 `<global>`입니다.
+외부 CMD/스크립트에서 수정한 파일은 Viewer의 Reload templates로 다시 읽습니다.
+
 **Tools > Options > Array RAW Viewer > Structure Templates**에서 **Open JSON**을
 누르면 현재 표를 JSON 편집본으로 만들어 메모장에서 엽니다. 수정하고 메모장에서
 저장한 뒤 **Load edited JSON**으로 표를 교체하고 **Save**로 현재 솔루션에 적용합니다.
